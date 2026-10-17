@@ -1,0 +1,16 @@
+{
+  "name": "notenflow-core",
+  "type": "module",
+  "version": "0.1.0",
+  "license": "MIT",
+  "files": [
+    "notenflow_core_bg.wasm",
+    "notenflow_core.js",
+    "notenflow_core.d.ts"
+  ],
+  "main": "notenflow_core.js",
+  "types": "notenflow_core.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
