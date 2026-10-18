@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import {
   ClassroomSubjectDataset,
   StudentProfile,
@@ -32,11 +31,12 @@ export interface ClassReportForExport {
 /**
  * Exports the entire active class (including assessments, category averages, overall average, and set Zeugnisnote) to a real .xlsx file!
  */
-export function exportClassToXlsx(
+export async function exportClassToXlsx(
   dataset: ClassroomSubjectDataset,
   report: ClassReportForExport | null,
   activeTerm: TermFilterId
 ) {
+  const XLSX = await import('@e965/xlsx');
   const termAssessments = dataset.assessments.filter((a) =>
     activeTerm === 'all' ? true : a.term_id === activeTerm
   );

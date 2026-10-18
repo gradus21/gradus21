@@ -19,7 +19,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'vendor-xlsx': ['xlsx'],
           'vendor-ui': ['react', 'react-dom', 'lucide-react', 'qrcode'],
         },
       },

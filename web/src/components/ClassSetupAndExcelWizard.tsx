@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import * as XLSX from 'xlsx';
 import {
   AssessmentConfig,
   CategoryConfig,
@@ -56,7 +55,8 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
       setSubjectName('Englisch');
     }
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
+      const XLSX = await import('@e965/xlsx');
       const data = new Uint8Array(e.target?.result as ArrayBuffer);
       const workbook = XLSX.read(data, { type: 'array' });
       const firstSheetName = workbook.SheetNames[0];

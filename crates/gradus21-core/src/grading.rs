@@ -635,3 +635,121 @@ pub fn simulate_needed_score_for_target(
 
     Some(round1(needed_single_score))
 }
+
+/// What-If Simulator v2: supports CategoryBuckets, DirectWeights, and TotalPoints modes (Issue #7).
+/// Inverts calculate_class_report for the active weighting mode.
+pub fn simulate_needed_score_v2(
+    config: &SubjectGradingConfig,
+    categories: &[CategoryConfig],
+    assessments: &[AssessmentConfig],
+    grades: &[GradeEntry],
+    student: &StudentProfile,
+    current_summary: &StudentCalculatedSummary,
+    target_category_id: &str,
+    target_overall_percent: f64,
+    term_filter: Option<&str>,
+    simulated_weight: Option<f64>,
+    simulated_max_points: Option<f64>,
+) -> Option<f64> {
+    if !target_overall_percent.is_finite() {
+        return None;
+    }
+
+    match config.weighting_mode {
+        WeightingMode::CategoryBuckets => {
+            simulate_needed_score_for_target(
+                current_summary,
+                categories,
+                target_category_id,
+                target_overall_percent,
+            )
+        }
+        WeightingMode::DirectWeights => {
+            let filtered_assessments: Vec<&AssessmentConfig> = assessments
+                .iter()
+                .filter(|a| match term_filter {
+                    None | Some("all") => true,
+                    Some(t) => a.term_id == t,
+                })
+                .collect();
+
+            let mut total_w = 0.0;
+            let mut total_score = 0.0;
+            for assess in &filtered_assessments {
+                if let Some(entry) = grades
+                    .iter()
+                    .find(|g| g.student_id == student.id && g.assessment_id == assess.id)
+                {
+                    if let Some(pct) = resolve_entry_percent_with_config(entry, assess, config) {
+                        let w = if assess.weight.is_finite() && assess.weight > 0.0 {
+                            assess.weight
+                        } else {
+                            1.0
+                        };
+                        total_w += w;
+                        total_score += pct * w;
+                    }
+                }
+            }
+
+            let new_w = simulated_weight
+                .filter(|w| w.is_finite() && *w > 0.0)
+                .unwrap_or(1.0);
+            let needed = if total_w > 0.0 {
+                (target_overall_percent * (total_w + new_w) - total_score) / new_w
+            } else {
+                target_overall_percent
+            };
+            Some(round1(needed))
+        }
+        WeightingMode::TotalPoints => {
+            let filtered_assessments: Vec<&AssessmentConfig> = assessments
+                .iter()
+                .filter(|a| match term_filter {
+                    None | Some("all") => true,
+                    Some(t) => a.term_id == t,
+                })
+                .collect();
+
+            let mut earned_pts = 0.0;
+            let mut possible_pts = 0.0;
+            for assess in &filtered_assessments {
+                if let Some(entry) = grades
+                    .iter()
+                    .find(|g| g.student_id == student.id && g.assessment_id == assess.id)
+                {
+                    if entry.status == GradeStatus::Graded {
+                        let max_p = assess.max_points.unwrap_or(100.0);
+                        if let Some(raw_p) = entry.raw_points {
+                            if raw_p.is_finite() && max_p.is_finite() && max_p > 0.0 {
+                                earned_pts += raw_p;
+                                possible_pts += max_p;
+                            }
+                        } else if let Some(pct) = entry.percent_value {
+                            if pct.is_finite() && max_p.is_finite() && max_p > 0.0 {
+                                earned_pts += (pct / 100.0) * max_p;
+                                possible_pts += max_p;
+                            }
+                        } else if let Some(pct) = resolve_entry_percent_with_config(entry, assess, config) {
+                            if max_p.is_finite() && max_p > 0.0 {
+                                earned_pts += (pct / 100.0) * max_p;
+                                possible_pts += max_p;
+                            }
+                        }
+                    }
+                }
+            }
+
+            let new_max_p = simulated_max_points
+                .filter(|p| p.is_finite() && *p > 0.0)
+                .unwrap_or(20.0);
+
+            let needed_pct = if possible_pts > 0.0 {
+                ((target_overall_percent / 100.0) * (possible_pts + new_max_p) - earned_pts) / new_max_p * 100.0
+            } else {
+                target_overall_percent
+            };
+            Some(round1(needed_pct))
+        }
+    }
+}

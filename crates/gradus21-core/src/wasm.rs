@@ -5,8 +5,9 @@ use crate::crypto::{
     wrap_dek_with_recovery_key, KdfParams,
 };
 use crate::grading::{
-    calculate_class_report, simulate_needed_score_for_target, AssessmentConfig, CategoryConfig,
-    GradeEntry, StudentCalculatedSummary, StudentProfile, SubjectGradingConfig,
+    calculate_class_report, simulate_needed_score_for_target, simulate_needed_score_v2,
+    AssessmentConfig, CategoryConfig, GradeEntry, StudentCalculatedSummary, StudentProfile,
+    SubjectGradingConfig,
 };
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
@@ -163,6 +164,44 @@ pub fn wasm_simulate_needed_score(
         &categories,
         target_category_id,
         target_overall_percent,
+    );
+    Ok(match res {
+        Some(v) => JsValue::from_f64(v),
+        None => JsValue::NULL,
+    })
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SimulationInputV2 {
+    pub config: SubjectGradingConfig,
+    pub categories: Vec<CategoryConfig>,
+    pub assessments: Vec<AssessmentConfig>,
+    pub grades: Vec<GradeEntry>,
+    pub student: StudentProfile,
+    pub current_summary: StudentCalculatedSummary,
+    pub target_category_id: String,
+    pub target_overall_percent: f64,
+    pub term_filter: Option<String>,
+    pub simulated_weight: Option<f64>,
+    pub simulated_max_points: Option<f64>,
+}
+
+#[wasm_bindgen]
+pub fn wasm_simulate_needed_score_v2(input_json: &str) -> Result<JsValue, JsValue> {
+    let input: SimulationInputV2 =
+        serde_json::from_str(input_json).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let res = simulate_needed_score_v2(
+        &input.config,
+        &input.categories,
+        &input.assessments,
+        &input.grades,
+        &input.student,
+        &input.current_summary,
+        &input.target_category_id,
+        input.target_overall_percent,
+        input.term_filter.as_deref(),
+        input.simulated_weight,
+        input.simulated_max_points,
     );
     Ok(match res {
         Some(v) => JsValue::from_f64(v),

@@ -355,4 +355,227 @@ mod tests {
             calculate_class_report(&config, &categories, &assessments, &students, &grades, None);
         assert_eq!(report_points.student_summaries[0].overall_percent, Some(72.5));
     }
+
+    #[test]
+    fn test_what_if_simulator_v2_all_three_modes() {
+        let mut config = SubjectGradingConfig {
+            scale_id: GradingScaleId::DeClassic1To6,
+            weighting_mode: WeightingMode::CategoryBuckets,
+            scale_empty_categories: true,
+            enable_student_levels: false,
+            level_threshold_offsets: HashMap::new(),
+            custom_thresholds: None,
+        };
+
+        let categories = vec![
+            CategoryConfig {
+                id: "cat_main".into(),
+                name: "Klassenarbeiten".into(),
+                short_code: "KA".into(),
+                weight: 1.0,
+                drop_lowest_count: 0,
+            },
+            CategoryConfig {
+                id: "cat_oral".into(),
+                name: "Mündlich".into(),
+                short_code: "M".into(),
+                weight: 1.0,
+                drop_lowest_count: 0,
+            },
+        ];
+
+        let mut assessments = vec![
+            AssessmentConfig {
+                id: "ka_1".into(),
+                category_id: "cat_main".into(),
+                title: "1. KA".into(),
+                term_id: "hj1".into(),
+                weight: 1.0,
+                input_mode: AssessmentInputMode::Percent,
+                max_points: Some(50.0),
+            },
+            AssessmentConfig {
+                id: "m_1".into(),
+                category_id: "cat_oral".into(),
+                title: "Mündlich 1".into(),
+                term_id: "hj1".into(),
+                weight: 1.0,
+                input_mode: AssessmentInputMode::Percent,
+                max_points: Some(20.0),
+            },
+        ];
+
+        let student = StudentProfile {
+            id: "s_sim".into(),
+            name: "Simulator Student".into(),
+            level: None,
+            is_not_graded: false,
+            is_archived: false,
+        };
+        let students = vec![student.clone()];
+
+        let mut grades = vec![
+            GradeEntry {
+                student_id: "s_sim".into(),
+                assessment_id: "ka_1".into(),
+                status: GradeStatus::Graded,
+                percent_value: Some(60.0),
+                raw_points: Some(30.0),
+                direct_grade_value: None,
+                comment: None,
+            },
+            GradeEntry {
+                student_id: "s_sim".into(),
+                assessment_id: "m_1".into(),
+                status: GradeStatus::Graded,
+                percent_value: Some(80.0),
+                raw_points: Some(16.0),
+                direct_grade_value: None,
+                comment: None,
+            },
+        ];
+
+        // 1. Test CategoryBuckets Mode
+        config.weighting_mode = WeightingMode::CategoryBuckets;
+        let report1 = calculate_class_report(&config, &categories, &assessments, &students, &grades, None);
+        let summary1 = &report1.student_summaries[0];
+        assert_eq!(summary1.overall_percent, Some(70.0)); // (60 + 80)/2 = 70%
+
+        // Simulate needed score in "cat_main" to reach 75.0% overall
+        let target_pct = 75.0;
+        let sim_cat_needed = simulate_needed_score_v2(
+            &config,
+            &categories,
+            &assessments,
+            &grades,
+            &student,
+            summary1,
+            "cat_main",
+            target_pct,
+            None,
+            Some(1.0),
+            Some(50.0),
+        ).expect("sim needed");
+        assert_eq!(sim_cat_needed, 80.0);
+
+        // Verify: insert new assessment in cat_main with 80% and compute report
+        let new_assess = AssessmentConfig {
+            id: "ka_2".into(),
+            category_id: "cat_main".into(),
+            title: "2. KA".into(),
+            term_id: "hj1".into(),
+            weight: 1.0,
+            input_mode: AssessmentInputMode::Percent,
+            max_points: Some(50.0),
+        };
+        assessments.push(new_assess);
+        grades.push(GradeEntry {
+            student_id: "s_sim".into(),
+            assessment_id: "ka_2".into(),
+            status: GradeStatus::Graded,
+            percent_value: Some(sim_cat_needed),
+            raw_points: Some(40.0),
+            direct_grade_value: None,
+            comment: None,
+        });
+        let verify_cat_report = calculate_class_report(&config, &categories, &assessments, &students, &grades, None);
+        assert!(verify_cat_report.student_summaries[0].overall_percent.unwrap() >= target_pct);
+
+        // Reset assessments and grades
+        assessments.pop();
+        grades.pop();
+
+        // 2. Test DirectWeights Mode
+        config.weighting_mode = WeightingMode::DirectWeights;
+        let report_dw = calculate_class_report(&config, &categories, &assessments, &students, &grades, None);
+        let summary_dw = &report_dw.student_summaries[0];
+        assert_eq!(summary_dw.overall_percent, Some(70.0));
+
+        let sim_dw_needed = simulate_needed_score_v2(
+            &config,
+            &categories,
+            &assessments,
+            &grades,
+            &student,
+            summary_dw,
+            "cat_main",
+            target_pct,
+            None,
+            Some(1.0),
+            Some(50.0),
+        ).expect("sim dw needed");
+        assert_eq!(sim_dw_needed, 85.0);
+
+        // Verify: adding assessment with 85% yields >= 75%
+        let new_dw_assess = AssessmentConfig {
+            id: "dw_new".into(),
+            category_id: "cat_main".into(),
+            title: "New Direct Assessment".into(),
+            term_id: "hj1".into(),
+            weight: 1.0,
+            input_mode: AssessmentInputMode::Percent,
+            max_points: Some(50.0),
+        };
+        assessments.push(new_dw_assess);
+        grades.push(GradeEntry {
+            student_id: "s_sim".into(),
+            assessment_id: "dw_new".into(),
+            status: GradeStatus::Graded,
+            percent_value: Some(sim_dw_needed),
+            raw_points: None,
+            direct_grade_value: None,
+            comment: None,
+        });
+        let verify_dw_report = calculate_class_report(&config, &categories, &assessments, &students, &grades, None);
+        assert!(verify_dw_report.student_summaries[0].overall_percent.unwrap() >= target_pct);
+
+        // Reset
+        assessments.pop();
+        grades.pop();
+
+        // 3. Test TotalPoints Mode
+        config.weighting_mode = WeightingMode::TotalPoints;
+        let report_tp = calculate_class_report(&config, &categories, &assessments, &students, &grades, None);
+        let summary_tp = &report_tp.student_summaries[0];
+        // 30 / 50 + 16 / 20 = 46 / 70 = 65.714 -> 65.7%
+        assert_eq!(summary_tp.overall_percent, Some(65.7));
+
+        let sim_tp_needed = simulate_needed_score_v2(
+            &config,
+            &categories,
+            &assessments,
+            &grades,
+            &student,
+            summary_tp,
+            "cat_main",
+            70.0,
+            None,
+            Some(1.0),
+            Some(30.0),
+        ).expect("sim tp needed");
+
+        // Verify: adding new assessment with max_points 30 and sim_tp_needed %
+        let new_tp_assess = AssessmentConfig {
+            id: "tp_new".into(),
+            category_id: "cat_main".into(),
+            title: "New Points Assessment".into(),
+            term_id: "hj1".into(),
+            weight: 1.0,
+            input_mode: AssessmentInputMode::Points,
+            max_points: Some(30.0),
+        };
+        let earned_pts = (sim_tp_needed / 100.0) * 30.0;
+        assessments.push(new_tp_assess);
+        grades.push(GradeEntry {
+            student_id: "s_sim".into(),
+            assessment_id: "tp_new".into(),
+            status: GradeStatus::Graded,
+            percent_value: Some(sim_tp_needed),
+            raw_points: Some(earned_pts),
+            direct_grade_value: None,
+            comment: None,
+        });
+        let verify_tp_report = calculate_class_report(&config, &categories, &assessments, &students, &grades, None);
+        assert!(verify_tp_report.student_summaries[0].overall_percent.unwrap() >= 70.0);
+    }
 }

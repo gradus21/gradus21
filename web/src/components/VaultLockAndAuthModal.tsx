@@ -21,6 +21,7 @@ import {
   KeyRound,
   Lock,
   Printer,
+  Shield,
   Smartphone,
   Unlock,
   X,

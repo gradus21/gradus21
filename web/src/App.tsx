@@ -5,6 +5,7 @@ import initWasm, {
   wasm_encrypt_envelope,
   wasm_generate_vault,
   wasm_simulate_needed_score,
+  wasm_simulate_needed_score_v2,
 } from './wasm-pkg/gradus21_core';
 import { FlowRibbonLogo } from './components/FlowRibbonLogo';
 import { ClassSetupAndExcelWizard } from './components/ClassSetupAndExcelWizard';
@@ -18,6 +19,7 @@ import {
 } from './components/ExportAndPrintHelpers';
 import {
   AssessmentConfig,
+  AssessmentInputMode,
   buildCurveThresholdsFromMainCutoffs,
   CategoryConfig,
   CellDisplayFormat,
@@ -210,7 +212,7 @@ export const App: React.FC = () => {
   // Selected items for Speed-Grading and Student 360°
   const [selectedAssessmentId, setSelectedAssessmentId] = useState<string>('test_1');
   const [selectedStudentId, setSelectedStudentId] = useState<string>('stu_eng6_1');
-  const [speedInputMode, setSpeedInputMode] = useState<'percent' | 'points'>('percent');
+  const [speedInputMode, setSpeedInputMode] = useState<'percent' | 'points' | 'grade_scale'>('percent');
 
   // Interactive Notenschlüssel-Editor cutoffs (Note 1..5 minimum percentages)
   const [curvePresetKey, setCurvePresetKey] = useState<string>('standard');
@@ -267,6 +269,7 @@ export const App: React.FC = () => {
   // Inline forms for adding Assessment, Student, or Custom Category
   const [newAssessmentTitle, setNewAssessmentTitle] = useState('');
   const [newAssessmentCategoryId, setNewAssessmentCategoryId] = useState('');
+  const [newAssessmentInputMode, setNewAssessmentInputMode] = useState<AssessmentInputMode>('percent');
   const [showNewAssessmentForm, setShowNewAssessmentForm] = useState(false);
 
   const [newStudentName, setNewStudentName] = useState('');
@@ -954,7 +957,7 @@ export const App: React.FC = () => {
     studentId: string,
     assessmentId: string,
     inputValue: string,
-    inputType: 'percent' | 'points' | 'excused'
+    inputType: 'percent' | 'points' | 'grade_scale' | 'excused'
   ) => {
     const assessment = activeDataset.assessments.find((a) => a.id === assessmentId);
     const maxPts = assessment?.max_points || 15;
@@ -984,6 +987,19 @@ export const App: React.FC = () => {
 
       const num = parseFloat(trimmed.replace(',', '.'));
       if (isNaN(num)) return ds;
+
+      if (inputType === 'grade_scale') {
+        const newEntry: GradeEntry = {
+          student_id: studentId,
+          assessment_id: assessmentId,
+          status: 'graded',
+          percent_value: null,
+          raw_points: null,
+          direct_grade_value: num,
+          comment: null,
+        };
+        return { ...ds, grades: [...filtered, newEntry] };
+      }
 
       const pct =
         inputType === 'points'
@@ -1064,7 +1080,7 @@ export const App: React.FC = () => {
       title: newAssessmentTitle.trim(),
       term_id: activeTerm === 'all' ? 'hj1' : activeTerm,
       weight: 1.0,
-      input_mode: 'percent',
+      input_mode: newAssessmentInputMode,
       max_points: 15,
     };
     updateSubjectConfig((ds) => ({
@@ -1198,7 +1214,7 @@ export const App: React.FC = () => {
     : undefined;
 
   const simulatedNeededPercent: number | null = useMemo(() => {
-    if (!wasmReady || !activeStudentSummary) return null;
+    if (!wasmReady || !activeStudentSummary || !activeStudent) return null;
     try {
       const levelOffset =
         activeDataset.config.enable_student_levels && activeStudent?.level
@@ -1206,12 +1222,21 @@ export const App: React.FC = () => {
           : 0;
       const effectiveTargetPercent = Math.max(0, Math.min(100, simTargetPercent + levelOffset));
 
-      const val = wasm_simulate_needed_score(
-        JSON.stringify(activeStudentSummary),
-        JSON.stringify(activeDataset.categories),
-        simCategoryId,
-        effectiveTargetPercent
-      );
+      const simInput = {
+        config: activeDataset.config,
+        categories: activeDataset.categories,
+        assessments: activeDataset.assessments,
+        grades: activeDataset.grades,
+        student: activeStudent,
+        current_summary: activeStudentSummary,
+        target_category_id: simCategoryId,
+        target_overall_percent: effectiveTargetPercent,
+        term_filter: activeTerm === 'all' ? null : activeTerm,
+        simulated_weight: 1.0,
+        simulated_max_points: 20.0,
+      };
+
+      const val = wasm_simulate_needed_score_v2(JSON.stringify(simInput));
       return typeof val === 'number' ? val : null;
     } catch {
       return null;
@@ -1219,12 +1244,14 @@ export const App: React.FC = () => {
   }, [
     wasmReady,
     activeStudentSummary,
+    activeStudent,
+    activeDataset.config,
     activeDataset.categories,
-    activeDataset.config.enable_student_levels,
-    activeDataset.config.level_threshold_offsets,
-    activeStudent?.level,
+    activeDataset.assessments,
+    activeDataset.grades,
     simCategoryId,
     simTargetPercent,
+    activeTerm,
   ]);
 
   const termAssessments = useMemo(
@@ -1821,6 +1848,25 @@ export const App: React.FC = () => {
                     ))}
                   </select>
                 </div>
+                <div>
+                  <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
+                    Bewertungsmodus
+                  </label>
+                  <select
+                    value={newAssessmentInputMode}
+                    onChange={(e) => setNewAssessmentInputMode(e.target.value as AssessmentInputMode)}
+                    className="px-3 py-1.5 rounded-lg border text-xs bg-transparent"
+                    style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                  >
+                    <option value="percent">Prozent (0–100%)</option>
+                    <option value="points">Rohpunkte (Punkte / Max)</option>
+                    <option value="grade_scale">
+                      {activeDataset.config.scale_id === 'de_oberstufe_0_to_15'
+                        ? 'Notenpunkte (0–15)'
+                        : 'Direkte Note (1–6)'}
+                    </option>
+                  </select>
+                </div>
                 <button
                   type="submit"
                   className="px-4 py-1.5 rounded-lg text-xs font-bold text-white"
@@ -2158,7 +2204,15 @@ export const App: React.FC = () => {
                                         <input
                                           type="text"
                                           value={
-                                            entry?.percent_value != null
+                                            assess.input_mode === 'grade_scale'
+                                              ? entry?.direct_grade_value != null
+                                                ? String(entry.direct_grade_value)
+                                                : ''
+                                              : assess.input_mode === 'points'
+                                              ? entry?.raw_points != null
+                                                ? String(entry.raw_points)
+                                                : ''
+                                              : entry?.percent_value != null
                                               ? String(entry.percent_value)
                                               : ''
                                           }
@@ -2168,13 +2222,15 @@ export const App: React.FC = () => {
                                               stu.id,
                                               assess.id,
                                               e.target.value,
-                                              'percent'
+                                              assess.input_mode || 'percent'
                                             )
                                           }
                                           className="w-16 text-center font-mono text-xs py-1 px-1.5 rounded-lg border bg-transparent focus:outline-none focus:ring-2 focus:ring-teal-500 transition tabular-nums"
                                           style={{
                                             borderColor:
-                                              entry?.percent_value != null
+                                              entry?.percent_value != null ||
+                                              entry?.direct_grade_value != null ||
+                                              entry?.raw_points != null
                                                 ? 'var(--border-subtle)'
                                                 : 'transparent',
                                             color: 'var(--text-primary)',
@@ -2283,6 +2339,16 @@ export const App: React.FC = () => {
                     >
                       Rohpunkte (/{activeAssessment.max_points || 15})
                     </button>
+                    <button
+                      onClick={() => setSpeedInputMode('grade_scale')}
+                      className={`px-2.5 py-1 rounded-lg transition ${
+                        speedInputMode === 'grade_scale' ? 'bg-teal-600 text-white' : ''
+                      }`}
+                    >
+                      {activeDataset.config.scale_id === 'de_oberstufe_0_to_15'
+                        ? 'Notenpunkte'
+                        : 'Direkte Note'}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -2329,6 +2395,19 @@ export const App: React.FC = () => {
                           <span className="px-2.5 py-1 rounded-lg bg-amber-100 text-amber-800 text-xs font-semibold">
                             Entschuldigt
                           </span>
+                        ) : entry?.direct_grade_value != null ? (
+                          <span
+                            className="text-xs font-mono"
+                            style={{ color: 'var(--text-secondary)' }}
+                          >
+                            Direkt:{' '}
+                            <strong>
+                              {entry.direct_grade_value}
+                              {activeDataset.config.scale_id === 'de_oberstufe_0_to_15'
+                                ? ' Pkt'
+                                : ''}
+                            </strong>
+                          </span>
                         ) : (
                           entry?.percent_value != null && (
                             <span
@@ -2352,12 +2431,18 @@ export const App: React.FC = () => {
                           value={
                             entry?.status === 'excused'
                               ? 'K'
+                              : speedInputMode === 'grade_scale'
+                              ? entry?.direct_grade_value ?? ''
                               : speedInputMode === 'points'
                               ? entry?.raw_points ?? ''
                               : entry?.percent_value ?? ''
                           }
                           placeholder={
-                            speedInputMode === 'points'
+                            speedInputMode === 'grade_scale'
+                              ? activeDataset.config.scale_id === 'de_oberstufe_0_to_15'
+                                ? '0–15 Pkt'
+                                : '1.0–6.0'
+                              : speedInputMode === 'points'
                               ? `0–${activeAssessment.max_points || 15}`
                               : '0–100%'
                           }
