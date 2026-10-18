@@ -51,7 +51,8 @@ pub fn verify_totp_code(secret_base32: &str, code: &str) -> bool {
     false
 }
 
-/// Computes current 6-digit TOTP code (used in tests and demo verification)
+/// Computes current 6-digit TOTP code (restricted to unit tests only)
+#[cfg(test)]
 pub fn current_totp_code(secret_base32: &str) -> Option<String> {
     let secret_bytes = base32_decode(secret_base32)?;
     let now_secs = SystemTime::now()

@@ -18,7 +18,7 @@ RUN cargo build --release -p notenflow-server && \
 FROM node:20-alpine AS web-builder
 WORKDIR /app/web
 COPY web/package*.json ./
-RUN npm install
+RUN npm ci
 COPY web ./
 COPY --from=rust-builder /app/web/src/wasm-pkg ./src/wasm-pkg
 RUN npm run build
@@ -27,9 +27,12 @@ RUN npm run build
 # Stage 3: Ultra-Lightweight Rust API Runtime (~20 MB RAM)
 # =============================================================================
 FROM debian:bookworm-slim AS server-runtime
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/* && \
+    groupadd -r notenflow && useradd -r -g notenflow -d /app -s /sbin/nologin notenflow && \
+    mkdir -p /app/data && chown -R notenflow:notenflow /app
 WORKDIR /app
 COPY --from=rust-builder /app/target/release/notenflow-server /usr/local/bin/notenflow-server
+USER notenflow
 EXPOSE 8080
 CMD ["notenflow-server"]
 
@@ -37,6 +40,8 @@ CMD ["notenflow-server"]
 # Stage 4: Nginx Static + Reverse Proxy Runtime
 # =============================================================================
 FROM nginx:alpine AS web-runtime
+COPY web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=web-builder /app/web/dist /usr/share/nginx/html
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
+

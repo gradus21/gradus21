@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import {
+  wasm_derive_recovery_auth_key,
   wasm_generate_vault,
   wasm_rewrap_dek,
   wasm_unlock_vault,
@@ -9,6 +10,7 @@ import {
   wasm_wrap_dek_with_passkey,
   wasm_wrap_dek_with_recovery,
 } from '../wasm-pkg/notenflow_core';
+import { escapeHtml } from './ExportAndPrintHelpers';
 import { FlowRibbonLogo } from './FlowRibbonLogo';
 import {
   CheckCircle2,
@@ -36,7 +38,6 @@ export interface ActiveVaultSession {
   totpEnabled: boolean;
   totpSetupUri?: string;
   totpSecretBase32?: string;
-  totpCurrentCodeHint?: string;
   passkeyCredentialId?: string;
   passkeyLabel?: string;
   serverSyncedCount: number;
@@ -66,7 +67,6 @@ interface LocalPasskeyStoreEntry {
 
 interface LocalRecoveryMetaEntry {
   email: string;
-  recoveryKeyFormatted: string;
   recoveryEncryptedDek: string;
 }
 
@@ -104,7 +104,11 @@ function saveLocalRecoveryMeta(entry: LocalRecoveryMetaEntry) {
   try {
     const raw = localStorage.getItem(RECOVERY_META_STORAGE_KEY);
     const store: Record<string, LocalRecoveryMetaEntry> = raw ? JSON.parse(raw) : {};
-    store[entry.email.trim().toLowerCase()] = entry;
+    // Persist ONLY the encrypted recovery envelope, NEVER the plaintext recovery key!
+    store[entry.email.trim().toLowerCase()] = {
+      email: entry.email,
+      recoveryEncryptedDek: entry.recoveryEncryptedDek,
+    };
     localStorage.setItem(RECOVERY_META_STORAGE_KEY, JSON.stringify(store));
   } catch {
     // ignore storage errors
@@ -164,53 +168,35 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     setLocalPasskeyForEmail(entry);
   }, [email, session?.passkeyCredentialId]);
 
-  // Stelle sicher, dass für die aktive Sitzung immer ein gültiger, kryptografisch passender Notfall-Code existiert
+  // Stelle sicher, dass für die aktive Sitzung ein verschlüsselter Recovery-Umschlag existiert
   useEffect(() => {
     if (!session || !session.dekB64) return;
     try {
       const cachedMeta = loadLocalRecoveryMeta(session.email);
-      const candidateKey =
-        session.recoveryKeyFormatted ||
-        cachedMeta?.recoveryKeyFormatted ||
-        'ABCD-EFGH-JKLM-NPQR-STUV-WXYZ';
       const candidateEncDek =
         session.recoveryEncryptedDek || cachedMeta?.recoveryEncryptedDek || '';
 
-      let isValidPair = false;
-      if (candidateEncDek) {
-        try {
-          const testDek = wasm_unlock_with_recovery(candidateKey, candidateEncDek);
-          isValidPair = testDek === session.dekB64;
-        } catch {
-          isValidPair = false;
-        }
-      }
-
-      if (!isValidPair) {
-        const wrappedJson = wasm_wrap_dek_with_recovery(session.dekB64, candidateKey);
+      if (!candidateEncDek) {
+        const wrappedJson = wasm_wrap_dek_with_recovery(
+          session.dekB64,
+          session.recoveryKeyFormatted || ''
+        );
         const wrapped = JSON.parse(wrappedJson) as {
           recovery_key_formatted: string;
           recovery_encrypted_dek: string;
         };
         saveLocalRecoveryMeta({
           email: session.email,
+          recoveryEncryptedDek: wrapped.recovery_encrypted_dek,
+        });
+        onUnlockSuccess({
+          ...session,
           recoveryKeyFormatted: wrapped.recovery_key_formatted,
           recoveryEncryptedDek: wrapped.recovery_encrypted_dek,
         });
-        if (
-          session.recoveryKeyFormatted !== wrapped.recovery_key_formatted ||
-          session.recoveryEncryptedDek !== wrapped.recovery_encrypted_dek
-        ) {
-          onUnlockSuccess({
-            ...session,
-            recoveryKeyFormatted: wrapped.recovery_key_formatted,
-            recoveryEncryptedDek: wrapped.recovery_encrypted_dek,
-          });
-        }
       } else {
         saveLocalRecoveryMeta({
           email: session.email,
-          recoveryKeyFormatted: candidateKey,
           recoveryEncryptedDek: candidateEncDek,
         });
       }
@@ -250,8 +236,8 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       renderQr(existingUri);
     }
 
-    // Hole zusätzlich (oder falls nach Login/Passkey-Entsperrung nicht im Session-Objekt) das aktuelle 2FA-Setup & den Test-Code vom Server
-    if (session.token && !isLockedScreen) {
+    // Hole das 2FA-Setup nur dann vom Server, wenn 2FA noch nicht aktiviert ist
+    if (session.token && !isLockedScreen && !session.totpEnabled) {
       fetch('/api/auth/2fa/setup', {
         headers: {
           Authorization: `Bearer ${session.token}`,
@@ -263,36 +249,24 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           if (data.totp_setup_uri) {
             renderQr(data.totp_setup_uri);
           }
-          if (
-            data.totp_secret_base32 !== session.totpSecretBase32 ||
-            data.totp_current_code_hint !== session.totpCurrentCodeHint
-          ) {
+          if (data.totp_secret_base32 && data.totp_secret_base32 !== session.totpSecretBase32) {
             onUnlockSuccess({
               ...session,
               totpEnabled: data.totp_enabled ?? session.totpEnabled,
               totpSecretBase32: data.totp_secret_base32 || session.totpSecretBase32,
               totpSetupUri: data.totp_setup_uri || session.totpSetupUri,
-              totpCurrentCodeHint: data.totp_current_code_hint || session.totpCurrentCodeHint,
             });
           }
         })
         .catch(() => {
-          // Offline-Fallback QR-Code, falls Server gerade nicht erreichbar
-          if (!existingUri) {
-            const fallbackSecret = 'JBSWY3DPEHPK3PXP';
-            renderQr(
-              `otpauth://totp/NotenFlow:${encodeURIComponent(
-                session.email
-              )}?secret=${fallbackSecret}&issuer=NotenFlow`
-            );
-          }
+          // ignore offline error
         });
     }
 
     return () => {
       cancelled = true;
     };
-  }, [session?.token, session?.totpSetupUri, session?.totpSecretBase32, session?.email, isLockedScreen]);
+  }, [session?.token, session?.totpSetupUri, session?.totpSecretBase32, session?.totpEnabled, session?.email, isLockedScreen]);
 
   // ===========================================================================
   // PASSKEY EINRICHTEN (WebAuthn + Zero-Knowledge Schlüssel-Umschlag)
@@ -376,6 +350,10 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         credentialIdB64
       );
 
+      const recoveryAuthKeyB64 = session.recoveryKeyFormatted
+        ? wasm_derive_recovery_auth_key(session.recoveryKeyFormatted)
+        : undefined;
+
       const res = await fetch('/api/auth/passkey/register', {
         method: 'POST',
         headers: {
@@ -389,6 +367,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           kdf_salt_b64: session.kdfSaltB64,
           encrypted_dek: session.encryptedDek,
           recovery_encrypted_dek: session.recoveryEncryptedDek,
+          recovery_auth_key_b64: recoveryAuthKeyB64,
         }),
       });
 
@@ -502,8 +481,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       );
 
       const cachedMeta = loadLocalRecoveryMeta(loginData.email);
-      let recoveryKeyFormatted =
-        session?.recoveryKeyFormatted || cachedMeta?.recoveryKeyFormatted;
+      let recoveryKeyFormatted = session?.recoveryKeyFormatted;
       let recoveryEncryptedDek =
         loginData.recovery_encrypted_dek ||
         session?.recoveryEncryptedDek ||
@@ -519,7 +497,6 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           recoveryEncryptedDek = wrapped.recovery_encrypted_dek;
           saveLocalRecoveryMeta({
             email: loginData.email,
-            recoveryKeyFormatted: recoveryKeyFormatted!,
             recoveryEncryptedDek,
           });
         } catch {
@@ -563,7 +540,6 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
       saveLocalRecoveryMeta({
         email,
-        recoveryKeyFormatted: bundle.recovery_key_formatted,
         recoveryEncryptedDek: bundle.recovery_encrypted_dek,
       });
 
@@ -577,6 +553,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           kdf_params: bundle.kdf_params,
           encrypted_dek: bundle.encrypted_dek,
           recovery_encrypted_dek: bundle.recovery_encrypted_dek,
+          recovery_auth_key_b64: bundle.recovery_auth_key_b64,
         }),
       });
 
@@ -601,7 +578,6 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         totpEnabled: data.totp_enabled,
         totpSetupUri: data.totp_setup_uri,
         totpSecretBase32: data.totp_secret_base32,
-        totpCurrentCodeHint: data.totp_current_code_hint,
         serverSyncedCount: 0,
       });
     } catch (err: any) {
@@ -622,8 +598,12 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       });
 
       if (!saltRes.ok) {
-        await handleRegisterVault(e);
-        return;
+        if (saltRes.status === 404) {
+          setErrorMsg('Kein NotenFlow-Konto für diese E-Mail-Adresse gefunden. Bitte prüfe deine Eingabe oder registriere ein neues Konto.');
+          setStatusMsg(null);
+          return;
+        }
+        throw new Error('Server nicht erreichbar oder Anmeldefehler');
       }
 
       const saltData = await saltRes.json();
@@ -704,8 +684,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           session?.recoveryEncryptedDek ||
           cachedMeta?.recoveryEncryptedDek ||
           '',
-        recoveryKeyFormatted:
-          session?.recoveryKeyFormatted || cachedMeta?.recoveryKeyFormatted,
+        recoveryKeyFormatted: session?.recoveryKeyFormatted,
         totpEnabled: loginData.totp_enabled,
         passkeyCredentialId: loginData.passkey_credential_id,
         passkeyLabel: loginData.passkey_label,
@@ -765,19 +744,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         }
       }
 
-      // Falls der Server-Eintrag zuvor durch die Passkey-Schnelleinrichtung ohne recovery_encrypted_dek angelegt wurde,
-      // prüfen wir den lokal im Browser hinterlegten Notfall-Code bzw. binden den Hauptschlüssel nahtlos neu:
-      if (!recoveredDekB64 && session?.dekB64) {
-        const expectedCodes = [
-          session.recoveryKeyFormatted,
-          cachedMeta?.recoveryKeyFormatted,
-          'ABCD-EFGH-JKLM-NPQR-STUV-WXYZ',
-        ]
-          .filter((v): v is string => Boolean(v))
-          .map(normalizeRecoveryCode);
-
-        const hasNoServerBlob = candidateRecoveryBlobs.length === 0;
-        if (expectedCodes.includes(cleanedInput) || hasNoServerBlob) {
+      if (!recoveredDekB64 && session?.dekB64 && session?.recoveryKeyFormatted) {
+        const expectedNormalized = normalizeRecoveryCode(session.recoveryKeyFormatted);
+        if (expectedNormalized === cleanedInput) {
           recoveredDekB64 = session.dekB64;
         }
       }
@@ -789,6 +758,8 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         return;
       }
 
+      const recoveryAuthKeyB64 = wasm_derive_recovery_auth_key(recoveryKeyInput);
+
       // Erzeuge / verifiziere den kryptografischen Notfall-Umschlag für diesen Code
       const wrappedRecoveryJson = wasm_wrap_dek_with_recovery(
         recoveredDekB64,
@@ -797,11 +768,11 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       const wrappedRecovery = JSON.parse(wrappedRecoveryJson) as {
         recovery_key_formatted: string;
         recovery_encrypted_dek: string;
+        recovery_auth_key_b64: string;
       };
 
       saveLocalRecoveryMeta({
         email,
-        recoveryKeyFormatted: wrappedRecovery.recovery_key_formatted,
         recoveryEncryptedDek: wrappedRecovery.recovery_encrypted_dek,
       });
 
@@ -813,11 +784,13 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email,
+          recovery_auth_key_b64: recoveryAuthKeyB64,
           new_auth_key_b64: rewrapped.auth_key_b64,
           new_kdf_salt_b64: rewrapped.kdf_salt_b64,
           new_kdf_params: rewrapped.kdf_params,
           new_encrypted_dek: rewrapped.encrypted_dek,
           new_recovery_encrypted_dek: wrappedRecovery.recovery_encrypted_dek,
+          new_recovery_auth_key_b64: wrappedRecovery.recovery_auth_key_b64,
         }),
       });
 
@@ -893,9 +866,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             ein neues Passwort vergeben. Bitte drucke dieses Blatt aus und hefte es zu Hause sicher ab.
           </p>
           <div class="box">
-            <div><strong>Deine E-Mail-Adresse:</strong> ${session.email}</div>
+            <div><strong>Deine E-Mail-Adresse:</strong> ${escapeHtml(session.email)}</div>
             <div style="margin-top:14px;"><strong>Dein persönlicher Notfall-Wiederherstellungscode:</strong></div>
-            <div class="code">${session.recoveryKeyFormatted || 'XXXX-XXXX-XXXX-XXXX-XXXX-XXXX'}</div>
+            <div class="code">${escapeHtml(session.recoveryKeyFormatted || 'XXXX-XXXX-XXXX-XXXX-XXXX-XXXX')}</div>
           </div>
           <script>window.print();</script>
         </body>
@@ -1272,13 +1245,15 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 onClick={() => {
                   const code =
                     session.recoveryKeyFormatted ||
-                    loadLocalRecoveryMeta(session.email)?.recoveryKeyFormatted ||
-                    'ABCD-EFGH-JKLM-NPQR-STUV-WXYZ';
-                  navigator.clipboard?.writeText(code);
-                  setCopiedRecoveryKey(true);
-                  setTimeout(() => setCopiedRecoveryKey(false), 2000);
+                    'Bitte zuerst Notfallblatt neu ausstellen';
+                  if (session.recoveryKeyFormatted) {
+                    navigator.clipboard?.writeText(code);
+                    setCopiedRecoveryKey(true);
+                    setTimeout(() => setCopiedRecoveryKey(false), 2000);
+                  }
                 }}
-                className="px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5"
+                disabled={!session.recoveryKeyFormatted}
+                className="px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 disabled:opacity-50"
                 style={{
                   backgroundColor: 'var(--bg-surface)',
                   borderColor: 'var(--border-subtle)',
@@ -1290,7 +1265,8 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               </button>
               <button
                 onClick={handlePrintRecoverySheet}
-                className="px-3.5 py-2 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 shadow-sm"
+                disabled={!session.recoveryKeyFormatted}
+                className="px-3.5 py-2 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 shadow-sm disabled:opacity-50"
                 style={{ backgroundColor: 'var(--primary-500)' }}
               >
                 <Printer className="w-4 h-4" />
@@ -1307,10 +1283,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               color: 'var(--primary-500)',
             }}
           >
-            Notfall-Code:{' '}
-            {session.recoveryKeyFormatted ||
-              loadLocalRecoveryMeta(session.email)?.recoveryKeyFormatted ||
-              'ABCD-EFGH-JKLM-NPQR-STUV-WXYZ'}
+            {session.recoveryKeyFormatted
+              ? `Notfall-Code: ${session.recoveryKeyFormatted}`
+              : 'Aus Datenschutzgründen wird der Klartext-Notfallcode nicht im Browser-Speicher abgelegt (nur bei Kontoerstellung / Erneuerung sichtbar).'}
           </div>
         </div>
 
@@ -1319,7 +1294,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           className="p-5 rounded-2xl border flex flex-col sm:flex-row gap-5 items-center"
           style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
         >
-          {qrSvgDataUrl && (
+          {qrSvgDataUrl && !session.totpEnabled && (
             <div className="bg-white p-2 rounded-2xl border shadow-sm shrink-0">
               <img
                 src={qrSvgDataUrl}
@@ -1347,10 +1322,12 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             </div>
 
             <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-              Scanne den QR-Code links mit <strong>Bitwarden</strong>, <em>Apple Passwörter</em> oder <em>Google Authenticator</em> – oder kopiere den Einrichtungsschlüssel direkt in Bitwarden:
+              {session.totpEnabled
+                ? 'Zwei-Faktor-Authentifizierung (TOTP) ist für dein Konto aktiv und schützt deine Anmeldung.'
+                : 'Scanne den QR-Code links mit Bitwarden, Apple Passwörter oder Google Authenticator – oder kopiere den Einrichtungsschlüssel direkt in Bitwarden:'}
             </p>
 
-            {session.totpSecretBase32 && (
+            {!session.totpEnabled && session.totpSecretBase32 && (
               <div
                 className="p-2 px-3 rounded-xl border flex flex-wrap items-center justify-between gap-2"
                 style={{
@@ -1388,7 +1365,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                   type="text"
                   value={totpVerifyInput}
                   onChange={(e) => setTotpVerifyInput(e.target.value)}
-                  placeholder={session.totpCurrentCodeHint || '6-stelliger Zahlencode'}
+                  placeholder="6-stelliger Zahlencode"
                   className="w-40 px-3 py-1.5 rounded-xl border font-mono text-xs bg-white dark:bg-slate-900"
                   style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
                 />
@@ -1399,11 +1376,6 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 >
                   Handy-Schutz aktivieren
                 </button>
-                {session.totpCurrentCodeHint && (
-                  <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-                    (Aktueller Code: <strong className="font-mono">{session.totpCurrentCodeHint}</strong>)
-                  </span>
-                )}
               </div>
             )}
           </div>

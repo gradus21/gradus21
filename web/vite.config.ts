@@ -15,4 +15,15 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['notenflow-core'],
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-xlsx': ['xlsx'],
+          'vendor-ui': ['react', 'react-dom', 'lucide-react', 'qrcode'],
+        },
+      },
+    },
+  },
 });
+

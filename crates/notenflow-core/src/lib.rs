@@ -192,5 +192,143 @@ mod tests {
         assert_eq!(scale1, GradingScaleId::DeClassic1To6);
         let scale2: GradingScaleId = serde_json::from_str(r#""de_oberstufe_0_to_15""#).expect("de_oberstufe_0_to_15");
         assert_eq!(scale2, GradingScaleId::DeOberstufe0To15);
+
+        // Verify recovery auth key derivation is deterministic and distinct from recovery KEK
+        let bundle = generate_vault_bundle("LehrerGeheim2026!").expect("vault bundle");
+        let derived_rec_auth =
+            derive_recovery_auth_key(&bundle.recovery_key_formatted).expect("derive recovery auth");
+        assert_eq!(derived_rec_auth, bundle.recovery_auth_key_b64);
+        assert_ne!(derived_rec_auth, bundle.auth_key_b64);
+    }
+
+    #[test]
+    fn test_drop_lowest_and_special_student_flags_and_weighting_modes() {
+        let mut config = SubjectGradingConfig {
+            scale_id: GradingScaleId::DeOberstufe0To15,
+            weighting_mode: WeightingMode::CategoryBuckets,
+            scale_empty_categories: true,
+            enable_student_levels: false,
+            level_threshold_offsets: HashMap::new(),
+            custom_thresholds: None,
+        };
+
+        let categories = vec![CategoryConfig {
+            id: "cat_tests".into(),
+            name: "Tests".into(),
+            short_code: "T".into(),
+            weight: 1.0,
+            drop_lowest_count: 1,
+        }];
+
+        let assessments = vec![
+            AssessmentConfig {
+                id: "t1".into(),
+                category_id: "cat_tests".into(),
+                title: "Test 1".into(),
+                term_id: "hj1".into(),
+                weight: 1.0,
+                input_mode: AssessmentInputMode::Points,
+                max_points: Some(20.0),
+            },
+            AssessmentConfig {
+                id: "t2".into(),
+                category_id: "cat_tests".into(),
+                title: "Test 2".into(),
+                term_id: "hj1".into(),
+                weight: 1.0,
+                input_mode: AssessmentInputMode::Points,
+                max_points: Some(20.0),
+            },
+        ];
+
+        let students = vec![
+            StudentProfile {
+                id: "s_active".into(),
+                name: "Active Student".into(),
+                level: None,
+                is_not_graded: false,
+                is_archived: false,
+            },
+            StudentProfile {
+                id: "s_ob".into(),
+                name: "Ohne Bewertung".into(),
+                level: None,
+                is_not_graded: true,
+                is_archived: false,
+            },
+            StudentProfile {
+                id: "s_arch".into(),
+                name: "Archived Student".into(),
+                level: None,
+                is_not_graded: false,
+                is_archived: true,
+            },
+        ];
+
+        let grades = vec![
+            GradeEntry {
+                student_id: "s_active".into(),
+                assessment_id: "t1".into(),
+                status: GradeStatus::Graded,
+                percent_value: None,
+                raw_points: Some(10.0), // 50% (should be dropped by drop_lowest_count = 1)
+                direct_grade_value: None,
+                comment: None,
+            },
+            GradeEntry {
+                student_id: "s_active".into(),
+                assessment_id: "t2".into(),
+                status: GradeStatus::Graded,
+                percent_value: None,
+                raw_points: Some(19.0), // 95% (kept -> 15 Punkte in Oberstufe)
+                direct_grade_value: None,
+                comment: None,
+            },
+            GradeEntry {
+                student_id: "s_ob".into(),
+                assessment_id: "t1".into(),
+                status: GradeStatus::Graded,
+                percent_value: Some(90.0),
+                raw_points: Some(18.0),
+                direct_grade_value: None,
+                comment: None,
+            },
+            GradeEntry {
+                student_id: "s_arch".into(),
+                assessment_id: "t1".into(),
+                status: GradeStatus::Graded,
+                percent_value: Some(10.0),
+                raw_points: Some(2.0),
+                direct_grade_value: None,
+                comment: None,
+            },
+        ];
+
+        let report =
+            calculate_class_report(&config, &categories, &assessments, &students, &grades, None);
+        assert_eq!(report.student_summaries.len(), 3);
+        // Only active graded student counts toward class average & histogram (o.B. and archived are excluded)
+        assert_eq!(report.class_average_percent, Some(95.0));
+        assert_eq!(report.distribution_buckets.iter().sum::<usize>(), 1);
+
+        let active = &report.student_summaries[0];
+        assert_eq!(active.overall_percent, Some(95.0));
+        assert_eq!(active.overall_display_grade, "15 Pkt (1+)");
+        assert_eq!(active.category_results[0].graded_count, 1);
+
+        let ob = &report.student_summaries[1];
+        assert_eq!(ob.overall_display_grade, "o.B.");
+
+        // Test DirectWeights mode (both assessments included since CategoryBuckets drop_lowest is not active in DirectWeights)
+        config.weighting_mode = WeightingMode::DirectWeights;
+        let report_direct =
+            calculate_class_report(&config, &categories, &assessments, &students, &grades, None);
+        assert_eq!(report_direct.student_summaries[0].overall_percent, Some(72.5));
+
+        // Test TotalPoints mode (10 + 19 = 29 / 40 = 72.5%)
+        config.weighting_mode = WeightingMode::TotalPoints;
+        let report_points =
+            calculate_class_report(&config, &categories, &assessments, &students, &grades, None);
+        assert_eq!(report_points.student_summaries[0].overall_percent, Some(72.5));
     }
 }

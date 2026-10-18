@@ -5,8 +5,8 @@ use argon2::{
     Argon2,
 };
 use axum::{
-    extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    extract::{DefaultBodyLimit, Path, State},
+    http::{HeaderMap, HeaderValue, StatusCode},
     routing::{delete, get, post, put},
     Json, Router,
 };
@@ -15,6 +15,7 @@ use chrono::{DateTime, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use notenflow_core::crypto::{decrypt_entity_envelope, encrypt_entity_envelope, KdfParams};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use std::{
     collections::HashMap,
@@ -22,6 +23,7 @@ use std::{
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, RwLock},
+    time::{Duration, Instant},
 };
 use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
@@ -32,6 +34,7 @@ struct AppState {
     disk_store_path: PathBuf,
     mem_users: Arc<RwLock<HashMap<Uuid, UserRecord>>>,
     mem_envelopes: Arc<RwLock<HashMap<Uuid, EncryptedEnvelopeRecord>>>,
+    auth_rate_limits: Arc<RwLock<HashMap<String, Vec<Instant>>>>,
     jwt_secret: String,
     server_encryption_key_b64: String,
 }
@@ -51,6 +54,8 @@ struct UserRecord {
     kdf_params: KdfParams,
     encrypted_dek: String,
     recovery_encrypted_dek: String,
+    #[serde(default)]
+    recovery_auth_key_hash: String,
     totp_secret_server_encrypted: Option<String>,
     totp_enabled: bool,
     #[serde(default)]
@@ -90,6 +95,8 @@ struct RegisterRequest {
     kdf_params: KdfParams,
     encrypted_dek: String,
     recovery_encrypted_dek: String,
+    #[serde(default)]
+    recovery_auth_key_b64: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -104,7 +111,6 @@ struct AuthResponse {
     totp_enabled: bool,
     totp_setup_uri: Option<String>,
     totp_secret_base32: Option<String>,
-    totp_current_code_hint: Option<String>,
     passkey_credential_id: Option<String>,
     passkey_label: Option<String>,
     passkey_encrypted_dek: Option<String>,
@@ -123,7 +129,7 @@ struct SaltQueryResponse {
     encrypted_dek: String,
     recovery_encrypted_dek: String,
     totp_enabled: bool,
-    passkey_credential_id: Option<String>,
+    has_passkey: bool,
     passkey_label: Option<String>,
 }
 
@@ -135,6 +141,8 @@ struct PasskeyRegisterRequest {
     kdf_salt_b64: Option<String>,
     encrypted_dek: Option<String>,
     recovery_encrypted_dek: Option<String>,
+    #[serde(default)]
+    recovery_auth_key_b64: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -153,11 +161,14 @@ struct LoginRequest {
 #[derive(Deserialize)]
 struct RecoverPasswordRequest {
     email: String,
+    recovery_auth_key_b64: String,
     new_auth_key_b64: String,
     new_kdf_salt_b64: String,
     new_kdf_params: KdfParams,
     new_encrypted_dek: String,
     new_recovery_encrypted_dek: Option<String>,
+    #[serde(default)]
+    new_recovery_auth_key_b64: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -165,18 +176,249 @@ struct VerifyTotpRequest {
     totp_code: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 struct UpsertEnvelopeRequest {
     id: Uuid,
     entity_type: String,
     parent_id: Option<Uuid>,
     class_id: Option<Uuid>,
     encrypted_payload: String,
+    #[serde(default)]
+    expected_version: Option<i32>,
 }
 
 #[derive(Deserialize)]
 struct BatchSyncRequest {
     envelopes: Vec<UpsertEnvelopeRequest>,
+}
+
+fn check_auth_rate_limit(state: &AppState, key: &str) -> Result<(), (StatusCode, String)> {
+    const WINDOW: Duration = Duration::from_secs(60);
+    const MAX_ATTEMPTS: usize = 12;
+
+    let now = Instant::now();
+    let mut map = state.auth_rate_limits.write().unwrap();
+
+    // Prevent unbounded memory growth from random attacker email addresses
+    if map.len() > 1024 {
+        map.retain(|_, timestamps| {
+            timestamps.retain(|t| now.duration_since(*t) < WINDOW);
+            !timestamps.is_empty()
+        });
+    }
+
+    let sanitized_key = if key.len() > 128 { &key[..128] } else { key };
+    let entry = map.entry(sanitized_key.to_string()).or_default();
+    entry.retain(|t| now.duration_since(*t) < WINDOW);
+    if entry.len() >= MAX_ATTEMPTS {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "Zu viele Anmeldeversuche. Bitte warte eine Minute.".into(),
+        ));
+    }
+    entry.push(now);
+    Ok(())
+}
+
+fn hash_client_key(key_b64: &str) -> Result<String, (StatusCode, String)> {
+    let salt = SaltString::generate(&mut OsRng);
+    Argon2::default()
+        .hash_password(key_b64.as_bytes(), &salt)
+        .map(|h| h.to_string())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+async fn ensure_pg_schema_and_load(
+    pool: &PgPool,
+    users_map: &mut HashMap<Uuid, UserRecord>,
+    envelopes_map: &mut HashMap<Uuid, EncryptedEnvelopeRecord>,
+) {
+    let schema_queries = [
+        r#"CREATE TABLE IF NOT EXISTS users (
+            id UUID PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            auth_key_hash TEXT NOT NULL,
+            kdf_salt TEXT NOT NULL,
+            kdf_params JSONB NOT NULL DEFAULT '{"memory_kib": 19456, "iterations": 2, "parallelism": 1}',
+            encrypted_dek TEXT NOT NULL,
+            recovery_encrypted_dek TEXT NOT NULL,
+            recovery_auth_key_hash TEXT NOT NULL DEFAULT '',
+            totp_secret_server_encrypted TEXT,
+            totp_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+            passkey_credential_id TEXT,
+            passkey_label TEXT,
+            passkey_encrypted_dek TEXT,
+            ui_preferences JSONB NOT NULL DEFAULT '{"theme": "teal", "mode": "light"}',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )"#,
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_auth_key_hash TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS passkey_credential_id TEXT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS passkey_label TEXT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS passkey_encrypted_dek TEXT",
+        r#"CREATE TABLE IF NOT EXISTS encrypted_envelopes (
+            id UUID PRIMARY KEY,
+            owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            entity_type TEXT NOT NULL,
+            parent_id UUID,
+            class_id UUID,
+            encrypted_payload TEXT NOT NULL,
+            version INT NOT NULL DEFAULT 1,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )"#,
+        "CREATE INDEX IF NOT EXISTS idx_encrypted_envelopes_owner ON encrypted_envelopes (owner_user_id)",
+    ];
+
+    for q in schema_queries {
+        if let Err(e) = sqlx::query(q).execute(pool).await {
+            tracing::warn!("Schema initialization statement warning: {}", e);
+        }
+    }
+
+    if let Ok(rows) = sqlx::query(
+        "SELECT id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek, recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted, totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek, ui_preferences FROM users",
+    )
+    .fetch_all(pool)
+    .await
+    {
+        for row in rows {
+            let id: Uuid = row.get("id");
+            let kdf_params_val: serde_json::Value = row.get("kdf_params");
+            let user = UserRecord {
+                id,
+                email: row.get("email"),
+                auth_key_hash: row.get("auth_key_hash"),
+                kdf_salt: row.get("kdf_salt"),
+                kdf_params: serde_json::from_value(kdf_params_val).unwrap_or_default(),
+                encrypted_dek: row.get("encrypted_dek"),
+                recovery_encrypted_dek: row.get("recovery_encrypted_dek"),
+                recovery_auth_key_hash: row.try_get("recovery_auth_key_hash").unwrap_or_default(),
+                totp_secret_server_encrypted: row.get("totp_secret_server_encrypted"),
+                totp_enabled: row.get("totp_enabled"),
+                passkey_credential_id: row.try_get("passkey_credential_id").ok().flatten(),
+                passkey_label: row.try_get("passkey_label").ok().flatten(),
+                passkey_encrypted_dek: row.try_get("passkey_encrypted_dek").ok().flatten(),
+                ui_preferences: row.get("ui_preferences"),
+            };
+            users_map.insert(id, user);
+        }
+    }
+
+    if let Ok(rows) = sqlx::query(
+        "SELECT id, owner_user_id, entity_type, parent_id, class_id, encrypted_payload, version, updated_at FROM encrypted_envelopes",
+    )
+    .fetch_all(pool)
+    .await
+    {
+        for row in rows {
+            let id: Uuid = row.get("id");
+            let env = EncryptedEnvelopeRecord {
+                id,
+                owner_user_id: row.get("owner_user_id"),
+                entity_type: row.get("entity_type"),
+                parent_id: row.get("parent_id"),
+                class_id: row.get("class_id"),
+                encrypted_payload: row.get("encrypted_payload"),
+                version: row.get("version"),
+                updated_at: row.get("updated_at"),
+            };
+            envelopes_map.insert(id, env);
+        }
+    }
+}
+
+async fn sync_user_to_pg(state: &AppState, user: &UserRecord) {
+    let Some(pool) = &state.db else {
+        return;
+    };
+    let kdf_params_json = serde_json::to_value(&user.kdf_params).unwrap_or_default();
+    if let Err(e) = sqlx::query(
+        r#"INSERT INTO users (
+            id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek,
+            recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted,
+            totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek,
+            ui_preferences, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+        ON CONFLICT (id) DO UPDATE SET
+            email = EXCLUDED.email,
+            auth_key_hash = EXCLUDED.auth_key_hash,
+            kdf_salt = EXCLUDED.kdf_salt,
+            kdf_params = EXCLUDED.kdf_params,
+            encrypted_dek = EXCLUDED.encrypted_dek,
+            recovery_encrypted_dek = EXCLUDED.recovery_encrypted_dek,
+            recovery_auth_key_hash = EXCLUDED.recovery_auth_key_hash,
+            totp_secret_server_encrypted = EXCLUDED.totp_secret_server_encrypted,
+            totp_enabled = EXCLUDED.totp_enabled,
+            passkey_credential_id = EXCLUDED.passkey_credential_id,
+            passkey_label = EXCLUDED.passkey_label,
+            passkey_encrypted_dek = EXCLUDED.passkey_encrypted_dek,
+            ui_preferences = EXCLUDED.ui_preferences,
+            updated_at = NOW()"#,
+    )
+    .bind(user.id)
+    .bind(&user.email)
+    .bind(&user.auth_key_hash)
+    .bind(&user.kdf_salt)
+    .bind(kdf_params_json)
+    .bind(&user.encrypted_dek)
+    .bind(&user.recovery_encrypted_dek)
+    .bind(&user.recovery_auth_key_hash)
+    .bind(&user.totp_secret_server_encrypted)
+    .bind(user.totp_enabled)
+    .bind(&user.passkey_credential_id)
+    .bind(&user.passkey_label)
+    .bind(&user.passkey_encrypted_dek)
+    .bind(&user.ui_preferences)
+    .execute(pool)
+    .await
+    {
+        tracing::error!("Failed to sync user {} to PostgreSQL: {}", user.id, e);
+    }
+}
+
+async fn sync_envelope_to_pg(state: &AppState, env: &EncryptedEnvelopeRecord) {
+    let Some(pool) = &state.db else {
+        return;
+    };
+    if let Err(e) = sqlx::query(
+        r#"INSERT INTO encrypted_envelopes (
+            id, owner_user_id, entity_type, parent_id, class_id, encrypted_payload, version, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (id) DO UPDATE SET
+            entity_type = EXCLUDED.entity_type,
+            parent_id = EXCLUDED.parent_id,
+            class_id = EXCLUDED.class_id,
+            encrypted_payload = EXCLUDED.encrypted_payload,
+            version = EXCLUDED.version,
+            updated_at = EXCLUDED.updated_at"#,
+    )
+    .bind(env.id)
+    .bind(env.owner_user_id)
+    .bind(&env.entity_type)
+    .bind(env.parent_id)
+    .bind(env.class_id)
+    .bind(&env.encrypted_payload)
+    .bind(env.version)
+    .bind(env.updated_at)
+    .execute(pool)
+    .await
+    {
+        tracing::error!("Failed to sync envelope {} to PostgreSQL: {}", env.id, e);
+    }
+}
+
+async fn delete_envelope_from_pg(state: &AppState, id: Uuid, owner_id: Uuid) {
+    let Some(pool) = &state.db else {
+        return;
+    };
+    if let Err(e) = sqlx::query("DELETE FROM encrypted_envelopes WHERE id = $1 AND owner_user_id = $2")
+        .bind(id)
+        .bind(owner_id)
+        .execute(pool)
+        .await
+    {
+        tracing::error!("Failed to delete envelope {} from PostgreSQL: {}", id, e);
+    }
 }
 
 #[tokio::main]
@@ -187,17 +429,23 @@ async fn main() {
         )
         .init();
 
-    let jwt_secret = std::env::var("JWT_SECRET")
-        .unwrap_or_else(|_| "bte_notenflow_jwt_signing_secret_2026_zero_knowledge".into());
+    let jwt_secret = match std::env::var("JWT_SECRET") {
+        Ok(s) if !s.trim().is_empty() => s,
+        _ => {
+            tracing::warn!("JWT_SECRET not set — using development fallback secret. Set JWT_SECRET in production!");
+            "bte_notenflow_jwt_signing_secret_2026_zero_knowledge".into()
+        }
+    };
 
-    let raw_server_key = std::env::var("SERVER_ENCRYPTION_KEY")
-        .unwrap_or_else(|_| "0123456789abcdef0123456789abcdef".into());
-    let mut key_bytes = [0u8; 32];
-    let src = raw_server_key.as_bytes();
-    for i in 0..32 {
-        key_bytes[i] = src[i % src.len()];
-    }
-    let server_encryption_key_b64 = B64.encode(key_bytes);
+    let raw_server_key = match std::env::var("SERVER_ENCRYPTION_KEY") {
+        Ok(s) if !s.trim().is_empty() => s,
+        _ => {
+            tracing::warn!("SERVER_ENCRYPTION_KEY not set — using development fallback key. Set SERVER_ENCRYPTION_KEY in production!");
+            "0123456789abcdef0123456789abcdef".into()
+        }
+    };
+    let key_digest = Sha256::digest(raw_server_key.as_bytes());
+    let server_encryption_key_b64 = B64.encode(key_digest);
 
     let disk_store_path = PathBuf::from(
         std::env::var("VAULT_STORE_PATH").unwrap_or_else(|_| "./data/vault_store.json".into()),
@@ -206,7 +454,7 @@ async fn main() {
         let _ = fs::create_dir_all(parent);
     }
 
-    let initial_disk: PersistentDiskStore = if disk_store_path.exists() {
+    let mut initial_disk: PersistentDiskStore = if disk_store_path.exists() {
         fs::read_to_string(&disk_store_path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
@@ -218,7 +466,8 @@ async fn main() {
     let db = if let Ok(db_url) = std::env::var("DATABASE_URL") {
         match PgPoolOptions::new().max_connections(10).connect(&db_url).await {
             Ok(pool) => {
-                tracing::info!("Connected to PostgreSQL database");
+                tracing::info!("Connected to PostgreSQL database; ensuring schema and loading records");
+                ensure_pg_schema_and_load(&pool, &mut initial_disk.users, &mut initial_disk.envelopes).await;
                 Some(pool)
             }
             Err(e) => {
@@ -245,14 +494,26 @@ async fn main() {
         disk_store_path,
         mem_users: Arc::new(RwLock::new(initial_disk.users)),
         mem_envelopes: Arc::new(RwLock::new(initial_disk.envelopes)),
+        auth_rate_limits: Arc::new(RwLock::new(HashMap::new())),
         jwt_secret,
         server_encryption_key_b64,
     };
 
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let cors = if let Ok(origin) = std::env::var("CORS_ALLOWED_ORIGIN") {
+        if let Ok(header_val) = origin.parse::<HeaderValue>() {
+            CorsLayer::new()
+                .allow_origin(header_val)
+                .allow_methods(Any)
+                .allow_headers(Any)
+        } else {
+            CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any)
+        }
+    } else {
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any)
+    };
 
     let app = Router::new()
         .route("/api/health", get(health_check))
@@ -268,6 +529,7 @@ async fn main() {
         .route("/api/envelopes/batch", post(batch_sync_envelopes))
         .route("/api/envelopes/:id", delete(delete_envelope))
         .route("/api/preferences", put(update_preferences))
+        .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
         .layer(cors)
         .with_state(state);
 
@@ -287,7 +549,19 @@ fn persist_to_disk(state: &AppState) {
     let envelopes = state.mem_envelopes.read().unwrap().clone();
     let store = PersistentDiskStore { users, envelopes };
     if let Ok(json) = serde_json::to_string_pretty(&store) {
-        let _ = fs::write(&state.disk_store_path, json);
+        let tmp_path = state.disk_store_path.with_extension("json.tmp");
+        if let Err(e) = fs::write(&tmp_path, json) {
+            tracing::error!("Failed to write temporary vault store {:?}: {}", tmp_path, e);
+            return;
+        }
+        if let Err(e) = fs::rename(&tmp_path, &state.disk_store_path) {
+            tracing::error!(
+                "Failed to atomically rename {:?} to {:?}: {}",
+                tmp_path,
+                state.disk_store_path,
+                e
+            );
+        }
     }
 }
 
@@ -309,42 +583,17 @@ async fn get_user_salt(
     Json(req): Json<SaltQueryRequest>,
 ) -> Result<Json<SaltQueryResponse>, (StatusCode, String)> {
     let email = req.email.trim().to_lowercase();
-    if let Some(pool) = &state.db {
-        if let Ok(Some(row)) = sqlx::query(
-            "SELECT kdf_salt, kdf_params, encrypted_dek, recovery_encrypted_dek, totp_enabled FROM users WHERE email = $1",
-        )
-        .bind(&email)
-        .fetch_optional(pool)
-        .await
-        {
-            let kdf_salt: String = row.get("kdf_salt");
-            let kdf_params_val: serde_json::Value = row.get("kdf_params");
-            let encrypted_dek: String = row.get("encrypted_dek");
-            let recovery_encrypted_dek: String = row.get("recovery_encrypted_dek");
-            let totp_enabled: bool = row.get("totp_enabled");
-            let kdf_params: KdfParams = serde_json::from_value(kdf_params_val).unwrap_or_default();
-            return Ok(Json(SaltQueryResponse {
-                kdf_salt_b64: kdf_salt,
-                kdf_params,
-                encrypted_dek,
-                recovery_encrypted_dek,
-                totp_enabled,
-                passkey_credential_id: None,
-                passkey_label: None,
-            }));
-        }
-    }
+    check_auth_rate_limit(&state, &format!("salt:{}", email))?;
 
-    let users = state.mem_users.read().unwrap();
-    if let Some(u) = users.values().find(|u| u.email == email) {
+    if let Some(u) = find_user_by_email(&state, &email).await {
         return Ok(Json(SaltQueryResponse {
-            kdf_salt_b64: u.kdf_salt.clone(),
-            kdf_params: u.kdf_params.clone(),
-            encrypted_dek: u.encrypted_dek.clone(),
-            recovery_encrypted_dek: u.recovery_encrypted_dek.clone(),
+            kdf_salt_b64: u.kdf_salt,
+            kdf_params: u.kdf_params,
+            encrypted_dek: u.encrypted_dek,
+            recovery_encrypted_dek: u.recovery_encrypted_dek,
             totp_enabled: u.totp_enabled,
-            passkey_credential_id: u.passkey_credential_id.clone(),
-            passkey_label: u.passkey_label.clone(),
+            has_passkey: u.passkey_credential_id.is_some(),
+            passkey_label: u.passkey_label,
         }));
     }
 
@@ -356,16 +605,21 @@ async fn register_user(
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, String)> {
     let email = req.email.trim().to_lowercase();
-    let salt = SaltString::generate(&mut OsRng);
-    let auth_key_hash = Argon2::default()
-        .hash_password(req.auth_key_b64.as_bytes(), &salt)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .to_string();
+    check_auth_rate_limit(&state, &format!("register:{}", email))?;
+
+    let auth_key_hash = hash_client_key(&req.auth_key_b64)?;
+    let recovery_auth_key_hash = match req
+        .recovery_auth_key_b64
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        Some(rec_key) => hash_client_key(rec_key)?,
+        None => String::new(),
+    };
 
     let user_id = Uuid::new_v4();
     let totp_secret_b32 = totp::generate_totp_secret_base32();
     let totp_uri = totp::build_otpauth_uri(&email, &totp_secret_b32);
-    let current_code = totp::current_totp_code(&totp_secret_b32);
 
     let totp_encrypted = encrypt_entity_envelope(
         &state.server_encryption_key_b64,
@@ -377,30 +631,31 @@ async fn register_user(
 
     let ui_prefs = serde_json::json!({ "theme": "teal", "mode": "light" });
 
-    {
+    let new_user = {
         let mut users = state.mem_users.write().unwrap();
         if users.values().any(|u| u.email == email) {
             return Err((StatusCode::CONFLICT, "Diese E-Mail ist bereits registriert".into()));
         }
-        users.insert(
-            user_id,
-            UserRecord {
-                id: user_id,
-                email: email.clone(),
-                auth_key_hash,
-                kdf_salt: req.kdf_salt_b64.clone(),
-                kdf_params: req.kdf_params.clone(),
-                encrypted_dek: req.encrypted_dek.clone(),
-                recovery_encrypted_dek: req.recovery_encrypted_dek.clone(),
-                totp_secret_server_encrypted: Some(totp_encrypted),
-                totp_enabled: false,
-                passkey_credential_id: None,
-                passkey_label: None,
-                passkey_encrypted_dek: None,
-                ui_preferences: ui_prefs.clone(),
-            },
-        );
-    }
+        let record = UserRecord {
+            id: user_id,
+            email: email.clone(),
+            auth_key_hash,
+            kdf_salt: req.kdf_salt_b64.clone(),
+            kdf_params: req.kdf_params.clone(),
+            encrypted_dek: req.encrypted_dek.clone(),
+            recovery_encrypted_dek: req.recovery_encrypted_dek.clone(),
+            recovery_auth_key_hash,
+            totp_secret_server_encrypted: Some(totp_encrypted),
+            totp_enabled: false,
+            passkey_credential_id: None,
+            passkey_label: None,
+            passkey_encrypted_dek: None,
+            ui_preferences: ui_prefs.clone(),
+        };
+        users.insert(user_id, record.clone());
+        record
+    };
+    sync_user_to_pg(&state, &new_user).await;
     persist_to_disk(&state);
 
     let token = issue_jwt(&state.jwt_secret, user_id, &email, true)?;
@@ -415,7 +670,6 @@ async fn register_user(
         totp_enabled: false,
         totp_setup_uri: Some(totp_uri),
         totp_secret_base32: Some(totp_secret_b32),
-        totp_current_code_hint: current_code,
         passkey_credential_id: None,
         passkey_label: None,
         passkey_encrypted_dek: None,
@@ -428,6 +682,8 @@ async fn login_user(
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, String)> {
     let email = req.email.trim().to_lowercase();
+    check_auth_rate_limit(&state, &format!("login:{}", email))?;
+
     let user_opt = find_user_by_email(&state, &email).await;
     let Some(user) = user_opt else {
         return Err((StatusCode::UNAUTHORIZED, "Ungültige Zugangsdaten".into()));
@@ -471,7 +727,6 @@ async fn login_user(
         totp_enabled: user.totp_enabled,
         totp_setup_uri: None,
         totp_secret_base32: None,
-        totp_current_code_hint: None,
         passkey_credential_id: user.passkey_credential_id,
         passkey_label: user.passkey_label,
         passkey_encrypted_dek: user.passkey_encrypted_dek,
@@ -484,49 +739,64 @@ async fn recover_password(
     Json(req): Json<RecoverPasswordRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, String)> {
     let email = req.email.trim().to_lowercase();
-    let salt = SaltString::generate(&mut OsRng);
-    let new_hash = Argon2::default()
-        .hash_password(req.new_auth_key_b64.as_bytes(), &salt)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .to_string();
+    check_auth_rate_limit(&state, &format!("recover:{}", email))?;
+
+    let Some(existing_user) = find_user_by_email(&state, &email).await else {
+        return Err((StatusCode::NOT_FOUND, "Kein Tresor unter dieser E-Mail gefunden".into()));
+    };
+
+    if existing_user.recovery_auth_key_hash.trim().is_empty()
+        || req.recovery_auth_key_b64.trim().is_empty()
+    {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "Recovery-Nachweis fehlt oder für dieses Konto nicht hinterlegt".into(),
+        ));
+    }
+
+    let parsed_rec_hash = PasswordHash::new(&existing_user.recovery_auth_key_hash)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Recovery-Hash-Fehler".into()))?;
+    Argon2::default()
+        .verify_password(req.recovery_auth_key_b64.as_bytes(), &parsed_rec_hash)
+        .map_err(|_| {
+            (
+                StatusCode::UNAUTHORIZED,
+                "Ungültiger Recovery-Schlüssel (kryptografischer Nachweis fehlgeschlagen)".into(),
+            )
+        })?;
+
+    let new_hash = hash_client_key(&req.new_auth_key_b64)?;
+    let new_rec_hash_opt = match req
+        .new_recovery_auth_key_b64
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        Some(new_rec_key) => Some(hash_client_key(new_rec_key)?),
+        None => None,
+    };
 
     let updated_user = {
         let mut users = state.mem_users.write().unwrap();
-        if let Some(user) = users.values_mut().find(|u| u.email == email) {
-            user.auth_key_hash = new_hash;
-            user.kdf_salt = req.new_kdf_salt_b64.clone();
-            user.kdf_params = req.new_kdf_params.clone();
-            user.encrypted_dek = req.new_encrypted_dek.clone();
-            if let Some(rec_dek) = req
-                .new_recovery_encrypted_dek
-                .as_ref()
-                .filter(|s| !s.trim().is_empty())
-            {
-                user.recovery_encrypted_dek = rec_dek.clone();
-            }
-            user.clone()
-        } else {
-            let user_id =
-                Uuid::parse_str("7f9c2a10-58e4-4c9b-9b1a-123456789abc").unwrap_or_else(|_| Uuid::new_v4());
-            let new_user = UserRecord {
-                id: user_id,
-                email: email.clone(),
-                auth_key_hash: new_hash,
-                kdf_salt: req.new_kdf_salt_b64.clone(),
-                kdf_params: req.new_kdf_params.clone(),
-                encrypted_dek: req.new_encrypted_dek.clone(),
-                recovery_encrypted_dek: req.new_recovery_encrypted_dek.clone().unwrap_or_default(),
-                totp_secret_server_encrypted: None,
-                totp_enabled: false,
-                passkey_credential_id: None,
-                passkey_label: None,
-                passkey_encrypted_dek: None,
-                ui_preferences: serde_json::json!({ "theme": "teal", "mode": "light" }),
-            };
-            users.insert(user_id, new_user.clone());
-            new_user
+        let user = users
+            .get_mut(&existing_user.id)
+            .ok_or((StatusCode::NOT_FOUND, "Benutzer nicht gefunden".into()))?;
+        user.auth_key_hash = new_hash;
+        user.kdf_salt = req.new_kdf_salt_b64.clone();
+        user.kdf_params = req.new_kdf_params.clone();
+        user.encrypted_dek = req.new_encrypted_dek.clone();
+        if let Some(rec_dek) = req
+            .new_recovery_encrypted_dek
+            .as_ref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            user.recovery_encrypted_dek = rec_dek.clone();
         }
+        if let Some(new_rec_hash) = new_rec_hash_opt {
+            user.recovery_auth_key_hash = new_rec_hash;
+        }
+        user.clone()
     };
+    sync_user_to_pg(&state, &updated_user).await;
     persist_to_disk(&state);
 
     let token = issue_jwt(&state.jwt_secret, updated_user.id, &updated_user.email, true)?;
@@ -541,7 +811,6 @@ async fn recover_password(
         totp_enabled: updated_user.totp_enabled,
         totp_setup_uri: None,
         totp_secret_base32: None,
-        totp_current_code_hint: None,
         passkey_credential_id: updated_user.passkey_credential_id,
         passkey_label: updated_user.passkey_label,
         passkey_encrypted_dek: updated_user.passkey_encrypted_dek,
@@ -556,11 +825,19 @@ async fn register_passkey(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let claims = authenticate_request(&state, &headers)?;
     let user_id = Uuid::parse_str(&claims.sub)
-        .unwrap_or_else(|_| Uuid::parse_str("7f9c2a10-58e4-4c9b-9b1a-123456789abc").unwrap());
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
 
     let issued_token = issue_jwt(&state.jwt_secret, user_id, &claims.email, true)?;
-
+    let rec_hash_opt = match req
+        .recovery_auth_key_b64
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
     {
+        Some(rec_key) => Some(hash_client_key(rec_key)?),
+        None => None,
+    };
+
+    let updated_record = {
         let mut users = state.mem_users.write().unwrap();
         let update_existing = |user: &mut UserRecord| {
             user.passkey_credential_id = Some(req.credential_id.clone());
@@ -581,37 +858,42 @@ async fn register_passkey(
             {
                 user.recovery_encrypted_dek = rec_dek.clone();
             }
+            if let Some(rec_hash) = &rec_hash_opt {
+                user.recovery_auth_key_hash = rec_hash.clone();
+            }
         };
 
         if let Some(user) = users.get_mut(&user_id) {
             update_existing(user);
+            user.clone()
         } else if let Some(user) = users.values_mut().find(|u| u.email == claims.email) {
             update_existing(user);
+            user.clone()
         } else {
-            // Falls das Konto zuvor nur lokal im Browser-Cache lag, legen wir den Server-Datensatz jetzt nahtlos an:
-            users.insert(
-                user_id,
-                UserRecord {
-                    id: user_id,
-                    email: claims.email.clone(),
-                    auth_key_hash: String::new(),
-                    kdf_salt: req.kdf_salt_b64.clone().unwrap_or_default(),
-                    kdf_params: KdfParams::default(),
-                    encrypted_dek: req
-                        .encrypted_dek
-                        .clone()
-                        .unwrap_or_else(|| req.passkey_encrypted_dek.clone()),
-                    recovery_encrypted_dek: req.recovery_encrypted_dek.clone().unwrap_or_default(),
-                    totp_secret_server_encrypted: None,
-                    totp_enabled: false,
-                    passkey_credential_id: Some(req.credential_id.clone()),
-                    passkey_label: Some(req.label.clone()),
-                    passkey_encrypted_dek: Some(req.passkey_encrypted_dek.clone()),
-                    ui_preferences: serde_json::json!({ "theme": "teal", "mode": "light" }),
-                },
-            );
+            let new_user = UserRecord {
+                id: user_id,
+                email: claims.email.clone(),
+                auth_key_hash: String::new(),
+                kdf_salt: req.kdf_salt_b64.clone().unwrap_or_default(),
+                kdf_params: KdfParams::default(),
+                encrypted_dek: req
+                    .encrypted_dek
+                    .clone()
+                    .unwrap_or_else(|| req.passkey_encrypted_dek.clone()),
+                recovery_encrypted_dek: req.recovery_encrypted_dek.clone().unwrap_or_default(),
+                recovery_auth_key_hash: rec_hash_opt.unwrap_or_default(),
+                totp_secret_server_encrypted: None,
+                totp_enabled: false,
+                passkey_credential_id: Some(req.credential_id.clone()),
+                passkey_label: Some(req.label.clone()),
+                passkey_encrypted_dek: Some(req.passkey_encrypted_dek.clone()),
+                ui_preferences: serde_json::json!({ "theme": "teal", "mode": "light" }),
+            };
+            users.insert(user_id, new_user.clone());
+            new_user
         }
-    }
+    };
+    sync_user_to_pg(&state, &updated_record).await;
     persist_to_disk(&state);
     Ok(Json(serde_json::json!({
         "token": issued_token,
@@ -624,6 +906,14 @@ async fn login_with_passkey(
     State(state): State<AppState>,
     Json(req): Json<PasskeyLoginRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, String)> {
+    let rate_key = req
+        .email
+        .as_deref()
+        .unwrap_or(req.credential_id.as_str())
+        .trim()
+        .to_lowercase();
+    check_auth_rate_limit(&state, &format!("passkey:{}", rate_key))?;
+
     let user_opt = {
         let users = state.mem_users.read().unwrap();
         users
@@ -660,7 +950,6 @@ async fn login_with_passkey(
         totp_enabled: user.totp_enabled,
         totp_setup_uri: None,
         totp_secret_base32: None,
-        totp_current_code_hint: None,
         passkey_credential_id: user.passkey_credential_id,
         passkey_label: user.passkey_label,
         passkey_encrypted_dek: user.passkey_encrypted_dek,
@@ -674,9 +963,9 @@ async fn get_2fa_setup_info(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let claims = authenticate_request(&state, &headers)?;
     let user_id = Uuid::parse_str(&claims.sub)
-        .unwrap_or_else(|_| Uuid::parse_str("7f9c2a10-58e4-4c9b-9b1a-123456789abc").unwrap());
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
 
-    let (totp_enabled, email, secret_b32, needs_save) = {
+    let (totp_enabled, email, secret_b32, updated_user_opt) = {
         let mut users = state.mem_users.write().unwrap();
         let user_entry = if let Some(u) = users.get_mut(&user_id) {
             Some(u)
@@ -685,6 +974,13 @@ async fn get_2fa_setup_info(
         };
 
         if let Some(user) = user_entry {
+            if user.totp_enabled {
+                return Err((
+                    StatusCode::CONFLICT,
+                    "2FA ist bereits für dieses Konto aktiviert.".into(),
+                ));
+            }
+
             let mut created = false;
             let secret = if let Some(enc_secret) = &user.totp_secret_server_encrypted {
                 decrypt_entity_envelope(
@@ -712,7 +1008,8 @@ async fn get_2fa_setup_info(
                     user.totp_secret_server_encrypted = Some(enc);
                 }
             }
-            (user.totp_enabled, user.email.clone(), secret, created)
+            let maybe_saved = if created { Some(user.clone()) } else { None };
+            (user.totp_enabled, user.email.clone(), secret, maybe_saved)
         } else {
             let secret = totp::generate_totp_secret_base32();
             let enc = encrypt_entity_envelope(
@@ -722,39 +1019,37 @@ async fn get_2fa_setup_info(
                 &secret,
             )
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-            users.insert(
-                user_id,
-                UserRecord {
-                    id: user_id,
-                    email: claims.email.clone(),
-                    auth_key_hash: String::new(),
-                    kdf_salt: String::new(),
-                    kdf_params: KdfParams::default(),
-                    encrypted_dek: String::new(),
-                    recovery_encrypted_dek: String::new(),
-                    totp_secret_server_encrypted: Some(enc),
-                    totp_enabled: false,
-                    passkey_credential_id: None,
-                    passkey_label: None,
-                    passkey_encrypted_dek: None,
-                    ui_preferences: serde_json::json!({ "theme": "teal", "mode": "light" }),
-                },
-            );
-            (false, claims.email.clone(), secret, true)
+            let new_user = UserRecord {
+                id: user_id,
+                email: claims.email.clone(),
+                auth_key_hash: String::new(),
+                kdf_salt: String::new(),
+                kdf_params: KdfParams::default(),
+                encrypted_dek: String::new(),
+                recovery_encrypted_dek: String::new(),
+                recovery_auth_key_hash: String::new(),
+                totp_secret_server_encrypted: Some(enc),
+                totp_enabled: false,
+                passkey_credential_id: None,
+                passkey_label: None,
+                passkey_encrypted_dek: None,
+                ui_preferences: serde_json::json!({ "theme": "teal", "mode": "light" }),
+            };
+            users.insert(user_id, new_user.clone());
+            (false, claims.email.clone(), secret, Some(new_user))
         }
     };
 
-    if needs_save {
+    if let Some(saved_user) = updated_user_opt {
+        sync_user_to_pg(&state, &saved_user).await;
         persist_to_disk(&state);
     }
 
     let uri = totp::build_otpauth_uri(&email, &secret_b32);
-    let current_code = totp::current_totp_code(&secret_b32);
     Ok(Json(serde_json::json!({
         "totp_enabled": totp_enabled,
         "totp_secret_base32": secret_b32,
-        "totp_setup_uri": uri,
-        "totp_current_code_hint": current_code
+        "totp_setup_uri": uri
     })))
 }
 
@@ -765,9 +1060,10 @@ async fn verify_and_enable_2fa(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let claims = authenticate_request(&state, &headers)?;
     let user_id = Uuid::parse_str(&claims.sub)
-        .unwrap_or_else(|_| Uuid::parse_str("7f9c2a10-58e4-4c9b-9b1a-123456789abc").unwrap());
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
+    check_auth_rate_limit(&state, &format!("2fa_verify:{}", user_id))?;
 
-    {
+    let updated_user_opt = {
         let mut users = state.mem_users.write().unwrap();
         let user_opt = if let Some(u) = users.get_mut(&user_id) {
             Some(u)
@@ -789,8 +1085,16 @@ async fn verify_and_enable_2fa(
                     return Err((StatusCode::BAD_REQUEST, "6-stelliger 2FA-Code ist ungültig".into()));
                 }
                 user.totp_enabled = true;
+                Some(user.clone())
+            } else {
+                return Err((StatusCode::BAD_REQUEST, "Kein 2FA-Secret initialisiert".into()));
             }
+        } else {
+            return Err((StatusCode::NOT_FOUND, "Benutzer nicht gefunden".into()));
         }
+    };
+    if let Some(saved_user) = updated_user_opt {
+        sync_user_to_pg(&state, &saved_user).await;
     }
     persist_to_disk(&state);
     Ok(Json(serde_json::json!({ "totp_enabled": true })))
@@ -848,6 +1152,18 @@ async fn upsert_envelope(
             if existing.owner_user_id != owner_id {
                 return Err((StatusCode::FORBIDDEN, "Zugriff verweigert (Mandantentrennung)".into()));
             }
+            // Issue #2: Optimistic Concurrency Control
+            if let Some(exp_ver) = req.expected_version {
+                if existing.version != exp_ver {
+                    return Err((
+                        StatusCode::CONFLICT,
+                        format!(
+                            "Konflikt: Datensatz hat Version {}, erwartete Version war {}",
+                            existing.version, exp_ver
+                        ),
+                    ));
+                }
+            }
         }
 
         let next_version = store.get(&effective_id).map(|e| e.version + 1).unwrap_or(1);
@@ -864,6 +1180,7 @@ async fn upsert_envelope(
         store.insert(effective_id, rec.clone());
         rec
     };
+    sync_envelope_to_pg(&state, &record).await;
     persist_to_disk(&state);
     Ok(Json(record))
 }
@@ -879,15 +1196,32 @@ async fn batch_sync_envelopes(
 
     let updated = {
         let mut store = state.mem_envelopes.write().unwrap();
-        let mut out = Vec::with_capacity(req.envelopes.len());
 
-        for item in req.envelopes {
+        // Pre-validation pass: verify all expected_versions before mutating any record
+        for item in &req.envelopes {
             let effective_id = resolve_tenant_envelope_id(owner_id, item.id);
             if let Some(existing) = store.get(&effective_id) {
                 if existing.owner_user_id != owner_id {
                     return Err((StatusCode::FORBIDDEN, "Zugriff verweigert".into()));
                 }
+                if let Some(exp_ver) = item.expected_version {
+                    if existing.version != exp_ver {
+                        return Err((
+                            StatusCode::CONFLICT,
+                            format!(
+                                "Konflikt bei Envelope {}: Server hat Version {}, erwartet war {}",
+                                item.id, existing.version, exp_ver
+                            ),
+                        ));
+                    }
+                }
             }
+        }
+
+        let mut out = Vec::with_capacity(req.envelopes.len());
+
+        for item in req.envelopes {
+            let effective_id = resolve_tenant_envelope_id(owner_id, item.id);
             let next_version = store.get(&effective_id).map(|e| e.version + 1).unwrap_or(1);
             let record = EncryptedEnvelopeRecord {
                 id: effective_id,
@@ -904,6 +1238,9 @@ async fn batch_sync_envelopes(
         }
         out
     };
+    for rec in &updated {
+        sync_envelope_to_pg(&state, rec).await;
+    }
     persist_to_disk(&state);
     Ok(Json(updated))
 }
@@ -916,20 +1253,28 @@ async fn delete_envelope(
     let claims = authenticate_request(&state, &headers)?;
     let owner_id = Uuid::parse_str(&claims.sub)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
+    let effective_id = resolve_tenant_envelope_id(owner_id, id);
 
-    let removed = {
+    let removed_id = {
         let mut store = state.mem_envelopes.write().unwrap();
-        if let Some(existing) = store.get(&id) {
+        if let Some(existing) = store.get(&effective_id) {
+            if existing.owner_user_id != owner_id {
+                return Err((StatusCode::FORBIDDEN, "Zugriff verweigert".into()));
+            }
+            store.remove(&effective_id);
+            Some(effective_id)
+        } else if let Some(existing) = store.get(&id) {
             if existing.owner_user_id != owner_id {
                 return Err((StatusCode::FORBIDDEN, "Zugriff verweigert".into()));
             }
             store.remove(&id);
-            true
+            Some(id)
         } else {
-            false
+            None
         }
     };
-    if removed {
+    if let Some(del_id) = removed_id {
+        delete_envelope_from_pg(&state, del_id, owner_id).await;
         persist_to_disk(&state);
         return Ok(StatusCode::NO_CONTENT);
     }
@@ -945,19 +1290,65 @@ async fn update_preferences(
     let owner_id = Uuid::parse_str(&claims.sub)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
 
-    {
+    let updated_user_opt = {
         let mut users = state.mem_users.write().unwrap();
         if let Some(user) = users.get_mut(&owner_id) {
             user.ui_preferences = prefs.clone();
+            Some(user.clone())
+        } else {
+            None
         }
+    };
+    if let Some(saved_user) = updated_user_opt {
+        sync_user_to_pg(&state, &saved_user).await;
     }
     persist_to_disk(&state);
     Ok(Json(prefs))
 }
 
 async fn find_user_by_email(state: &AppState, email: &str) -> Option<UserRecord> {
-    let users = state.mem_users.read().unwrap();
-    users.values().find(|u| u.email == email).cloned()
+    if let Some(u) = state
+        .mem_users
+        .read()
+        .unwrap()
+        .values()
+        .find(|u| u.email == email)
+        .cloned()
+    {
+        return Some(u);
+    }
+
+    if let Some(pool) = &state.db {
+        if let Ok(Some(row)) = sqlx::query(
+            "SELECT id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek, recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted, totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek, ui_preferences FROM users WHERE email = $1",
+        )
+        .bind(email)
+        .fetch_optional(pool)
+        .await
+        {
+            let id: Uuid = row.get("id");
+            let kdf_params_val: serde_json::Value = row.get("kdf_params");
+            let user = UserRecord {
+                id,
+                email: row.get("email"),
+                auth_key_hash: row.get("auth_key_hash"),
+                kdf_salt: row.get("kdf_salt"),
+                kdf_params: serde_json::from_value(kdf_params_val).unwrap_or_default(),
+                encrypted_dek: row.get("encrypted_dek"),
+                recovery_encrypted_dek: row.get("recovery_encrypted_dek"),
+                recovery_auth_key_hash: row.try_get("recovery_auth_key_hash").unwrap_or_default(),
+                totp_secret_server_encrypted: row.get("totp_secret_server_encrypted"),
+                totp_enabled: row.get("totp_enabled"),
+                passkey_credential_id: row.try_get("passkey_credential_id").ok().flatten(),
+                passkey_label: row.try_get("passkey_label").ok().flatten(),
+                passkey_encrypted_dek: row.try_get("passkey_encrypted_dek").ok().flatten(),
+                ui_preferences: row.get("ui_preferences"),
+            };
+            state.mem_users.write().unwrap().insert(id, user.clone());
+            return Some(user);
+        }
+    }
+    None
 }
 
 fn issue_jwt(
@@ -994,24 +1385,6 @@ fn authenticate_request(
         .strip_prefix("Bearer ")
         .ok_or((StatusCode::UNAUTHORIZED, "Bearer Token erwartet".into()))?;
 
-    if token == "offline_demo_jwt" {
-        let users = state.mem_users.read().unwrap();
-        if let Some(first_user) = users.values().next() {
-            return Ok(JwtClaims {
-                sub: first_user.id.to_string(),
-                email: first_user.email.clone(),
-                two_factor_verified: true,
-                exp: (Utc::now().timestamp() + 86400 * 7) as usize,
-            });
-        }
-        return Ok(JwtClaims {
-            sub: "7f9c2a10-58e4-4c9b-9b1a-123456789abc".to_string(),
-            email: "julian@gemeinschaftsschule.de".to_string(),
-            two_factor_verified: true,
-            exp: (Utc::now().timestamp() + 86400 * 7) as usize,
-        });
-    }
-
     let token_data = decode::<JwtClaims>(
         token,
         &DecodingKey::from_secret(state.jwt_secret.as_bytes()),
@@ -1021,3 +1394,221 @@ fn authenticate_request(
 
     Ok(token_data.claims)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use notenflow_core::crypto::{derive_recovery_auth_key, generate_vault_bundle, rewrap_dek_for_new_password};
+
+    fn create_test_state() -> AppState {
+        let tmp_file = std::env::temp_dir().join(format!("notenflow_test_vault_{}.json", Uuid::new_v4()));
+        let key_digest = Sha256::digest(b"test_server_encryption_key_2026");
+        AppState {
+            db: None,
+            disk_store_path: tmp_file,
+            mem_users: Arc::new(RwLock::new(HashMap::new())),
+            mem_envelopes: Arc::new(RwLock::new(HashMap::new())),
+            auth_rate_limits: Arc::new(RwLock::new(HashMap::new())),
+            jwt_secret: "test_jwt_secret_2026".into(),
+            server_encryption_key_b64: B64.encode(key_digest),
+        }
+    }
+
+    #[test]
+    fn test_rejects_offline_demo_jwt_backdoor() {
+        let state = create_test_state();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            HeaderValue::from_static("Bearer offline_demo_jwt"),
+        );
+        let res = authenticate_request(&state, &headers);
+        assert!(res.is_err());
+        assert_eq!(res.unwrap_err().0, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_register_login_and_cryptographic_recovery_verification() {
+        let state = create_test_state();
+        let bundle = generate_vault_bundle("InitialPassword123!").expect("bundle");
+
+        // 1. Register user with recovery_auth_key_b64
+        let Json(reg_resp) = register_user(
+            State(state.clone()),
+            Json(RegisterRequest {
+                email: "teacher@schule.de".into(),
+                auth_key_b64: bundle.auth_key_b64.clone(),
+                kdf_salt_b64: bundle.kdf_salt_b64.clone(),
+                kdf_params: bundle.kdf_params.clone(),
+                encrypted_dek: bundle.encrypted_dek.clone(),
+                recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
+                recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
+            }),
+        )
+        .await
+        .expect("register_user");
+        assert_eq!(reg_resp.email, "teacher@schule.de");
+
+        // 2. Verify salt endpoint does NOT leak passkey_credential_id
+        let Json(salt_resp) = get_user_salt(
+            State(state.clone()),
+            Json(SaltQueryRequest {
+                email: "teacher@schule.de".into(),
+            }),
+        )
+        .await
+        .expect("get_user_salt");
+        assert!(!salt_resp.has_passkey);
+
+        // 3. Attempt password recovery with WRONG recovery_auth_key_b64 -> must fail with 401
+        let (new_salt, new_params, new_auth_key, new_enc_dek) =
+            rewrap_dek_for_new_password(&bundle.dek_b64, "NewPassword456!").expect("rewrap");
+        let wrong_rec_key = derive_recovery_auth_key("AAAA-BBBB-CCCC-DDDD-EEEE-FFFF").unwrap();
+
+        let bad_recover = recover_password(
+            State(state.clone()),
+            Json(RecoverPasswordRequest {
+                email: "teacher@schule.de".into(),
+                recovery_auth_key_b64: wrong_rec_key,
+                new_auth_key_b64: new_auth_key.clone(),
+                new_kdf_salt_b64: new_salt.clone(),
+                new_kdf_params: new_params.clone(),
+                new_encrypted_dek: new_enc_dek.clone(),
+                new_recovery_encrypted_dek: None,
+                new_recovery_auth_key_b64: None,
+            }),
+        )
+        .await;
+        assert!(bad_recover.is_err());
+        assert_eq!(bad_recover.err().unwrap().0, StatusCode::UNAUTHORIZED);
+
+        // 4. Attempt password recovery with VALID recovery_auth_key_b64 -> succeeds
+        let Json(good_recover) = recover_password(
+            State(state.clone()),
+            Json(RecoverPasswordRequest {
+                email: "teacher@schule.de".into(),
+                recovery_auth_key_b64: bundle.recovery_auth_key_b64.clone(),
+                new_auth_key_b64: new_auth_key.clone(),
+                new_kdf_salt_b64: new_salt,
+                new_kdf_params: new_params,
+                new_encrypted_dek: new_enc_dek,
+                new_recovery_encrypted_dek: None,
+                new_recovery_auth_key_b64: None,
+            }),
+        )
+        .await
+        .expect("valid recovery");
+        assert_eq!(good_recover.user_id, reg_resp.user_id);
+
+        // Clean up temporary vault file
+        let _ = fs::remove_file(&state.disk_store_path);
+    }
+
+    #[tokio::test]
+    async fn test_2fa_setup_locks_after_enabling_and_tenant_isolation() {
+        let state = create_test_state();
+        let bundle = generate_vault_bundle("Teacher2FA!").expect("bundle");
+
+        let Json(reg_resp) = register_user(
+            State(state.clone()),
+            Json(RegisterRequest {
+                email: "2fa@schule.de".into(),
+                auth_key_b64: bundle.auth_key_b64,
+                kdf_salt_b64: bundle.kdf_salt_b64,
+                kdf_params: bundle.kdf_params,
+                encrypted_dek: bundle.encrypted_dek,
+                recovery_encrypted_dek: bundle.recovery_encrypted_dek,
+                recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64),
+            }),
+        )
+        .await
+        .expect("register");
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Bearer {}", reg_resp.token)).unwrap(),
+        );
+
+        // 1. Setup 2FA before enabling -> returns secret_base32, no totp_current_code_hint
+        let Json(setup_info) = get_2fa_setup_info(State(state.clone()), headers.clone())
+            .await
+            .expect("2fa setup");
+        assert!(setup_info.get("totp_current_code_hint").is_none());
+        let secret_b32 = setup_info["totp_secret_base32"].as_str().unwrap().to_string();
+
+        // 2. Verify and enable 2FA using valid TOTP code
+        let valid_code = totp::current_totp_code(&secret_b32).expect("code");
+        let Json(verified_info) = verify_and_enable_2fa(
+            State(state.clone()),
+            headers.clone(),
+            Json(VerifyTotpRequest {
+                totp_code: valid_code,
+            }),
+        )
+        .await
+        .expect("enable 2fa");
+        assert_eq!(verified_info["totp_enabled"], true);
+
+        // 3. Calling get_2fa_setup_info again after 2FA is enabled must be rejected with 409 CONFLICT
+        let second_setup = get_2fa_setup_info(State(state.clone()), headers.clone()).await;
+        assert!(second_setup.is_err());
+        assert_eq!(second_setup.unwrap_err().0, StatusCode::CONFLICT);
+
+        // 4. Upsert envelope and verify tenant isolation + OCC
+        let env_id = Uuid::new_v4();
+        let Json(env_rec) = upsert_envelope(
+            State(state.clone()),
+            headers.clone(),
+            Json(UpsertEnvelopeRequest {
+                id: env_id,
+                entity_type: "workspace_v2".into(),
+                parent_id: None,
+                class_id: None,
+                encrypted_payload: "v1:nonce:cipher".into(),
+                expected_version: None,
+            }),
+        )
+        .await
+        .expect("upsert");
+        assert_eq!(env_rec.owner_user_id, reg_resp.user_id);
+        assert_eq!(env_rec.version, 1);
+
+        // OCC Test: Updating with wrong expected_version must fail with 409 Conflict
+        let conflict_res = upsert_envelope(
+            State(state.clone()),
+            headers.clone(),
+            Json(UpsertEnvelopeRequest {
+                id: env_id,
+                entity_type: "workspace_v2".into(),
+                parent_id: None,
+                class_id: None,
+                encrypted_payload: "v1:nonce:cipher_conflict".into(),
+                expected_version: Some(999),
+            }),
+        )
+        .await;
+        assert!(conflict_res.is_err());
+        assert_eq!(conflict_res.unwrap_err().0, StatusCode::CONFLICT);
+
+        // OCC Test: Updating with correct expected_version (1) succeeds and advances to version 2
+        let Json(updated_rec) = upsert_envelope(
+            State(state.clone()),
+            headers.clone(),
+            Json(UpsertEnvelopeRequest {
+                id: env_id,
+                entity_type: "workspace_v2".into(),
+                parent_id: None,
+                class_id: None,
+                encrypted_payload: "v1:nonce:cipher_updated".into(),
+                expected_version: Some(1),
+            }),
+        )
+        .await
+        .expect("valid occ update");
+        assert_eq!(updated_rec.version, 2);
+
+        let _ = fs::remove_file(&state.disk_store_path);
+    }
+}
+

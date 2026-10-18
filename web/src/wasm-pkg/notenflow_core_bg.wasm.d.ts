@@ -3,6 +3,7 @@
 export const memory: WebAssembly.Memory;
 export const wasm_calculate_class_report: (a: number, b: number) => [number, number, number, number];
 export const wasm_decrypt_envelope: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
+export const wasm_derive_recovery_auth_key: (a: number, b: number) => [number, number, number, number];
 export const wasm_encrypt_envelope: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
 export const wasm_generate_vault: (a: number, b: number) => [number, number, number, number];
 export const wasm_rewrap_dek: (a: number, b: number, c: number, d: number) => [number, number, number, number];

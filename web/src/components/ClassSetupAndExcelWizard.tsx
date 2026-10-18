@@ -191,12 +191,15 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
         }
         const num = parseFloat(strVal.replace(',', '.'));
         if (!isNaN(num)) {
+          const clampedPct = Math.max(0, Math.min(100, num));
+          const assess = assessments.find((a) => a.id === assessId);
+          const maxPts = assess?.max_points ?? 15;
           grades.push({
             student_id: stuId,
             assessment_id: assessId,
             status: 'graded',
-            percent_value: Math.max(0, Math.min(100, num)),
-            raw_points: Math.round((num / 100) * 15),
+            percent_value: clampedPct,
+            raw_points: Math.round((clampedPct / 100) * maxPts * 10) / 10,
             direct_grade_value: null,
             comment: null,
           });
@@ -432,7 +435,7 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
                   : 'Excel-Datei (.xlsx, .xls, .ods, .csv) hierher ziehen oder klicken'}
               </div>
               <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                Z.B. direkt <code className="font-mono">/home/julian/Downloads/Englisch 6 SJ 2627.xlsx</code> auswählen!
+                Unterstützt Klassenlisten aus Schulportalen oder eigenen Tabellen (z. B. <code className="font-mono">Klassenliste_7b.xlsx</code>)
               </div>
               <input
                 type="file"

@@ -5,6 +5,8 @@ export function wasm_calculate_class_report(input_json: string): string;
 
 export function wasm_decrypt_envelope(dek_b64: string, owner_user_id: string, entity_id: string, envelope: string): string;
 
+export function wasm_derive_recovery_auth_key(recovery_key: string): string;
+
 export function wasm_encrypt_envelope(dek_b64: string, owner_user_id: string, entity_id: string, plaintext_json: string): string;
 
 export function wasm_generate_vault(password: string): string;
@@ -29,6 +31,7 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly wasm_calculate_class_report: (a: number, b: number) => [number, number, number, number];
     readonly wasm_decrypt_envelope: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
+    readonly wasm_derive_recovery_auth_key: (a: number, b: number) => [number, number, number, number];
     readonly wasm_encrypt_envelope: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
     readonly wasm_generate_vault: (a: number, b: number) => [number, number, number, number];
     readonly wasm_rewrap_dek: (a: number, b: number, c: number, d: number) => [number, number, number, number];

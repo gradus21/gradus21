@@ -213,53 +213,115 @@ pub fn default_thresholds_for_scale(scale: GradingScaleId) -> Vec<GradeThreshold
     }
 }
 
+#[inline]
+pub fn round1(v: f64) -> f64 {
+    if !v.is_finite() {
+        return 0.0;
+    }
+    (v * 10.0).round() / 10.0
+}
+
 /// Converts a percentage (0..=100) into a GradeThreshold, taking custom thresholds and optional student level (G/M/E) into account
 pub fn percent_to_grade(
     percent: f64,
     config: &SubjectGradingConfig,
     student_level: Option<&str>,
 ) -> GradeThreshold {
+    let clean_percent = if percent.is_finite() { percent } else { 0.0 };
     let offset = if config.enable_student_levels {
         student_level
             .and_then(|lvl| config.level_threshold_offsets.get(lvl).copied())
+            .filter(|o| o.is_finite())
             .unwrap_or(0.0)
     } else {
         0.0
     };
 
-    let adjusted_percent = (percent - offset).clamp(0.0, 100.0);
-    let thresholds = config
+    let adjusted_percent = (clean_percent - offset).clamp(0.0, 100.0);
+    let mut thresholds = config
         .custom_thresholds
         .clone()
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| default_thresholds_for_scale(config.scale_id));
+
+    // Ensure thresholds are sorted descending by min_percent
+    thresholds.sort_by(|a, b| b.min_percent.partial_cmp(&a.min_percent).unwrap_or(std::cmp::Ordering::Equal));
 
     for t in &thresholds {
         if adjusted_percent >= t.min_percent {
             return t.clone();
         }
     }
-    thresholds.last().unwrap().clone()
+    thresholds.last().cloned().unwrap_or(GradeThreshold {
+        min_percent: 0.0,
+        display_label: "—".into(),
+        numeric_value: 0.0,
+        semantic_tier: 6,
+    })
 }
 
-/// Resolves a single GradeEntry into a normalized percentage (0..=100)
-pub fn resolve_entry_percent(entry: &GradeEntry, assessment: &AssessmentConfig) -> Option<f64> {
+/// Resolves a single GradeEntry into a normalized percentage (0..=100) using active scale context
+pub fn resolve_entry_percent_with_config(
+    entry: &GradeEntry,
+    assessment: &AssessmentConfig,
+    config: &SubjectGradingConfig,
+) -> Option<f64> {
     if entry.status != GradeStatus::Graded {
         return None;
     }
     if let Some(pct) = entry.percent_value {
-        return Some(pct.clamp(0.0, 100.0));
+        if pct.is_finite() {
+            return Some(pct.clamp(0.0, 100.0));
+        }
     }
     if let (Some(pts), Some(max_pts)) = (entry.raw_points, assessment.max_points) {
-        if max_pts > 0.0 {
+        if pts.is_finite() && max_pts.is_finite() && max_pts > 0.0 {
             return Some(((pts / max_pts) * 100.0).clamp(0.0, 100.0));
         }
     }
     if let Some(grade_val) = entry.direct_grade_value {
-        let pct = (100.0 - (grade_val - 1.0) * 18.0).clamp(0.0, 100.0);
-        return Some(pct);
+        if !grade_val.is_finite() {
+            return None;
+        }
+        // Scale-aware resolution for direct grade values (Issue #6)
+        match config.scale_id {
+            GradingScaleId::DeOberstufe0To15 => {
+                let clamped_pts = grade_val.clamp(0.0, 15.0);
+                let thresholds = config
+                    .custom_thresholds
+                    .clone()
+                    .unwrap_or_else(|| default_thresholds_for_scale(GradingScaleId::DeOberstufe0To15));
+                if let Some(matching) = thresholds.iter().find(|t| (t.numeric_value - clamped_pts).abs() < 0.25) {
+                    return Some(matching.min_percent);
+                }
+                return Some(((clamped_pts / 15.0) * 100.0).clamp(0.0, 100.0));
+            }
+            GradingScaleId::DeClassic1To6 => {
+                let clamped_grade = grade_val.clamp(0.75, 6.0);
+                let thresholds = config
+                    .custom_thresholds
+                    .clone()
+                    .unwrap_or_else(|| default_thresholds_for_scale(GradingScaleId::DeClassic1To6));
+                if let Some(matching) = thresholds.iter().find(|t| (t.numeric_value - clamped_grade).abs() < 0.15) {
+                    return Some(matching.min_percent);
+                }
+                // Linear fallback across 1..=6
+                let pct = ((6.0 - clamped_grade) / 5.0) * 100.0;
+                return Some(pct.clamp(0.0, 100.0));
+            }
+            GradingScaleId::UsLetterGpa => {
+                let clamped_gpa = grade_val.clamp(0.0, 4.0);
+                return Some(((clamped_gpa / 4.0) * 100.0).clamp(0.0, 100.0));
+            }
+        }
     }
     None
+}
+
+/// Backwards-compatible wrapper
+pub fn resolve_entry_percent(entry: &GradeEntry, assessment: &AssessmentConfig) -> Option<f64> {
+    let default_cfg = SubjectGradingConfig::default();
+    resolve_entry_percent_with_config(entry, assessment, &default_cfg)
 }
 
 /// Calculates the entire class grading report 100% client-side
@@ -284,7 +346,10 @@ pub fn calculate_class_report(
     let mut class_graded_students = 0usize;
     let mut distribution_buckets = [0usize; 6];
 
-    let total_defined_cat_weight: f64 = categories.iter().map(|c| c.weight.max(0.0)).sum();
+    let total_defined_cat_weight: f64 = categories
+        .iter()
+        .map(|c| if c.weight.is_finite() { c.weight.max(0.0) } else { 0.0 })
+        .sum();
 
     for student in students {
         let mut category_results = Vec::with_capacity(categories.len());
@@ -304,8 +369,13 @@ pub fn calculate_class_report(
                     .iter()
                     .find(|g| g.student_id == student.id && g.assessment_id == assess.id)
                 {
-                    if let Some(pct) = resolve_entry_percent(entry, assess) {
-                        scored_items.push((pct, assess.weight.max(0.01)));
+                    if let Some(pct) = resolve_entry_percent_with_config(entry, assess, config) {
+                        let w = if assess.weight.is_finite() && assess.weight > 0.0 {
+                            assess.weight
+                        } else {
+                            1.0
+                        };
+                        scored_items.push((pct, w));
                     }
                 }
             }
@@ -316,18 +386,26 @@ pub fn calculate_class_report(
             }
 
             let graded_count = scored_items.len();
+            let cat_w = if cat.weight.is_finite() { cat.weight.max(0.0) } else { 0.0 };
+
             if graded_count > 0 {
                 let w_sum: f64 = scored_items.iter().map(|(_, w)| *w).sum();
-                let pct_avg = scored_items.iter().map(|(p, w)| p * w).sum::<f64>() / w_sum;
-                let threshold = percent_to_grade(pct_avg, config, student.level.as_deref());
+                let pct_avg = if w_sum > 0.0 {
+                    scored_items.iter().map(|(p, w)| p * w).sum::<f64>() / w_sum
+                } else {
+                    0.0
+                };
+                let rounded_cat_pct = round1(pct_avg);
+                // Issue #5: Call percent_to_grade with rounded_cat_pct for 100% UI consistency!
+                let threshold = percent_to_grade(rounded_cat_pct, config, student.level.as_deref());
 
-                active_cat_weight_sum += cat.weight.max(0.0);
-                weighted_cat_pct_sum += pct_avg * cat.weight.max(0.0);
+                active_cat_weight_sum += cat_w;
+                weighted_cat_pct_sum += rounded_cat_pct * cat_w;
 
                 category_results.push(CategoryResult {
                     category_id: cat.id.clone(),
                     category_name: cat.name.clone(),
-                    average_percent: Some((pct_avg * 10.0).round() / 10.0),
+                    average_percent: Some(rounded_cat_pct),
                     average_grade_numeric: Some(threshold.numeric_value),
                     display_grade: threshold.display_label,
                     graded_count,
@@ -348,11 +426,11 @@ pub fn calculate_class_report(
         }
 
         for (idx, cr) in category_results.iter_mut().enumerate() {
-            let raw_w = categories[idx].weight.max(0.0);
+            let raw_w = if categories[idx].weight.is_finite() { categories[idx].weight.max(0.0) } else { 0.0 };
             if cr.graded_count > 0 && active_cat_weight_sum > 0.0 && config.scale_empty_categories {
-                cr.effective_weight_percent = ((raw_w / active_cat_weight_sum) * 1000.0).round() / 10.0;
+                cr.effective_weight_percent = round1((raw_w / active_cat_weight_sum) * 100.0);
             } else if total_defined_cat_weight > 0.0 {
-                cr.effective_weight_percent = ((raw_w / total_defined_cat_weight) * 1000.0).round() / 10.0;
+                cr.effective_weight_percent = round1((raw_w / total_defined_cat_weight) * 100.0);
             }
         }
 
@@ -378,8 +456,12 @@ pub fn calculate_class_report(
                         .iter()
                         .find(|g| g.student_id == student.id && g.assessment_id == assess.id)
                     {
-                        if let Some(pct) = resolve_entry_percent(entry, assess) {
-                            let w = assess.weight.max(0.01);
+                        if let Some(pct) = resolve_entry_percent_with_config(entry, assess, config) {
+                            let w = if assess.weight.is_finite() && assess.weight > 0.0 {
+                                assess.weight
+                            } else {
+                                1.0
+                            };
                             total_w += w;
                             total_score += pct * w;
                         }
@@ -402,11 +484,20 @@ pub fn calculate_class_report(
                         if entry.status == GradeStatus::Graded {
                             let max_p = assess.max_points.unwrap_or(100.0);
                             if let Some(raw_p) = entry.raw_points {
-                                earned_pts += raw_p;
-                                possible_pts += max_p;
+                                if raw_p.is_finite() && max_p.is_finite() && max_p > 0.0 {
+                                    earned_pts += raw_p;
+                                    possible_pts += max_p;
+                                }
                             } else if let Some(pct) = entry.percent_value {
-                                earned_pts += (pct / 100.0) * max_p;
-                                possible_pts += max_p;
+                                if pct.is_finite() && max_p.is_finite() && max_p > 0.0 {
+                                    earned_pts += (pct / 100.0) * max_p;
+                                    possible_pts += max_p;
+                                }
+                            } else if let Some(pct) = resolve_entry_percent_with_config(entry, assess, config) {
+                                if max_p.is_finite() && max_p > 0.0 {
+                                    earned_pts += (pct / 100.0) * max_p;
+                                    possible_pts += max_p;
+                                }
                             }
                         }
                     }
@@ -420,7 +511,7 @@ pub fn calculate_class_report(
         };
 
         if let Some(overall_pct) = overall_pct_opt {
-            let rounded_pct = (overall_pct * 10.0).round() / 10.0;
+            let rounded_pct = round1(overall_pct);
             let threshold = percent_to_grade(rounded_pct, config, student.level.as_deref());
 
             if !student.is_not_graded && !student.is_archived {
@@ -429,6 +520,13 @@ pub fn calculate_class_report(
                 let tier_idx = (threshold.semantic_tier.saturating_sub(1) as usize).min(5);
                 distribution_buckets[tier_idx] += 1;
             }
+
+            let is_prelim = match config.weighting_mode {
+                WeightingMode::CategoryBuckets => empty_categories_count > 0,
+                WeightingMode::DirectWeights | WeightingMode::TotalPoints => {
+                    filtered_assessments.is_empty() || filtered_assessments.len() < 2
+                }
+            };
 
             student_summaries.push(StudentCalculatedSummary {
                 student_id: student.id.clone(),
@@ -440,7 +538,7 @@ pub fn calculate_class_report(
                     threshold.display_label
                 },
                 semantic_tier: threshold.semantic_tier,
-                is_preliminary: empty_categories_count > 0,
+                is_preliminary: is_prelim,
                 category_results,
             });
         } else {
@@ -458,7 +556,7 @@ pub fn calculate_class_report(
 
     let (class_average_percent, class_average_grade_numeric, class_display_grade) =
         if class_graded_students > 0 {
-            let avg_pct = ((class_pct_sum / class_graded_students as f64) * 10.0).round() / 10.0;
+            let avg_pct = round1(class_pct_sum / class_graded_students as f64);
             let threshold = percent_to_grade(avg_pct, config, None);
             (
                 Some(avg_pct),
@@ -478,15 +576,18 @@ pub fn calculate_class_report(
     }
 }
 
-/// "Was-wäre-wenn"-Simulator for Student 360° Elterngespräch View
+/// "Was-wäre-wenn"-Simulator for Student 360° Elterngespräch View (Issue #7 support)
 pub fn simulate_needed_score_for_target(
     current_summary: &StudentCalculatedSummary,
     categories: &[CategoryConfig],
     target_category_id: &str,
     target_overall_percent: f64,
 ) -> Option<f64> {
-    let total_w: f64 = categories.iter().map(|c| c.weight.max(0.0)).sum();
-    if total_w <= 0.0 {
+    let total_w: f64 = categories
+        .iter()
+        .map(|c| if c.weight.is_finite() { c.weight.max(0.0) } else { 0.0 })
+        .sum();
+    if total_w <= 0.0 || !target_overall_percent.is_finite() {
         return None;
     }
 
@@ -501,8 +602,10 @@ pub fn simulate_needed_score_for_target(
             .category_results
             .iter()
             .find(|r| r.category_id == cat.id);
+        let cat_w = if cat.weight.is_finite() { cat.weight.max(0.0) } else { 0.0 };
+
         if cat.id == target_category_id {
-            target_cat_w = cat.weight.max(0.0);
+            target_cat_w = cat_w;
             active_total_w += target_cat_w;
             if let Some(r) = cr {
                 target_existing_avg = r.average_percent;
@@ -510,13 +613,13 @@ pub fn simulate_needed_score_for_target(
             }
         } else if let Some(r) = cr {
             if let Some(avg) = r.average_percent {
-                other_weighted_sum += avg * cat.weight.max(0.0);
-                active_total_w += cat.weight.max(0.0);
+                other_weighted_sum += avg * cat_w;
+                active_total_w += cat_w;
             }
         }
     }
 
-    if target_cat_w <= 0.0 {
+    if target_cat_w <= 0.0 || active_total_w <= 0.0 {
         return None;
     }
 
@@ -530,5 +633,5 @@ pub fn simulate_needed_score_for_target(
         required_cat_avg
     };
 
-    Some((needed_single_score * 10.0).round() / 10.0)
+    Some(round1(needed_single_score))
 }

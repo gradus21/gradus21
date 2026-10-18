@@ -37,6 +37,8 @@ import {
   BookmarkPlus,
   Calendar,
   ChevronRight,
+  Cloud,
+  CloudOff,
   Columns,
   Download,
   Edit3,
@@ -48,6 +50,7 @@ import {
   Lock,
   Plus,
   Printer,
+  RefreshCw,
   Settings,
   Sliders,
   Sparkles,
@@ -230,6 +233,7 @@ export const App: React.FC = () => {
   const [isVaultLocked, setIsVaultLocked] = useState<boolean>(() => {
     return localStorage.getItem(VAULT_LOCKED_STORAGE_KEY) === 'true';
   });
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline_local'>('synced');
   const [showVaultInspector, setShowVaultInspector] = useState<boolean>(false);
   const [vaultSession, setVaultSession] = useState<ActiveVaultSession | null>(null);
   const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
@@ -239,6 +243,26 @@ export const App: React.FC = () => {
     ciphertext: string;
     decryptedVerify: string;
   } | null>(null);
+
+  // Global Keyboard Shortcuts (Alt+P: Toggle Privacy Blur, Escape: Close Modals)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.altKey && (e.key === 'p' || e.key === 'P')) {
+        e.preventDefault();
+        setPrivacyBlur((prev) => !prev);
+      }
+      if (e.key === 'Escape') {
+        setShowClassWizard(false);
+        setShowClassManager(false);
+        setShowSettingsModal(false);
+        setShowVaultInspector(false);
+        setShowNewStudentForm(false);
+        setShowNewAssessmentForm(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Inline forms for adding Assessment, Student, or Custom Category
   const [newAssessmentTitle, setNewAssessmentTitle] = useState('');
@@ -312,6 +336,7 @@ export const App: React.FC = () => {
             }
           }
           setLoadedUserId(userId);
+          setSyncStatus('synced');
           return;
         }
       } catch {
@@ -320,7 +345,7 @@ export const App: React.FC = () => {
     }
 
     // Versuche verschlüsselte Envelopes dieses Nutzers vom Server zu laden
-    if (token && token !== 'offline_demo_jwt') {
+    if (token) {
       try {
         const envRes = await fetch('/api/envelopes', {
           headers: { Authorization: `Bearer ${token}` },
@@ -369,6 +394,7 @@ export const App: React.FC = () => {
                 setUserSettings(DEFAULT_USER_SYNC_SETTINGS);
               }
               setLoadedUserId(userId);
+              setSyncStatus('synced');
               return;
             }
           }
@@ -393,11 +419,13 @@ export const App: React.FC = () => {
     setActiveClassId(freshDatasets[0].id);
     setUserSettings(DEFAULT_USER_SYNC_SETTINGS);
     setLoadedUserId(userId);
+    setSyncStatus('synced');
   };
 
   const handleLockVault = () => {
     localStorage.setItem(VAULT_LOCKED_STORAGE_KEY, 'true');
     if (vaultSession?.userId) {
+      sessionStorage.removeItem(`bte_notenflow_dek_${vaultSession.userId}`);
       const userCacheKey = getUserEncryptedCacheKey(vaultSession.userId);
       const cachedRaw = localStorage.getItem(userCacheKey);
       if (cachedRaw) {
@@ -408,6 +436,7 @@ export const App: React.FC = () => {
               ...parsed.session,
               dekB64: '',
               token: '',
+              recoveryKeyFormatted: undefined,
             };
             parsed.isLocked = true;
             localStorage.setItem(userCacheKey, JSON.stringify(parsed));
@@ -422,7 +451,9 @@ export const App: React.FC = () => {
     setDatasets(emptyLocked);
     setActiveClassId(emptyLocked[0].id);
     setLoadedUserId(null);
-    setVaultSession((prev) => (prev ? { ...prev, dekB64: '', token: '' } : null));
+    setVaultSession((prev) =>
+      prev ? { ...prev, dekB64: '', token: '', recoveryKeyFormatted: undefined } : null
+    );
     setShowVaultInspector(false);
     setIsVaultLocked(true);
   };
@@ -430,6 +461,12 @@ export const App: React.FC = () => {
   const handleUnlockVault = async (unlockedSession: ActiveVaultSession) => {
     localStorage.removeItem(VAULT_LOCKED_STORAGE_KEY);
     localStorage.setItem(ACTIVE_USER_ID_STORAGE_KEY, unlockedSession.userId);
+    if (unlockedSession.dekB64) {
+      sessionStorage.setItem(
+        `bte_notenflow_dek_${unlockedSession.userId}`,
+        unlockedSession.dekB64
+      );
+    }
     setVaultSession(unlockedSession);
     if (unlockedSession.dekB64) {
       await loadIsolatedUserWorkspace(unlockedSession);
@@ -461,7 +498,11 @@ export const App: React.FC = () => {
               localStorage.setItem(
                 targetKey,
                 JSON.stringify({
-                  session: legacyParsed.session,
+                  session: {
+                    ...legacyParsed.session,
+                    dekB64: '',
+                    recoveryKeyFormatted: undefined,
+                  },
                   encryptedDatasetsEnvelope: isDemo
                     ? legacyParsed.encryptedDatasetsEnvelope
                     : undefined,
@@ -488,20 +529,28 @@ export const App: React.FC = () => {
         try {
           const parsed = JSON.parse(cachedRaw);
           if (parsed.session) {
-            if (lockedFlag || parsed.isLocked || !parsed.session.dekB64) {
+            const sessionDek =
+              sessionStorage.getItem(`bte_notenflow_dek_${lastActiveUserId}`) || '';
+            if (lockedFlag || parsed.isLocked || !sessionDek) {
               const emptyLocked = createFreshWorkspaceForNewTeacher('locked');
               setDatasets(emptyLocked);
               setActiveClassId(emptyLocked[0].id);
               setVaultSession({
                 ...parsed.session,
                 dekB64: '',
+                recoveryKeyFormatted: undefined,
               });
               setIsVaultLocked(true);
               return;
             }
 
-            setVaultSession(parsed.session);
-            await loadIsolatedUserWorkspace(parsed.session);
+            const restoredSession: ActiveVaultSession = {
+              ...parsed.session,
+              dekB64: sessionDek,
+              recoveryKeyFormatted: undefined,
+            };
+            setVaultSession(restoredSession);
+            await loadIsolatedUserWorkspace(restoredSession);
             return;
           }
         } catch {
@@ -513,10 +562,9 @@ export const App: React.FC = () => {
       const vaultJson = wasm_generate_vault('LehrerPasswort#2026!');
       const bundle = JSON.parse(vaultJson);
       let serverUserId = DEMO_OWNER_USER_ID;
-      let token = 'offline_demo_jwt';
+      let token = '';
       let totpSecret = 'JBSWY3DPEHPK3PXP';
       let totpUri: string | undefined;
-      let totpHint: string | undefined;
 
       try {
         const email = 'julian@gemeinschaftsschule.de';
@@ -530,6 +578,7 @@ export const App: React.FC = () => {
             kdf_params: bundle.kdf_params,
             encrypted_dek: bundle.encrypted_dek,
             recovery_encrypted_dek: bundle.recovery_encrypted_dek,
+            recovery_auth_key_b64: bundle.recovery_auth_key_b64,
           }),
         });
         if (regRes.ok) {
@@ -538,10 +587,13 @@ export const App: React.FC = () => {
           token = authData.token;
           totpSecret = authData.totp_secret_base32 || totpSecret;
           totpUri = authData.totp_setup_uri;
-          totpHint = authData.totp_current_code_hint;
         }
       } catch {
         // Offline-first fallback
+      }
+
+      if (!lockedFlag && bundle.dek_b64) {
+        sessionStorage.setItem(`bte_notenflow_dek_${serverUserId}`, bundle.dek_b64);
       }
 
       const initialSession: ActiveVaultSession = {
@@ -556,7 +608,6 @@ export const App: React.FC = () => {
         totpEnabled: false,
         totpSetupUri: totpUri,
         totpSecretBase32: totpSecret,
-        totpCurrentCodeHint: totpHint,
         serverSyncedCount: INITIAL_CLASS_DATASETS.length,
       };
       localStorage.setItem(ACTIVE_USER_ID_STORAGE_KEY, serverUserId);
@@ -570,7 +621,7 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Automatically encrypt and persist datasets + userSettings (Strict Per-User Cache + Rust Axum Server)
+  // Automatically encrypt and persist datasets + userSettings (Debounced 350ms: Strict Per-User Cache + Rust Axum Server)
   useEffect(() => {
     if (
       !wasmReady ||
@@ -581,102 +632,130 @@ export const App: React.FC = () => {
     ) {
       return;
     }
-    try {
-      const plainWorkspace = JSON.stringify(datasets);
-      const encryptedWorkspace = wasm_encrypt_envelope(
-        vaultSession.dekB64,
-        vaultSession.userId,
-        'workspace_datasets_v2',
-        plainWorkspace
-      );
 
-      const plainSettings = JSON.stringify(userSettings);
-      const encryptedSettings = wasm_encrypt_envelope(
-        vaultSession.dekB64,
-        vaultSession.userId,
-        'user_sync_settings_v1',
-        plainSettings
-      );
+    setSyncStatus('syncing');
 
-      const userCacheKey = getUserEncryptedCacheKey(vaultSession.userId);
-      localStorage.setItem(
-        userCacheKey,
-        JSON.stringify({
-          session: vaultSession,
-          encryptedDatasetsEnvelope: encryptedWorkspace,
-          encryptedSettingsEnvelope: encryptedSettings,
-          isLocked: false,
-        })
-      );
-      localStorage.setItem(ACTIVE_USER_ID_STORAGE_KEY, vaultSession.userId);
+    const timer = window.setTimeout(async () => {
+      try {
+        sessionStorage.setItem(
+          `bte_notenflow_dek_${vaultSession.userId}`,
+          vaultSession.dekB64
+        );
 
-      // Update live ciphertext sample for the E2EE Inspector
-      const samplePlain = JSON.stringify({
-        class: activeDataset.className,
-        subject: activeDataset.subjectName,
-        firstStudent: activeDataset.students[0] || null,
-        firstGrade: activeDataset.grades[0] || null,
-      });
-      const sampleCipher = wasm_encrypt_envelope(
-        vaultSession.dekB64,
-        vaultSession.userId,
-        activeDataset.id,
-        samplePlain
-      );
-      setSampleEnvelope({
-        entityId: activeDataset.id,
-        plaintext: samplePlain,
-        ciphertext: sampleCipher,
-        decryptedVerify: samplePlain,
-      });
+        const plainWorkspace = JSON.stringify(datasets);
+        const encryptedWorkspace = wasm_encrypt_envelope(
+          vaultSession.dekB64,
+          vaultSession.userId,
+          'workspace_datasets_v2',
+          plainWorkspace
+        );
 
-      // Sync encrypted class envelopes + encrypted settings to Rust Axum Backend
-      if (vaultSession.token) {
-        fetch('/api/envelopes/batch', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${vaultSession.token}`,
-          },
-          body: JSON.stringify({
-            envelopes: [
-              {
-                id: '00000000-0000-4000-8000-000000000001',
-                entity_type: 'workspace',
-                parent_id: null,
-                class_id: null,
-                encrypted_payload: encryptedWorkspace,
-              },
-              {
-                id: '00000000-0000-4000-8000-000000000002',
-                entity_type: 'user_settings',
-                parent_id: null,
-                class_id: null,
-                encrypted_payload: encryptedSettings,
-              },
-            ],
-          }),
-        }).catch(() => {});
+        const plainSettings = JSON.stringify(userSettings);
+        const encryptedSettings = wasm_encrypt_envelope(
+          vaultSession.dekB64,
+          vaultSession.userId,
+          'user_sync_settings_v1',
+          plainSettings
+        );
 
-        fetch('/api/preferences', {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${vaultSession.token}`,
-          },
-          body: JSON.stringify({
-            theme: userSettings.themePreset,
-            mode: userSettings.darkMode ? 'dark' : 'light',
-            defaultScaleId: userSettings.defaultScaleId,
-            defaultWeightingMode: userSettings.defaultWeightingMode,
-            favoriteWeightingPresets: userSettings.favoriteWeightingPresets,
-          }),
-        }).catch(() => {});
+        // Wichtig (Zero-Knowledge): Weder dekB64 noch recoveryKeyFormatted im Klartext in localStorage ablegen!
+        const persistedSessionMetadata: ActiveVaultSession = {
+          ...vaultSession,
+          dekB64: '',
+          recoveryKeyFormatted: undefined,
+        };
+
+        const userCacheKey = getUserEncryptedCacheKey(vaultSession.userId);
+        localStorage.setItem(
+          userCacheKey,
+          JSON.stringify({
+            session: persistedSessionMetadata,
+            encryptedDatasetsEnvelope: encryptedWorkspace,
+            encryptedSettingsEnvelope: encryptedSettings,
+            isLocked: false,
+          })
+        );
+        localStorage.setItem(ACTIVE_USER_ID_STORAGE_KEY, vaultSession.userId);
+
+        // Update live ciphertext sample for the E2EE Inspector
+        const samplePlain = JSON.stringify({
+          class: activeDataset.className,
+          subject: activeDataset.subjectName,
+          firstStudent: activeDataset.students[0] || null,
+          firstGrade: activeDataset.grades[0] || null,
+        });
+        const sampleCipher = wasm_encrypt_envelope(
+          vaultSession.dekB64,
+          vaultSession.userId,
+          activeDataset.id,
+          samplePlain
+        );
+        setSampleEnvelope({
+          entityId: activeDataset.id,
+          plaintext: samplePlain,
+          ciphertext: sampleCipher,
+          decryptedVerify: samplePlain,
+        });
+
+        // Sync encrypted class envelopes + encrypted settings to Rust Axum Backend
+        if (vaultSession.token) {
+          try {
+            const [batchRes, prefRes] = await Promise.all([
+              fetch('/api/envelopes/batch', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${vaultSession.token}`,
+                },
+                body: JSON.stringify({
+                  envelopes: [
+                    {
+                      id: '00000000-0000-4000-8000-000000000001',
+                      entity_type: 'workspace',
+                      parent_id: null,
+                      class_id: null,
+                      encrypted_payload: encryptedWorkspace,
+                    },
+                    {
+                      id: '00000000-0000-4000-8000-000000000002',
+                      entity_type: 'user_settings',
+                      parent_id: null,
+                      class_id: null,
+                      encrypted_payload: encryptedSettings,
+                    },
+                  ],
+                }),
+              }),
+              fetch('/api/preferences', {
+                method: 'PUT',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${vaultSession.token}`,
+                },
+                body: JSON.stringify({
+                  theme: userSettings.themePreset,
+                  mode: userSettings.darkMode ? 'dark' : 'light',
+                  defaultScaleId: userSettings.defaultScaleId,
+                  defaultWeightingMode: userSettings.defaultWeightingMode,
+                  favoriteWeightingPresets: userSettings.favoriteWeightingPresets,
+                }),
+              }),
+            ]);
+            setSyncStatus(batchRes.ok && prefRes.ok ? 'synced' : 'offline_local');
+          } catch {
+            setSyncStatus('offline_local');
+          }
+        } else {
+          setSyncStatus('offline_local');
+        }
+      } catch (e) {
+        console.error('E2EE auto-save error:', e);
+        setSyncStatus('offline_local');
       }
-    } catch (e) {
-      console.error('E2EE auto-save error:', e);
-    }
-  }, [wasmReady, datasets, userSettings, vaultSession, isVaultLocked, activeDataset]);
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [wasmReady, datasets, userSettings, vaultSession, isVaultLocked, activeDataset, loadedUserId]);
 
   // Keep selected assessment/student and curveCutoffs valid when switching classes or terms
   useEffect(() => {
@@ -1121,11 +1200,17 @@ export const App: React.FC = () => {
   const simulatedNeededPercent: number | null = useMemo(() => {
     if (!wasmReady || !activeStudentSummary) return null;
     try {
+      const levelOffset =
+        activeDataset.config.enable_student_levels && activeStudent?.level
+          ? activeDataset.config.level_threshold_offsets[activeStudent.level] ?? 0
+          : 0;
+      const effectiveTargetPercent = Math.max(0, Math.min(100, simTargetPercent + levelOffset));
+
       const val = wasm_simulate_needed_score(
         JSON.stringify(activeStudentSummary),
         JSON.stringify(activeDataset.categories),
         simCategoryId,
-        simTargetPercent
+        effectiveTargetPercent
       );
       return typeof val === 'number' ? val : null;
     } catch {
@@ -1135,6 +1220,9 @@ export const App: React.FC = () => {
     wasmReady,
     activeStudentSummary,
     activeDataset.categories,
+    activeDataset.config.enable_student_levels,
+    activeDataset.config.level_threshold_offsets,
+    activeStudent?.level,
     simCategoryId,
     simTargetPercent,
   ]);
@@ -1257,8 +1345,45 @@ export const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Controls: Einstellungen (inkl. Theme & Favoriten), Konto & Schutz, Namen ausblenden, Abmelden */}
+        {/* Right Controls: E2EE Sync Status, Einstellungen, Konto & Schutz, Namen ausblenden, Abmelden */}
         <div className="flex items-center gap-2">
+          {/* E2EE Sync Status Badge */}
+          <div
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all"
+            style={{
+              backgroundColor: 'var(--bg-subtle)',
+              borderColor: 'var(--border-subtle)',
+              color:
+                syncStatus === 'syncing'
+                  ? 'var(--primary-text)'
+                  : syncStatus === 'synced'
+                  ? '#059669'
+                  : 'var(--text-muted)',
+            }}
+            title={
+              syncStatus === 'syncing'
+                ? 'Änderungen werden Ende-zu-Ende verschlüsselt synchronisiert...'
+                : syncStatus === 'synced'
+                ? 'Alle Noten & Einstellungen sicher Ende-zu-Ende verschlüsselt gespeichert'
+                : 'Offline-Modus: Daten sind sicher lokal auf diesem Gerät gespeichert'
+            }
+          >
+            {syncStatus === 'syncing' ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" style={{ color: 'var(--primary-500)' }} />
+            ) : syncStatus === 'synced' ? (
+              <Cloud className="w-3.5 h-3.5 text-emerald-600" />
+            ) : (
+              <CloudOff className="w-3.5 h-3.5 opacity-60" />
+            )}
+            <span className="hidden sm:inline">
+              {syncStatus === 'syncing'
+                ? 'Speichern...'
+                : syncStatus === 'synced'
+                ? 'Gespeichert'
+                : 'Lokal'}
+            </span>
+          </div>
+
           <button
             onClick={() => setShowSettingsModal(true)}
             className="px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition hover:opacity-90"
@@ -1301,7 +1426,7 @@ export const App: React.FC = () => {
                   }
                 : undefined
             }
-            title="Schülernamen & Noten sofort unscharf schalten, wenn Schüler ans Lehrerpult treten"
+            title="Schülernamen & Noten sofort unscharf schalten, wenn Schüler ans Lehrerpult treten (Tastatur: Alt+P)"
           >
             {privacyBlur ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
             <span>{privacyBlur ? 'Namen wieder zeigen' : 'Namen ausblenden'}</span>
@@ -1439,9 +1564,19 @@ export const App: React.FC = () => {
       </div>
 
       {/* MAIN WORKSPACE CONTENT */}
+      {privacyBlur && (
+        <style>{`
+          .privacy-blur-active table tbody,
+          .privacy-blur-active [data-privacy-sensitive="true"] {
+            filter: blur(8px);
+            user-select: none;
+            transition: filter 150ms ease;
+          }
+        `}</style>
+      )}
       <main
         className={`flex-1 p-6 max-w-[1600px] w-full mx-auto transition ${
-          privacyBlur ? 'blur-md select-none pointer-events-none' : ''
+          privacyBlur ? 'privacy-blur-active' : ''
         }`}
       >
         {/* =====================================================================
@@ -1701,9 +1836,9 @@ export const App: React.FC = () => {
               className="rounded-2xl border shadow-sm overflow-hidden"
               style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
             >
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-270px)]">
                 <table className="w-full text-left border-collapse">
-                  <thead>
+                  <thead className="sticky top-0 z-20 shadow-xs">
                     <tr
                       className="border-b text-[11px] font-bold uppercase tracking-wider"
                       style={{
@@ -1713,7 +1848,7 @@ export const App: React.FC = () => {
                       }}
                     >
                       <th
-                        className="py-2.5 px-4 sticky left-0 z-10"
+                        className="py-2.5 px-4 sticky left-0 z-30"
                         style={{ backgroundColor: 'var(--bg-subtle)' }}
                       >
                         Schüler ({visibleStudents.length})
@@ -1773,7 +1908,7 @@ export const App: React.FC = () => {
                       }}
                     >
                       <th
-                        className="py-2.5 px-4 sticky left-0 z-10"
+                        className="py-2.5 px-4 sticky left-0 z-30"
                         style={{ backgroundColor: 'var(--bg-surface)' }}
                       >
                         Name (Klick → 360°-Akte)
@@ -2153,6 +2288,7 @@ export const App: React.FC = () => {
               </div>
 
               <div
+                data-privacy-sensitive="true"
                 className="divide-y max-h-[620px] overflow-y-auto pr-2"
                 style={{ borderColor: 'var(--border-subtle)' }}
               >
@@ -2212,6 +2348,7 @@ export const App: React.FC = () => {
 
                         <input
                           type="text"
+                          data-speed-grade-idx={idx}
                           value={
                             entry?.status === 'excused'
                               ? 'K'
@@ -2232,6 +2369,23 @@ export const App: React.FC = () => {
                               speedInputMode
                             )
                           }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === 'ArrowDown') {
+                              e.preventDefault();
+                              const nextInput = document.querySelector<HTMLInputElement>(
+                                `[data-speed-grade-idx="${idx + 1}"]`
+                              );
+                              nextInput?.focus();
+                              nextInput?.select();
+                            } else if (e.key === 'ArrowUp') {
+                              e.preventDefault();
+                              const prevInput = document.querySelector<HTMLInputElement>(
+                                `[data-speed-grade-idx="${idx - 1}"]`
+                              );
+                              prevInput?.focus();
+                              prevInput?.select();
+                            }
+                          }}
                           className="w-24 px-3 py-1.5 rounded-xl border text-center font-mono text-sm font-bold focus:outline-none focus:ring-2 focus:ring-teal-500"
                           style={{
                             backgroundColor: 'var(--bg-subtle)',
@@ -2494,7 +2648,7 @@ export const App: React.FC = () => {
             MODE 3: SCHÜLER-360°-AKTE (ELTERNGESPRÄCH, ZEUGNISNOTE & DRUCK)
            ===================================================================== */}
         {mode === 'student_360' && activeStudent && (
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          <div data-privacy-sensitive="true" className="grid grid-cols-1 lg:grid-cols-4 gap-6">
             <div
               className="rounded-2xl border p-4 shadow-sm max-h-[680px] overflow-y-auto space-y-1"
               style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
@@ -3836,7 +3990,7 @@ export const App: React.FC = () => {
               </div>
 
               {visibleStudents.length > 0 && (
-                <div className="space-y-2">
+                <div className="space-y-2" data-privacy-sensitive="true">
                   <select
                     value={activeStudent?.id || ''}
                     onChange={(e) => setSelectedStudentId(e.target.value)}
@@ -3884,7 +4038,7 @@ export const App: React.FC = () => {
               )}
 
               {activeStudent && summaryByStudentId.get(activeStudent.id) && (
-                <div className="space-y-3">
+                <div className="space-y-3" data-privacy-sensitive="true">
                   {summaryByStudentId
                     .get(activeStudent.id)!
                     .category_results.map((cr) => (

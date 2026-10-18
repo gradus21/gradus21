@@ -1,8 +1,8 @@
 use crate::crypto::{
-    decrypt_entity_envelope, encrypt_entity_envelope, generate_vault_bundle,
-    rewrap_dek_for_new_password, unlock_dek_with_recovery_key, unlock_vault_with_password,
-    unwrap_dek_with_passkey_secret, wrap_dek_with_passkey_secret, wrap_dek_with_recovery_key,
-    KdfParams,
+    decrypt_entity_envelope, derive_recovery_auth_key, encrypt_entity_envelope,
+    generate_vault_bundle, rewrap_dek_for_new_password, unlock_dek_with_recovery_key,
+    unlock_vault_with_password, unwrap_dek_with_passkey_secret, wrap_dek_with_passkey_secret,
+    wrap_dek_with_recovery_key, KdfParams,
 };
 use crate::grading::{
     calculate_class_report, simulate_needed_score_for_target, AssessmentConfig, CategoryConfig,
@@ -61,6 +61,11 @@ pub fn wasm_unlock_with_recovery(
 }
 
 #[wasm_bindgen]
+pub fn wasm_derive_recovery_auth_key(recovery_key: &str) -> Result<String, JsValue> {
+    derive_recovery_auth_key(recovery_key).map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+#[wasm_bindgen]
 pub fn wasm_wrap_dek_with_recovery(
     dek_b64: &str,
     existing_recovery_key: &str,
@@ -72,9 +77,12 @@ pub fn wasm_wrap_dek_with_recovery(
     };
     let (formatted, enc_dek) =
         wrap_dek_with_recovery_key(dek_b64, opt).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let recovery_auth_key_b64 =
+        derive_recovery_auth_key(&formatted).map_err(|e| JsValue::from_str(&e.to_string()))?;
     serde_json::to_string(&serde_json::json!({
         "recovery_key_formatted": formatted,
         "recovery_encrypted_dek": enc_dek,
+        "recovery_auth_key_b64": recovery_auth_key_b64,
     }))
     .map_err(|e| JsValue::from_str(&e.to_string()))
 }

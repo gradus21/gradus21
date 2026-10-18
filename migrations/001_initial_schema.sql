@@ -12,11 +12,15 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT NOT NULL UNIQUE,
     auth_key_hash TEXT NOT NULL,              -- Argon2id hash of client-derived AuthKey
     kdf_salt TEXT NOT NULL,                   -- Base64 salt for client-side Argon2id + HKDF
-    kdf_params JSONB NOT NULL DEFAULT '{"memory_kib": 65536, "iterations": 3, "parallelism": 4}',
+    kdf_params JSONB NOT NULL DEFAULT '{"memory_kib": 19456, "iterations": 2, "parallelism": 1}',
     encrypted_dek TEXT NOT NULL,              -- Master DEK encrypted with user's KEK (AES-256-GCM)
     recovery_encrypted_dek TEXT NOT NULL,     -- Master DEK encrypted with Emergency Recovery Key
+    recovery_auth_key_hash TEXT NOT NULL DEFAULT '', -- Argon2id hash of client-derived RecoveryAuthKey
     totp_secret_server_encrypted TEXT,        -- Server-side encrypted TOTP secret (RFC 6238)
     totp_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    passkey_credential_id TEXT,
+    passkey_label TEXT,
+    passkey_encrypted_dek TEXT,
     ui_preferences JSONB NOT NULL DEFAULT '{"theme": "teal", "mode": "light"}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -139,3 +143,18 @@ CREATE INDEX IF NOT EXISTS idx_categories_subject_owner ON grade_categories (own
 CREATE INDEX IF NOT EXISTS idx_assessments_subject_owner ON assessments (owner_user_id, subject_id);
 CREATE INDEX IF NOT EXISTS idx_students_class_owner ON students (owner_user_id, class_id);
 CREATE INDEX IF NOT EXISTS idx_grades_class_owner ON grades (owner_user_id, class_id);
+
+-- 11. Generic Encrypted Envelopes (Workspace & Entity Envelopes)
+CREATE TABLE IF NOT EXISTS encrypted_envelopes (
+    id UUID PRIMARY KEY,
+    owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    entity_type TEXT NOT NULL,
+    parent_id UUID,
+    class_id UUID,
+    encrypted_payload TEXT NOT NULL,
+    version INT NOT NULL DEFAULT 1,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_encrypted_envelopes_owner ON encrypted_envelopes (owner_user_id);
+

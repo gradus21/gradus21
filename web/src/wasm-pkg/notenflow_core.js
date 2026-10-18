@@ -60,6 +60,31 @@ export function wasm_decrypt_envelope(dek_b64, owner_user_id, entity_id, envelop
 }
 
 /**
+ * @param {string} recovery_key
+ * @returns {string}
+ */
+export function wasm_derive_recovery_auth_key(recovery_key) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(recovery_key, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.wasm_derive_recovery_auth_key(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
  * @param {string} dek_b64
  * @param {string} owner_user_id
  * @param {string} entity_id

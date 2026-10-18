@@ -293,7 +293,7 @@ export const INITIAL_CLASS_DATASETS: ClassroomSubjectDataset[] = [
       is_not_graded: false,
       notes: s.notes,
     })),
-    grades: ENGLISCH_6_RAW_STUDENTS.flatMap((s, idx) => {
+    grades: ENGLISCH_6_RAW_STUDENTS.flatMap<GradeEntry>((s, idx) => {
       if (s.test1Pct === null) {
         return [
           {

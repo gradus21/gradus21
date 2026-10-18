@@ -102,6 +102,18 @@ export function exportClassToXlsx(
 }
 
 /**
+ * Escapes HTML special characters to prevent DOM-XSS in generated print/PDF documents.
+ */
+export function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
  * Opens a clean, privacy-safe single-student report for Elterngespräche (Print / Save as PDF)
  */
 export function printStudentParentReport(
@@ -140,11 +152,11 @@ export function printStudentParentReport(
         g?.status === 'excused'
           ? 'Entschuldigt (Attest)'
           : g?.percent_value != null
-          ? `${g.percent_value}% (${g.raw_points ?? '—'}/${a.max_points ?? 15} Pkt)`
+          ? `${escapeHtml(g.percent_value)}% (${escapeHtml(g.raw_points ?? '—')}/${escapeHtml(a.max_points ?? 15)} Pkt)`
           : '—';
       return `<tr>
-        <td>${a.title}</td>
-        <td>${cat?.name || ''}</td>
+        <td>${escapeHtml(a.title)}</td>
+        <td>${escapeHtml(cat?.name || '')}</td>
         <td><strong>${valStr}</strong></td>
       </tr>`;
     })
@@ -153,7 +165,7 @@ export function printStudentParentReport(
   win.document.write(`
     <html>
       <head>
-        <title>Elterngesprächs-Bogen – ${student.name}</title>
+        <title>Elterngesprächs-Bogen – ${escapeHtml(student.name)}</title>
         <style>
           body { font-family: system-ui, -apple-system, sans-serif; padding: 36px; color: #0f1d22; }
           .header { display: flex; justify-content: space-between; border-bottom: 2px solid #0d9488; padding-bottom: 16px; }
@@ -170,19 +182,19 @@ export function printStudentParentReport(
         <div class="header">
           <div>
             <span class="badge">Datenschutzkonformer Einzelbogen (Schüler-360°-Akte)</span>
-            <h1 style="margin: 8px 0 4px;">${student.name} ${
-    student.level ? `(Niveau ${student.level})` : ''
+            <h1 style="margin: 8px 0 4px;">${escapeHtml(student.name)} ${
+    student.level ? `(Niveau ${escapeHtml(student.level)})` : ''
   }</h1>
             <div style="color:#4a636b; font-size:13px;">
-              ${dataset.schoolName} · ${dataset.className} · Fach: <strong>${
+              ${escapeHtml(dataset.schoolName)} · ${escapeHtml(dataset.className)} · Fach: <strong>${escapeHtml(
     dataset.subjectName
-  }</strong> · ${termLabel} (${dataset.schoolYear})
+  )}</strong> · ${escapeHtml(termLabel)} (${escapeHtml(dataset.schoolYear)})
             </div>
           </div>
           <div style="text-align:right;">
             <div style="font-size:12px; color:#4a636b;">Berechneter Stand / Zeugnisnote</div>
             <div style="font-size:28px; font-weight:800; color:#0d9488;">
-              ${summary?.overall_percent != null ? `${summary.overall_percent}%` : ''} · Note ${zeugnisNote}
+              ${summary?.overall_percent != null ? `${escapeHtml(summary.overall_percent)}%` : ''} · Note ${escapeHtml(zeugnisNote)}
             </div>
           </div>
         </div>
@@ -192,16 +204,16 @@ export function printStudentParentReport(
             .map(
               (cr) => `
             <div class="card">
-              <div style="font-size:12px; color:#4a636b;">${cr.category_name} (Gewicht ${cr.effective_weight_percent}%)</div>
+              <div style="font-size:12px; color:#4a636b;">${escapeHtml(cr.category_name)} (Gewicht ${escapeHtml(cr.effective_weight_percent)}%)</div>
               <div style="font-size:20px; font-weight:bold; margin-top:4px;">
-                ${cr.average_percent != null ? `${cr.average_percent}% · Note ${cr.display_grade}` : '—'}
+                ${cr.average_percent != null ? `${escapeHtml(cr.average_percent)}% · Note ${escapeHtml(cr.display_grade)}` : '—'}
               </div>
             </div>`
             )
             .join('')}
         </div>
 
-        <h3>Einzelleistungen (${termLabel})</h3>
+        <h3>Einzelleistungen (${escapeHtml(termLabel)})</h3>
         <table>
           <thead>
             <tr><th>Leistungsnachweis</th><th>Kategorie</th><th>Ergebnis</th></tr>
@@ -212,7 +224,7 @@ export function printStudentParentReport(
         <div class="card" style="margin-top:20px;">
           <strong>Pädagogische Bemerkungen & Förderhinweise:</strong>
           <p style="margin:6px 0 0; font-size:13px;">
-            ${override?.reason || student.notes || 'Keine besonderen Vermerke.'}
+            ${escapeHtml(override?.reason || student.notes || 'Keine besonderen Vermerke.')}
           </p>
         </div>
 
@@ -260,19 +272,25 @@ export function printClassConferenceReport(
 
       return `<tr>
         <td>${idx + 1}</td>
-        <td><strong>${stu.name}</strong></td>
-        ${dataset.config.enable_student_levels ? `<td>${stu.level || 'M'}</td>` : ''}
+        <td><strong>${escapeHtml(stu.name)}</strong></td>
+        ${dataset.config.enable_student_levels ? `<td>${escapeHtml(stu.level || 'M')}</td>` : ''}
         ${dataset.categories
           .map((c) => {
             const cr = sum?.category_results.find((r) => r.category_id === c.id);
             return `<td>${
-              cr?.average_percent != null ? `${cr.average_percent}% (${cr.display_grade})` : '—'
+              cr?.average_percent != null
+                ? `${escapeHtml(cr.average_percent)}% (${escapeHtml(cr.display_grade)})`
+                : '—'
             }</td>`;
           })
           .join('')}
-        <td>${sum?.overall_percent != null ? `${sum.overall_percent}% (${sum.overall_display_grade})` : '—'}</td>
-        <td><strong style="color:#0f766e;">${zeugnisNote}</strong></td>
-        <td style="font-size:11px; color:#4a636b;">${override?.reason || stu.notes || ''}</td>
+        <td>${
+          sum?.overall_percent != null
+            ? `${escapeHtml(sum.overall_percent)}% (${escapeHtml(sum.overall_display_grade)})`
+            : '—'
+        }</td>
+        <td><strong style="color:#0f766e;">${escapeHtml(zeugnisNote)}</strong></td>
+        <td style="font-size:11px; color:#4a636b;">${escapeHtml(override?.reason || stu.notes || '')}</td>
       </tr>`;
     })
     .join('');
@@ -280,7 +298,7 @@ export function printClassConferenceReport(
   win.document.write(`
     <html>
       <head>
-        <title>Zeugniskonferenz-Liste – ${dataset.className} ${dataset.subjectName}</title>
+        <title>Zeugniskonferenz-Liste – ${escapeHtml(dataset.className)} ${escapeHtml(dataset.subjectName)}</title>
         <style>
           body { font-family: system-ui, sans-serif; padding: 30px; color: #0f1d22; }
           h1 { margin: 0 0 4px; font-size: 20px; }
@@ -290,15 +308,17 @@ export function printClassConferenceReport(
         </style>
       </head>
       <body>
-        <h1>Zeugniskonferenz-Bogen: ${dataset.className} – ${dataset.subjectName} (${termLabel} ${
+        <h1>Zeugniskonferenz-Bogen: ${escapeHtml(dataset.className)} – ${escapeHtml(dataset.subjectName)} (${escapeHtml(termLabel)} ${escapeHtml(
     dataset.schoolYear
-  })</h1>
+  )})</h1>
         <div style="font-size:13px; color:#4a636b;">
-          ${dataset.schoolName} · Klassenschnitt: <strong>${
+          ${escapeHtml(dataset.schoolName)} · Klassenschnitt: <strong>${escapeHtml(
     report?.class_average_percent ?? '—'
-  }% (Ø ${report?.class_display_grade ?? '—'})</strong> · Notenspiegel (1–6): [${(
+  )}% (Ø ${escapeHtml(report?.class_display_grade ?? '—')})</strong> · Notenspiegel (1–6): [${(
     report?.distribution_buckets || [0, 0, 0, 0, 0, 0]
-  ).join(' / ')}]
+  )
+    .map((n) => escapeHtml(n))
+    .join(' / ')}]
         </div>
         <table>
           <thead>
@@ -306,7 +326,7 @@ export function printClassConferenceReport(
               <th>#</th>
               <th>Name</th>
               ${dataset.config.enable_student_levels ? '<th>Niveau</th>' : ''}
-              ${dataset.categories.map((c) => `<th>Ø ${c.short_code}</th>`).join('')}
+              ${dataset.categories.map((c) => `<th>Ø ${escapeHtml(c.short_code)}</th>`).join('')}
               <th>Berechnet</th>
               <th>Zeugnisnote</th>
               <th>Bemerkung / Begründung</th>
@@ -320,3 +340,4 @@ export function printClassConferenceReport(
   `);
   win.document.close();
 }
+

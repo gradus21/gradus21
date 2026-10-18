@@ -33,11 +33,11 @@ sequenceDiagram
 
 | Komponente | Verfahren / Parameter | Zweck |
 | :--- | :--- | :--- |
-| **Passwort-KDF** | `Argon2id` (`m = 65536 KiB`, `t = 3`, `p = 4`, Output `32 Byte`) | Schutz gegen GPU-/ASIC-Cracking bei Kompromittierung der Server-Datenbank |
-| **Key Separation** | `HKDF-SHA256` mit Domänen-Labels `notenflow-e2ee-kek-v1` & `notenflow-auth-hash-v1` | Trennt den lokalen *Key Encryption Key (KEK)* strikt vom Server-Login-Hash |
+| **Passwort-KDF** | `Argon2id` (`m = 19456 KiB` / 19 MiB, `t = 2`, `p = 1`, Output `32 Byte`, OWASP Minimum) | Schutz gegen GPU-/ASIC-Cracking bei Kompromittierung der Server-Datenbank |
+| **Key Separation** | `HKDF-SHA256` mit Domänen-Labels `BTE-NotenFlow-v2-KEK` & `BTE-NotenFlow-v2-AuthKey` | Trennt den lokalen *Key Encryption Key (KEK)* strikt vom Server-Login-Hash |
 | **Payload-Chiffre** | `AES-256-GCM` (`96-Bit` Zufalls-Nonce pro Schreibvorgang) | Authentifizierte Verschlüsselung (Confidentiality + Integrity) |
-| **Context Binding (AAD)** | `AAD = "{owner_user_id}:{entity_id}"` | Verhindert das Vertauschen von Chiffretexten zwischen Nutzern oder Datensätzen |
-| **Notfall-Schlüssel** | `24-stelliger Base32-Code` -> `SHA-256` -> `AES-256-GCM` Wrapping des `DEK` | Erlaubt Passwort-Reset ohne Verlust des `DEK` (`wasm_wrap_dek_with_recovery` / `wasm_recover_dek`) |
+| **Context Binding (AAD)** | `AAD = "owner:{owner_user_id}|entity:{entity_id}"` | Verhindert das Vertauschen von Chiffretexten zwischen Nutzern oder Datensätzen |
+| **Notfall-Schlüssel** | `24-stelliger Base32-Code` -> `HKDF-SHA256` (`BTE-NotenFlow-v2-RecoveryKEK` & `BTE-NotenFlow-v2-RecoveryAuthKey`) | Erlaubt kryptografisch verifizierten Passwort-Reset ohne Verlust des `DEK` (`wasm_wrap_dek_with_recovery` / `wasm_recover_dek`) |
 
 ---
 
@@ -72,7 +72,8 @@ Für das Code- und Fach-Review dieser Alpha-Version empfehlen wir insbesondere f
 - [ ] **Halbjahres-Verrechnung (`Gesamtjahr`)**: Sollen im Modus `Gesamtjahr (all)` das 1. und 2. Halbjahr je `50:50` gewichtet werden oder alle Leistungsnachweise des gesamten Schuljahres gemeinsam in ihre Kategorien fließen? (Aktuell: gemeinsame Kategorien-Verrechnung über alle Assessments).
 
 ### B. Security- & Backend-Review
-- [ ] **PostgreSQL-Persistenz im Produktivbetrieb**: Im lokalen Entwicklungsmodus nutzt `notenflow-server` eine JSON-Datei (`./data/vault_store.json`). Für Multi-Instanz-Deployments sollte die enthaltene SQL-Migration (`migrations/001_initial_schema.sql`) gegen PostgreSQL aktiviert werden.
-- [ ] **WebAuthn / Passkey Kryptografie-Prüfung**: In `v0.1.0-alpha` validiert der Server die Passkey-Credential-ID und Challenge-Struktur. Vor `v1.0` sollte `webauthn-rs` für die vollständige Signaturprüfung des Authenticator-Attestation-/Assertion-Objekts integriert werden.
-- [ ] **Passkey PRF Extension**: Aktuell speichert der Browser für den schnellen Passkey-Unlock den `DEK` nach einmaliger Freischaltung im lokalen Gerätespeicher. Zukünftig kann die WebAuthn `prf`-Erweiterung genutzt werden, um den `DEK` direkt durch das Hardware-Security-Modul des Passkeys zu entschlüsseln.
-- [ ] **JWT Secret & Rate Limiting**: Vor öffentlichem Hosting muss `JWT_SECRET` zwingend über Umgebungsvariablen gesetzt und ein IP-/Account-basiertes Rate-Limiting auf `/api/auth/*` ergänzt werden.
+- [x] **PostgreSQL-Persistenz & Atomares Backup**: Sobald `DATABASE_URL` gesetzt ist, synchronisiert `notenflow-server` alle Nutzer und E2EE-Envelopes direkt in PostgreSQL (`users` & `encrypted_envelopes`) und nutzt für den lokalen JSON-Store atomares Write-and-Rename (`.json.tmp`).
+- [ ] **WebAuthn / Passkey Kryptografie-Prüfung**: In `v0.1.0-alpha` validiert der Server die Passkey-Credential-ID. Vor `v1.0` sollte `webauthn-rs` für die vollständige Signaturprüfung des Authenticator-Attestation-/Assertion-Objekts integriert werden.
+- [ ] **Passkey PRF Extension**: Zukünftig soll die WebAuthn `prf`-Erweiterung genutzt werden, um den `DEK` direkt durch das Hardware-Security-Modul des Passkeys zu entschlüsseln.
+- [x] **Rate Limiting & Payload-Limits**: Auf `/api/auth/*` ist ein Sliding-Window Rate-Limiting aktiv; Request-Payloads sind auf `10 MiB` begrenzt.
+
