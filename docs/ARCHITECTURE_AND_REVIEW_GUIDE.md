@@ -1,15 +1,15 @@
 # Architektur- & Review-Handbuch (`v0.1.0-alpha`)
 
-Dieses Dokument richtet sich an Entwicklerinnen, Entwickler, Datenschutzbeauftragte und Fachlehrkräfte, die die Alpha-Version `0.1.0` von **BTE NotenFlow** begutachten, testen und für zukünftige Releases weiterentwickeln.
+Dieses Dokument richtet sich an Entwicklerinnen, Entwickler, Datenschutzbeauftragte und Fachlehrkräfte, die die Alpha-Version `0.1.0` von **Gradus21** begutachten, testen und für zukünftige Releases weiterentwickeln.
 
 ---
 
 ## 1. Systemüberblick & Sicherheitsversprechen
 
-BTE NotenFlow trennt strikt zwischen:
-1. **Klartext-Domänenlogik im Browser (`crates/notenflow-core` als WebAssembly + `web/`)**:
+Gradus21 trennt strikt zwischen:
+1. **Klartext-Domänenlogik im Browser (`crates/gradus21-core` als WebAssembly + `web/`)**:
    - Alle Namen, Einzelnoten, Bemerkungen, Gewichtungen und Niveaustufen (`G`/`M`/`E`) existieren im Klartext **ausschließlich im Arbeitsspeicher des Browsers**.
-2. **Blinder Synchronisations- & Authentifizierungs-Server (`crates/notenflow-server`)**:
+2. **Blinder Synchronisations- & Authentifizierungs-Server (`crates/gradus21-server`)**:
    - Speichert pro Lehrkraft (`owner_user_id`) lediglich kryptografische Metadaten (`kdf_salt`, `encrypted_dek`, `recovery_encrypted_dek`, Passkey-/TOTP-Daten) sowie undurchsichtige `AES-256-GCM`-Envelopes (`encrypted_payload`).
 
 ```mermaid
@@ -29,7 +29,7 @@ sequenceDiagram
 
 ---
 
-## 2. Kryptografische Spezifikation (`crates/notenflow-core/src/crypto.rs`)
+## 2. Kryptografische Spezifikation (`crates/gradus21-core/src/crypto.rs`)
 
 | Komponente | Verfahren / Parameter | Zweck |
 | :--- | :--- | :--- |
@@ -41,7 +41,7 @@ sequenceDiagram
 
 ---
 
-## 3. Pädagogische Berechnungs-Engine (`crates/notenflow-core/src/grading.rs`)
+## 3. Pädagogische Berechnungs-Engine (`crates/gradus21-core/src/grading.rs`)
 
 ### 3.1 Proportionale Kategorien-Skalierung (`scale_empty_categories`)
 In vielen Klassen existieren zu Schuljahresbeginn z. B. bereits Vokabeltests (*Kategorie Tests: 20%*), aber noch keine Klassenarbeit (*Kategorie LNW: 50%*) und noch keine mündliche Note (*30%*).
@@ -72,7 +72,7 @@ Für das Code- und Fach-Review dieser Alpha-Version empfehlen wir insbesondere f
 - [ ] **Halbjahres-Verrechnung (`Gesamtjahr`)**: Sollen im Modus `Gesamtjahr (all)` das 1. und 2. Halbjahr je `50:50` gewichtet werden oder alle Leistungsnachweise des gesamten Schuljahres gemeinsam in ihre Kategorien fließen? (Aktuell: gemeinsame Kategorien-Verrechnung über alle Assessments).
 
 ### B. Security- & Backend-Review
-- [x] **PostgreSQL-Persistenz & Atomares Backup**: Sobald `DATABASE_URL` gesetzt ist, synchronisiert `notenflow-server` alle Nutzer und E2EE-Envelopes direkt in PostgreSQL (`users` & `encrypted_envelopes`) und nutzt für den lokalen JSON-Store atomares Write-and-Rename (`.json.tmp`).
+- [x] **PostgreSQL-Persistenz & Atomares Backup**: Sobald `DATABASE_URL` gesetzt ist, synchronisiert `gradus21-server` alle Nutzer und E2EE-Envelopes direkt in PostgreSQL (`users` & `encrypted_envelopes`) und nutzt für den lokalen JSON-Store atomares Write-and-Rename (`.json.tmp`).
 - [ ] **WebAuthn / Passkey Kryptografie-Prüfung**: In `v0.1.0-alpha` validiert der Server die Passkey-Credential-ID. Vor `v1.0` sollte `webauthn-rs` für die vollständige Signaturprüfung des Authenticator-Attestation-/Assertion-Objekts integriert werden.
 - [ ] **Passkey PRF Extension**: Zukünftig soll die WebAuthn `prf`-Erweiterung genutzt werden, um den `DEK` direkt durch das Hardware-Security-Modul des Passkeys zu entschlüsseln.
 - [x] **Rate Limiting & Payload-Limits**: Auf `/api/auth/*` ist ein Sliding-Window Rate-Limiting aktiv; Request-Payloads sind auf `10 MiB` begrenzt.
