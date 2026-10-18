@@ -9,8 +9,8 @@ RUN rustup target add wasm32-unknown-unknown && \
 COPY Cargo.toml Cargo.lock* ./
 COPY crates ./crates
 
-RUN cargo build --release -p notenflow-server && \
-    wasm-pack build crates/notenflow-core --target web --out-dir ../../web/src/wasm-pkg
+RUN cargo build --release -p gradus21-server && \
+    wasm-pack build crates/gradus21-core --target web --out-dir ../../web/src/wasm-pkg
 
 # =============================================================================
 # Stage 2: Build React + TypeScript + WASM Web UI
@@ -28,13 +28,13 @@ RUN npm run build
 # =============================================================================
 FROM debian:bookworm-slim AS server-runtime
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/* && \
-    groupadd -r notenflow && useradd -r -g notenflow -d /app -s /sbin/nologin notenflow && \
-    mkdir -p /app/data && chown -R notenflow:notenflow /app
+    groupadd -r gradus21 && useradd -r -g gradus21 -d /app -s /sbin/nologin gradus21 && \
+    mkdir -p /app/data && chown -R gradus21:gradus21 /app
 WORKDIR /app
-COPY --from=rust-builder /app/target/release/notenflow-server /usr/local/bin/notenflow-server
-USER notenflow
+COPY --from=rust-builder /app/target/release/gradus21-server /usr/local/bin/gradus21-server
+USER gradus21
 EXPOSE 8080
-CMD ["notenflow-server"]
+CMD ["gradus21-server"]
 
 # =============================================================================
 # Stage 4: Nginx Static + Reverse Proxy Runtime

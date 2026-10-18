@@ -9,7 +9,7 @@ import {
   wasm_unwrap_dek_with_passkey,
   wasm_wrap_dek_with_passkey,
   wasm_wrap_dek_with_recovery,
-} from '../wasm-pkg/notenflow_core';
+} from '../wasm-pkg/gradus21_core';
 import { escapeHtml } from './ExportAndPrintHelpers';
 import { FlowRibbonLogo } from './FlowRibbonLogo';
 import {
@@ -227,9 +227,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     const existingUri =
       session.totpSetupUri ||
       (session.totpSecretBase32
-        ? `otpauth://totp/NotenFlow:${encodeURIComponent(
+        ? `otpauth://totp/Gradus21:${encodeURIComponent(
             session.email
-          )}?secret=${session.totpSecretBase32}&issuer=NotenFlow`
+          )}?secret=${session.totpSecretBase32}&issuer=Gradus21`
         : null);
 
     if (existingUri) {
@@ -293,7 +293,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             publicKey: {
               challenge,
               rp: {
-                name: 'BTE NotenFlow',
+                name: 'Gradus21',
                 id: window.location.hostname || 'localhost',
               },
               user: {
@@ -397,7 +397,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         passkeyLabel: deviceLabel,
       });
       setStatusMsg(
-        'Passkey ist eingerichtet! Du kannst NotenFlow ab sofort bequem per Fingerabdruck, Face ID oder Geräte-PIN öffnen.'
+        'Passkey ist eingerichtet! Du kannst Gradus21 ab sofort bequem per Fingerabdruck, Face ID oder Geräte-PIN öffnen.'
       );
     } catch (err: any) {
       setErrorMsg('Passkey-Einrichtung fehlgeschlagen: ' + String(err));
@@ -599,7 +599,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
       if (!saltRes.ok) {
         if (saltRes.status === 404) {
-          setErrorMsg('Kein NotenFlow-Konto für diese E-Mail-Adresse gefunden. Bitte prüfe deine Eingabe oder registriere ein neues Konto.');
+          setErrorMsg('Kein Gradus21-Konto für diese E-Mail-Adresse gefunden. Bitte prüfe deine Eingabe oder registriere ein neues Konto.');
           setStatusMsg(null);
           return;
         }
@@ -850,7 +850,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     win.document.write(`
       <html>
         <head>
-          <title>BTE NotenFlow – Persönliches Notfallblatt</title>
+          <title>Gradus21 – Persönliches Notfallblatt</title>
           <style>
             body { font-family: system-ui, sans-serif; padding: 40px; color: #0f1d22; }
             .box { border: 2px solid #0d9488; border-radius: 14px; padding: 24px; margin-top: 20px; background: #f8fafa; }
@@ -859,7 +859,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           </style>
         </head>
         <body>
-          <h1>BTE NotenFlow — Persönliches Notfallblatt</h1>
+          <h1>Gradus21 — Persönliches Notfallblatt</h1>
           <p class="meta">
             Deine Schülerdaten und Noten sind so geschützt, dass nur du allein darauf zugreifen kannst.
             Falls du dein Passwort einmal vergisst, kannst du mit diesem persönlichen Notfall-Code jederzeit
@@ -893,7 +893,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           <div className="flex flex-col items-center text-center space-y-2">
             <FlowRibbonLogo size={48} showWordmark={true} />
             <h2 className="text-lg font-bold pt-2" style={{ color: 'var(--text-primary)' }}>
-              NotenFlow ist gesperrt
+              Gradus21 ist gesperrt
             </h2>
             <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
               Öffne deine Notenlisten bequem per Fingerabdruck / Face ID oder mit deinem Passwort.

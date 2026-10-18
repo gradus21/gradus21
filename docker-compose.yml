@@ -1,19 +1,19 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: notenflow-db
+    container_name: gradus21-db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-notenflow}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-notenflow_secret_db_pw}
-      POSTGRES_DB: ${POSTGRES_DB:-notenflow}
+      POSTGRES_USER: ${POSTGRES_USER:-gradus21}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gradus21_secret_db_pw}
+      POSTGRES_DB: ${POSTGRES_DB:-gradus21}
     ports:
       - "${POSTGRES_PORT:-5435}:5432"
     volumes:
-      - notenflow_pgdata:/var/lib/postgresql/data
+      - gradus21_pgdata:/var/lib/postgresql/data
       - ./migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/001_initial_schema.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-notenflow} -d ${POSTGRES_DB:-notenflow}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gradus21} -d ${POSTGRES_DB:-gradus21}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -23,19 +23,19 @@ services:
       context: .
       dockerfile: Dockerfile
       target: server-runtime
-    container_name: notenflow-server
+    container_name: gradus21-server
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-notenflow}:${POSTGRES_PASSWORD:-notenflow_secret_db_pw}@postgres:5432/${POSTGRES_DB:-notenflow}
+      DATABASE_URL: postgres://${POSTGRES_USER:-gradus21}:${POSTGRES_PASSWORD:-gradus21_secret_db_pw}@postgres:5432/${POSTGRES_DB:-gradus21}
       JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_signing_key_change_in_prod_32b}
       SERVER_ENCRYPTION_KEY: ${SERVER_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
       RUST_LOG: info
       PORT: 8080
     volumes:
-      - notenflow_vaultdata:/app/data
+      - gradus21_vaultdata:/app/data
     ports:
       - "${API_PORT:-8080}:8080"
 
@@ -44,7 +44,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: web-runtime
-    container_name: notenflow-web
+    container_name: gradus21-web
     restart: unless-stopped
     depends_on:
       - server
@@ -52,6 +52,6 @@ services:
       - "${WEB_PORT:-3080}:80"
 
 volumes:
-  notenflow_pgdata:
-  notenflow_vaultdata:
+  gradus21_pgdata:
+  gradus21_vaultdata:
 

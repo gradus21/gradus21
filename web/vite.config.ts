@@ -13,7 +13,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    exclude: ['notenflow-core'],
+    exclude: ['gradus21-core'],
   },
   build: {
     rollupOptions: {

@@ -75,7 +75,7 @@ export const FlowRibbonLogo: React.FC<FlowRibbonLogoProps> = ({
         <div className="flex flex-col leading-none">
           <div className="flex items-center gap-1.5">
             <span className="text-lg font-extrabold tracking-tight" style={{ color: 'var(--text-primary)' }}>
-              Noten<span style={{ color: 'var(--primary-500)' }}>Flow</span>
+              Gradus<span style={{ color: 'var(--primary-500)' }}>21</span>
             </span>
             <span
               className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md"
@@ -84,11 +84,11 @@ export const FlowRibbonLogo: React.FC<FlowRibbonLogoProps> = ({
                 color: 'var(--primary-text)',
               }}
             >
-              BTE
+              E2EE
             </span>
           </div>
           <span className="text-[11px] font-medium mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-            Zero-Knowledge Classroom Suite
+            Sichere Notenverwaltung & Didaktik
           </span>
         </div>
       )}

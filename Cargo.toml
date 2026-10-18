@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/notenflow-core",
-    "crates/notenflow-server",
+    "crates/gradus21-core",
+    "crates/gradus21-server",
 ]
 
 [workspace.package]

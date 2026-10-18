@@ -17,7 +17,7 @@ pub fn generate_totp_secret_base32() -> String {
 /// Builds a standard `otpauth://totp/...` URI for QR code scanners (Bitwarden, Google Authenticator, Aegis, Apple Passwords)
 pub fn build_otpauth_uri(email: &str, secret_base32: &str) -> String {
     format!(
-        "otpauth://totp/NotenFlow:{}?secret={}&issuer=NotenFlow",
+        "otpauth://totp/Gradus21:{}?secret={}&issuer=Gradus21",
         url_encode(email),
         secret_base32
     )

@@ -5,7 +5,7 @@ import initWasm, {
   wasm_encrypt_envelope,
   wasm_generate_vault,
   wasm_simulate_needed_score,
-} from './wasm-pkg/notenflow_core';
+} from './wasm-pkg/gradus21_core';
 import { FlowRibbonLogo } from './components/FlowRibbonLogo';
 import { ClassSetupAndExcelWizard } from './components/ClassSetupAndExcelWizard';
 import { ClassManagementModal } from './components/ClassManagementModal';
@@ -1440,7 +1440,7 @@ export const App: React.FC = () => {
               color: 'var(--text-secondary)',
               borderColor: 'var(--border-subtle)',
             }}
-            title="NotenFlow sperren, bis du dich per Fingerabdruck oder Passwort wieder anmeldest"
+            title="Gradus21 sperren, bis du dich per Fingerabdruck oder Passwort wieder anmeldest"
           >
             <Lock className="w-3.5 h-3.5" />
             <span>Abmelden</span>

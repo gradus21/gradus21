@@ -13,7 +13,7 @@ use axum::{
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use chrono::{DateTime, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
-use notenflow_core::crypto::{decrypt_entity_envelope, encrypt_entity_envelope, KdfParams};
+use gradus21_core::crypto::{decrypt_entity_envelope, encrypt_entity_envelope, KdfParams};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
@@ -425,7 +425,7 @@ async fn delete_envelope_from_pg(state: &AppState, id: Uuid, owner_id: Uuid) {
 async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "info,notenflow_server=debug".into()),
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "info,gradus21_server=debug".into()),
         )
         .init();
 
@@ -433,7 +433,7 @@ async fn main() {
         Ok(s) if !s.trim().is_empty() => s,
         _ => {
             tracing::warn!("JWT_SECRET not set — using development fallback secret. Set JWT_SECRET in production!");
-            "bte_notenflow_jwt_signing_secret_2026_zero_knowledge".into()
+            "gradus21_jwt_signing_secret_2026_zero_knowledge".into()
         }
     };
 
@@ -570,7 +570,7 @@ async fn health_check(State(state): State<AppState>) -> Json<serde_json::Value> 
     let env_count = state.mem_envelopes.read().unwrap().len();
     Json(serde_json::json!({
         "status": "ok",
-        "service": "bte-notenflow-server",
+        "service": "gradus21-server",
         "zero_knowledge_e2ee": true,
         "storage_mode": if state.db.is_some() { "postgresql" } else { "persistent_disk_vault" },
         "registered_users": user_count,
@@ -1398,10 +1398,10 @@ fn authenticate_request(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use notenflow_core::crypto::{derive_recovery_auth_key, generate_vault_bundle, rewrap_dek_for_new_password};
+    use gradus21_core::crypto::{derive_recovery_auth_key, generate_vault_bundle, rewrap_dek_for_new_password};
 
     fn create_test_state() -> AppState {
-        let tmp_file = std::env::temp_dir().join(format!("notenflow_test_vault_{}.json", Uuid::new_v4()));
+        let tmp_file = std::env::temp_dir().join(format!("gradus21_test_vault_{}.json", Uuid::new_v4()));
         let key_digest = Sha256::digest(b"test_server_encryption_key_2026");
         AppState {
             db: None,
