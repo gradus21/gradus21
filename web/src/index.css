@@ -99,3 +99,15 @@ body {
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
+
+/* Adaptive Touch-Targets: Nur auf Touch-Geräten (iPad, Smartphone, Tablet) 
+   Mindesthöhe/-breite auf 44px anheben, Desktop-Mausnutzung bleibt kompakt. */
+@media (pointer: coarse) {
+  button:not(.compact-touch), 
+  [role="button"]:not(.compact-touch),
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
