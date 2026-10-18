@@ -1,7 +1,7 @@
 # =============================================================================
 # Stage 1: Build Rust Workspace (Axum Server + WASM Core)
 # =============================================================================
-FROM rust:1.83-bookworm AS rust-builder
+FROM rust:bookworm AS rust-builder
 WORKDIR /app
 RUN rustup target add wasm32-unknown-unknown && \
     curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
