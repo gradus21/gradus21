@@ -51,6 +51,30 @@ mod tests {
     }
 
     #[test]
+    fn test_passkey_prf_wrap_and_unwrap_cycle() {
+        use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+
+        let bundle = generate_vault_bundle("TeacherSecret2026!").expect("vault bundle");
+        let prf_secret = [42u8; 32];
+        let prf_secret_b64 = B64.encode(prf_secret);
+        let credential_id = "cred_webauthn_prf_credential_test_id";
+
+        let wrapped = wrap_dek_with_passkey_secret(&bundle.dek_b64, &prf_secret_b64, credential_id)
+            .expect("wrap passkey");
+        assert!(wrapped.starts_with("v1:"));
+
+        let unwrapped = unwrap_dek_with_passkey_secret(&prf_secret_b64, credential_id, &wrapped)
+            .expect("unwrap passkey");
+        assert_eq!(unwrapped, bundle.dek_b64);
+
+        // Tampered / wrong secret must be rejected
+        let wrong_secret = [99u8; 32];
+        let wrong_secret_b64 = B64.encode(wrong_secret);
+        let fail = unwrap_dek_with_passkey_secret(&wrong_secret_b64, credential_id, &wrapped);
+        assert!(fail.is_err());
+    }
+
+    #[test]
     fn test_englisch_6_sj_2627_grading_scenario() {
         let config = SubjectGradingConfig {
             scale_id: GradingScaleId::DeClassic1To6,

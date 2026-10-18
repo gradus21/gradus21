@@ -61,7 +61,9 @@ interface LocalPasskeyStoreEntry {
   credentialId: string;
   email: string;
   label: string;
-  passkeySecretB64: string;
+  prfSupported?: boolean;
+  prfSaltB64?: string;
+  passkeySecretB64?: string; // Fallback only for non-PRF authenticators
   createdAt: string;
 }
 
@@ -70,12 +72,14 @@ interface LocalRecoveryMetaEntry {
   recoveryEncryptedDek: string;
 }
 
-const PASSKEY_STORAGE_KEY = 'bte_notenflow_passkey_device_store_v1';
-const RECOVERY_META_STORAGE_KEY = 'bte_notenflow_recovery_meta_v1';
+const PASSKEY_STORAGE_KEY = 'gradus21_passkey_device_store_v2';
+const LEGACY_PASSKEY_STORAGE_KEY = 'bte_notenflow_passkey_device_store_v1';
+const RECOVERY_META_STORAGE_KEY = 'gradus21_recovery_meta_v2';
+const LEGACY_RECOVERY_META_STORAGE_KEY = 'bte_notenflow_recovery_meta_v1';
 
 function loadLocalPasskeys(): Record<string, LocalPasskeyStoreEntry> {
   try {
-    const raw = localStorage.getItem(PASSKEY_STORAGE_KEY);
+    const raw = localStorage.getItem(PASSKEY_STORAGE_KEY) || localStorage.getItem(LEGACY_PASSKEY_STORAGE_KEY);
     return raw ? JSON.parse(raw) : {};
   } catch {
     return {};
@@ -269,7 +273,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   }, [session?.token, session?.totpSetupUri, session?.totpSecretBase32, session?.totpEnabled, session?.email, isLockedScreen]);
 
   // ===========================================================================
-  // PASSKEY EINRICHTEN (WebAuthn + Zero-Knowledge Schlüssel-Umschlag)
+  // PASSKEY EINRICHTEN (WebAuthn PRF + Zero-Knowledge Schlüssel-Umschlag)
   // ===========================================================================
   const handleSetupPasskey = async () => {
     if (!session) return;
@@ -280,9 +284,11 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       const challenge = crypto.getRandomValues(new Uint8Array(32));
       const userIdBytes = new TextEncoder().encode(session.userId);
       const prfSalt = crypto.getRandomValues(new Uint8Array(32));
+      const prfSaltB64 = bytesToBase64(prfSalt);
 
       let credentialIdB64 = '';
       let passkeySecretBytes = crypto.getRandomValues(new Uint8Array(32));
+      let isPrfEnabled = false;
       let deviceLabel = navigator.platform
         ? `Passkey auf diesem Gerät (${navigator.platform})`
         : 'Passkey (Fingerabdruck / Face ID)';
@@ -312,17 +318,25 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               },
               timeout: 60000,
               extensions: {
-                // WebAuthn PRF Extension (falls vom Browser/Gerät unterstützt)
-                prf: { eval: { first: prfSalt } },
+                // WebAuthn PRF Extension (W3C Level 3 standard)
+                prf: {
+                  eval: {
+                    first: prfSalt,
+                  },
+                },
               } as any,
             },
           })) as PublicKeyCredential | null;
 
           if (cred) {
             credentialIdB64 = bytesToBase64(new Uint8Array(cred.rawId));
-            const extResults = (cred.getClientExtensionResults() as any)?.prf?.results?.first;
-            if (extResults) {
-              passkeySecretBytes = new Uint8Array(extResults);
+            const extResults = (cred.getClientExtensionResults() as any)?.prf;
+            const prfFirst = extResults?.results?.first;
+            if (prfFirst) {
+              passkeySecretBytes = new Uint8Array(prfFirst);
+              isPrfEnabled = true;
+            } else if (extResults?.enabled) {
+              isPrfEnabled = true;
             }
           }
         } catch (webauthnErr: any) {
@@ -332,8 +346,6 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             setErrorMsg('Die Passkey-Einrichtung wurde abgebrochen.');
             return;
           }
-          // Falls in einer Testumgebung kein Hardware-Authenticator vorhanden ist,
-          // erstellen wir einen lokalen Geräteschlüssel als Fallback.
         }
       }
 
@@ -364,6 +376,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           credential_id: credentialIdB64,
           label: deviceLabel,
           passkey_encrypted_dek: passkeyEncryptedDek,
+          passkey_prf_salt_b64: isPrfEnabled ? prfSaltB64 : undefined,
           kdf_salt_b64: session.kdfSaltB64,
           encrypted_dek: session.encryptedDek,
           recovery_encrypted_dek: session.recoveryEncryptedDek,
@@ -384,7 +397,10 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         credentialId: credentialIdB64,
         email: session.email.trim().toLowerCase(),
         label: deviceLabel,
-        passkeySecretB64,
+        prfSupported: isPrfEnabled,
+        prfSaltB64: isPrfEnabled ? prfSaltB64 : undefined,
+        // Nur wenn PRF nicht hardwareseitig unterstützt wird, speichern wir den Fallback-Schlüssel
+        passkeySecretB64: isPrfEnabled ? undefined : passkeySecretB64,
         createdAt: new Date().toLocaleDateString('de-DE'),
       };
       saveLocalPasskey(entry);
@@ -397,7 +413,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         passkeyLabel: deviceLabel,
       });
       setStatusMsg(
-        'Passkey ist eingerichtet! Du kannst Gradus21 ab sofort bequem per Fingerabdruck, Face ID oder Geräte-PIN öffnen.'
+        isPrfEnabled
+          ? 'Passkey mit Hardware-PRF eingerichtet! Der Tresorschlüssel ist nun direkt im Sicherheitschip (Secure Enclave / TPM) verankert.'
+          : 'Passkey ist eingerichtet! Du kannst Gradus21 ab sofort bequem per Fingerabdruck, Face ID oder Geräte-PIN öffnen.'
       );
     } catch (err: any) {
       setErrorMsg('Passkey-Einrichtung fehlgeschlagen: ' + String(err));
@@ -406,7 +424,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   };
 
   // ===========================================================================
-  // MIT PASSKEY ÖFFNEN (1-Klick Entsperrung per Fingerabdruck / Face ID)
+  // MIT PASSKEY ÖFFNEN (1-Klick Entsperrung per Fingerabdruck / Face ID & PRF)
   // ===========================================================================
   const handleUnlockWithPasskey = async () => {
     setErrorMsg(null);
@@ -425,11 +443,46 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         return;
       }
 
+      let derivedSecretB64 = '';
+      let prfSaltToUse: Uint8Array | null = null;
+
+      if (localEntry.prfSaltB64) {
+        prfSaltToUse = base64ToBytes(localEntry.prfSaltB64);
+      } else if (localEntry.email) {
+        try {
+          const sRes = await fetch('/api/auth/salt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: localEntry.email }),
+          });
+          if (sRes.ok) {
+            const sData = await sRes.json();
+            if (sData.passkey_prf_salt_b64) {
+              prfSaltToUse = base64ToBytes(sData.passkey_prf_salt_b64);
+              localEntry.prfSaltB64 = sData.passkey_prf_salt_b64;
+              saveLocalPasskey(localEntry);
+            }
+          }
+        } catch {
+          // ignore prefetch salt error
+        }
+      }
+
       if (window.PublicKeyCredential && navigator.credentials?.get) {
         try {
           const challenge = crypto.getRandomValues(new Uint8Array(32));
           const credIdBytes = base64ToBytes(localEntry.credentialId);
-          await navigator.credentials.get({
+          const getExtensions = prfSaltToUse
+            ? {
+                prf: {
+                  eval: {
+                    first: prfSaltToUse,
+                  },
+                },
+              }
+            : undefined;
+
+          const assertion = (await navigator.credentials.get({
             publicKey: {
               challenge,
               allowCredentials: [
@@ -440,8 +493,16 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               ],
               userVerification: 'preferred',
               timeout: 60000,
+              extensions: getExtensions as any,
             },
-          });
+          })) as PublicKeyCredential | null;
+
+          if (assertion) {
+            const extResults = (assertion.getClientExtensionResults() as any)?.prf?.results?.first;
+            if (extResults) {
+              derivedSecretB64 = bytesToBase64(new Uint8Array(extResults));
+            }
+          }
         } catch (webauthnErr: any) {
           if (webauthnErr?.name === 'NotAllowedError') {
             setStatusMsg(null);
@@ -449,6 +510,11 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             return;
           }
         }
+      }
+
+      // Fallback für Geräte/Browser ohne native WebAuthn PRF Extension
+      if (!derivedSecretB64 && localEntry.passkeySecretB64) {
+        derivedSecretB64 = localEntry.passkeySecretB64;
       }
 
       const res = await fetch('/api/auth/passkey/login', {
@@ -474,8 +540,16 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         return;
       }
 
+      if (!derivedSecretB64) {
+        setStatusMsg(null);
+        setErrorMsg(
+          'Der kryptografische Passkey-Schlüssel konnte nicht abgeleitet werden. Bitte melde dich mit deinem Passwort an.'
+        );
+        return;
+      }
+
       const unwrappedDekB64 = wasm_unwrap_dek_with_passkey(
-        localEntry.passkeySecretB64,
+        derivedSecretB64,
         localEntry.credentialId,
         loginData.passkey_encrypted_dek
       );
@@ -913,8 +987,14 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 <span>Mit Fingerabdruck / Face ID öffnen (Passkey)</span>
               </button>
               {localPasskeyForEmail && (
-                <div className="text-[11px] text-center" style={{ color: 'var(--text-secondary)' }}>
-                  Passkey aktiv für <strong>{localPasskeyForEmail.email}</strong>
+                <div className="text-[11px] text-center flex items-center justify-center gap-1.5 flex-wrap" style={{ color: 'var(--text-secondary)' }}>
+                  <span>Passkey aktiv für <strong>{localPasskeyForEmail.email}</strong></span>
+                  {localPasskeyForEmail.prfSupported && (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100/80 text-emerald-800 border border-emerald-300/60 inline-flex items-center gap-1">
+                      <Shield className="w-2.5 h-2.5" />
+                      Hardware PRF
+                    </span>
+                  )}
                 </div>
               )}
               <div className="flex items-center gap-3 pt-1">
@@ -1211,15 +1291,21 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 color: 'var(--text-secondary)',
               }}
             >
-              <span className="flex items-center gap-1.5 font-semibold" style={{ color: 'var(--text-primary)' }}>
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <span className="flex items-center gap-1.5 font-semibold flex-wrap" style={{ color: 'var(--text-primary)' }}>
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span>
                   {session.passkeyLabel ||
                     localPasskeyForEmail?.label ||
                     'Passkey auf diesem Gerät aktiv'}
                 </span>
+                {localPasskeyForEmail?.prfSupported && (
+                  <span className="ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 inline-flex items-center gap-1">
+                    <Shield className="w-2.5 h-2.5" />
+                    Hardware PRF (Secure Enclave)
+                  </span>
+                )}
               </span>
-              <span className="text-[11px]">Bereit für 1-Klick-Entsperrung</span>
+              <span className="text-[11px] shrink-0">Bereit für 1-Klick-Entsperrung</span>
             </div>
           )}
         </div>

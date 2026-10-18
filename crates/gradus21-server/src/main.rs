@@ -64,6 +64,8 @@ struct UserRecord {
     passkey_label: Option<String>,
     #[serde(default)]
     passkey_encrypted_dek: Option<String>,
+    #[serde(default)]
+    passkey_prf_salt: Option<String>,
     ui_preferences: serde_json::Value,
 }
 
@@ -114,6 +116,7 @@ struct AuthResponse {
     passkey_credential_id: Option<String>,
     passkey_label: Option<String>,
     passkey_encrypted_dek: Option<String>,
+    passkey_prf_salt_b64: Option<String>,
     ui_preferences: serde_json::Value,
 }
 
@@ -131,6 +134,7 @@ struct SaltQueryResponse {
     totp_enabled: bool,
     has_passkey: bool,
     passkey_label: Option<String>,
+    passkey_prf_salt_b64: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -138,6 +142,8 @@ struct PasskeyRegisterRequest {
     credential_id: String,
     label: String,
     passkey_encrypted_dek: String,
+    #[serde(default)]
+    passkey_prf_salt_b64: Option<String>,
     kdf_salt_b64: Option<String>,
     encrypted_dek: Option<String>,
     recovery_encrypted_dek: Option<String>,
@@ -248,6 +254,7 @@ async fn ensure_pg_schema_and_load(
             passkey_credential_id TEXT,
             passkey_label TEXT,
             passkey_encrypted_dek TEXT,
+            passkey_prf_salt TEXT,
             ui_preferences JSONB NOT NULL DEFAULT '{"theme": "teal", "mode": "light"}',
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -256,6 +263,7 @@ async fn ensure_pg_schema_and_load(
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS passkey_credential_id TEXT",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS passkey_label TEXT",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS passkey_encrypted_dek TEXT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS passkey_prf_salt TEXT",
         r#"CREATE TABLE IF NOT EXISTS encrypted_envelopes (
             id UUID PRIMARY KEY,
             owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -276,7 +284,7 @@ async fn ensure_pg_schema_and_load(
     }
 
     if let Ok(rows) = sqlx::query(
-        "SELECT id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek, recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted, totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek, ui_preferences FROM users",
+        "SELECT id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek, recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted, totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek, passkey_prf_salt, ui_preferences FROM users",
     )
     .fetch_all(pool)
     .await
@@ -298,6 +306,7 @@ async fn ensure_pg_schema_and_load(
                 passkey_credential_id: row.try_get("passkey_credential_id").ok().flatten(),
                 passkey_label: row.try_get("passkey_label").ok().flatten(),
                 passkey_encrypted_dek: row.try_get("passkey_encrypted_dek").ok().flatten(),
+                passkey_prf_salt: row.try_get("passkey_prf_salt").ok().flatten(),
                 ui_preferences: row.get("ui_preferences"),
             };
             users_map.insert(id, user);
@@ -337,8 +346,8 @@ async fn sync_user_to_pg(state: &AppState, user: &UserRecord) {
             id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek,
             recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted,
             totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek,
-            ui_preferences, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+            passkey_prf_salt, ui_preferences, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
         ON CONFLICT (id) DO UPDATE SET
             email = EXCLUDED.email,
             auth_key_hash = EXCLUDED.auth_key_hash,
@@ -352,6 +361,7 @@ async fn sync_user_to_pg(state: &AppState, user: &UserRecord) {
             passkey_credential_id = EXCLUDED.passkey_credential_id,
             passkey_label = EXCLUDED.passkey_label,
             passkey_encrypted_dek = EXCLUDED.passkey_encrypted_dek,
+            passkey_prf_salt = EXCLUDED.passkey_prf_salt,
             ui_preferences = EXCLUDED.ui_preferences,
             updated_at = NOW()"#,
     )
@@ -368,6 +378,7 @@ async fn sync_user_to_pg(state: &AppState, user: &UserRecord) {
     .bind(&user.passkey_credential_id)
     .bind(&user.passkey_label)
     .bind(&user.passkey_encrypted_dek)
+    .bind(&user.passkey_prf_salt)
     .bind(&user.ui_preferences)
     .execute(pool)
     .await
@@ -594,6 +605,7 @@ async fn get_user_salt(
             totp_enabled: u.totp_enabled,
             has_passkey: u.passkey_credential_id.is_some(),
             passkey_label: u.passkey_label,
+            passkey_prf_salt_b64: u.passkey_prf_salt,
         }));
     }
 
@@ -650,6 +662,7 @@ async fn register_user(
             passkey_credential_id: None,
             passkey_label: None,
             passkey_encrypted_dek: None,
+            passkey_prf_salt: None,
             ui_preferences: ui_prefs.clone(),
         };
         users.insert(user_id, record.clone());
@@ -673,6 +686,7 @@ async fn register_user(
         passkey_credential_id: None,
         passkey_label: None,
         passkey_encrypted_dek: None,
+        passkey_prf_salt_b64: None,
         ui_preferences: ui_prefs,
     }))
 }
@@ -730,6 +744,7 @@ async fn login_user(
         passkey_credential_id: user.passkey_credential_id,
         passkey_label: user.passkey_label,
         passkey_encrypted_dek: user.passkey_encrypted_dek,
+        passkey_prf_salt_b64: user.passkey_prf_salt,
         ui_preferences: user.ui_preferences,
     }))
 }
@@ -814,6 +829,7 @@ async fn recover_password(
         passkey_credential_id: updated_user.passkey_credential_id,
         passkey_label: updated_user.passkey_label,
         passkey_encrypted_dek: updated_user.passkey_encrypted_dek,
+        passkey_prf_salt_b64: updated_user.passkey_prf_salt,
         ui_preferences: updated_user.ui_preferences,
     }))
 }
@@ -843,6 +859,9 @@ async fn register_passkey(
             user.passkey_credential_id = Some(req.credential_id.clone());
             user.passkey_label = Some(req.label.clone());
             user.passkey_encrypted_dek = Some(req.passkey_encrypted_dek.clone());
+            if let Some(prf_salt) = &req.passkey_prf_salt_b64 {
+                user.passkey_prf_salt = Some(prf_salt.clone());
+            }
             if let Some(salt) = req.kdf_salt_b64.as_ref().filter(|s| !s.is_empty()) {
                 if user.kdf_salt.is_empty() {
                     user.kdf_salt = salt.clone();
@@ -887,6 +906,7 @@ async fn register_passkey(
                 passkey_credential_id: Some(req.credential_id.clone()),
                 passkey_label: Some(req.label.clone()),
                 passkey_encrypted_dek: Some(req.passkey_encrypted_dek.clone()),
+                passkey_prf_salt: req.passkey_prf_salt_b64.clone(),
                 ui_preferences: serde_json::json!({ "theme": "teal", "mode": "light" }),
             };
             users.insert(user_id, new_user.clone());
@@ -899,6 +919,7 @@ async fn register_passkey(
         "token": issued_token,
         "passkey_credential_id": req.credential_id,
         "passkey_label": req.label,
+        "passkey_prf_salt_b64": req.passkey_prf_salt_b64,
     })))
 }
 
@@ -953,6 +974,7 @@ async fn login_with_passkey(
         passkey_credential_id: user.passkey_credential_id,
         passkey_label: user.passkey_label,
         passkey_encrypted_dek: user.passkey_encrypted_dek,
+        passkey_prf_salt_b64: user.passkey_prf_salt,
         ui_preferences: user.ui_preferences,
     }))
 }
@@ -1033,6 +1055,7 @@ async fn get_2fa_setup_info(
                 passkey_credential_id: None,
                 passkey_label: None,
                 passkey_encrypted_dek: None,
+                passkey_prf_salt: None,
                 ui_preferences: serde_json::json!({ "theme": "teal", "mode": "light" }),
             };
             users.insert(user_id, new_user.clone());
@@ -1320,7 +1343,7 @@ async fn find_user_by_email(state: &AppState, email: &str) -> Option<UserRecord>
 
     if let Some(pool) = &state.db {
         if let Ok(Some(row)) = sqlx::query(
-            "SELECT id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek, recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted, totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek, ui_preferences FROM users WHERE email = $1",
+            "SELECT id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek, recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted, totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek, passkey_prf_salt, ui_preferences FROM users WHERE email = $1",
         )
         .bind(email)
         .fetch_optional(pool)
@@ -1342,6 +1365,7 @@ async fn find_user_by_email(state: &AppState, email: &str) -> Option<UserRecord>
                 passkey_credential_id: row.try_get("passkey_credential_id").ok().flatten(),
                 passkey_label: row.try_get("passkey_label").ok().flatten(),
                 passkey_encrypted_dek: row.try_get("passkey_encrypted_dek").ok().flatten(),
+                passkey_prf_salt: row.try_get("passkey_prf_salt").ok().flatten(),
                 ui_preferences: row.get("ui_preferences"),
             };
             state.mem_users.write().unwrap().insert(id, user.clone());
@@ -1607,6 +1631,100 @@ mod tests {
         .await
         .expect("valid occ update");
         assert_eq!(updated_rec.version, 2);
+
+        let _ = fs::remove_file(&state.disk_store_path);
+    }
+
+    #[tokio::test]
+    async fn test_passkey_prf_registration_and_login_flow() {
+        use gradus21_core::crypto::{generate_vault_bundle, wrap_dek_with_passkey_secret, unwrap_dek_with_passkey_secret};
+        use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+
+        let state = create_test_state();
+        let bundle = generate_vault_bundle("Password123!").expect("bundle");
+
+        // 1. Register base user
+        let Json(reg_resp) = register_user(
+            State(state.clone()),
+            Json(RegisterRequest {
+                email: "passkey_user@schule.de".into(),
+                auth_key_b64: bundle.auth_key_b64.clone(),
+                kdf_salt_b64: bundle.kdf_salt_b64.clone(),
+                kdf_params: bundle.kdf_params.clone(),
+                encrypted_dek: bundle.encrypted_dek.clone(),
+                recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
+                recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
+            }),
+        )
+        .await
+        .expect("register user");
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Bearer {}", reg_resp.token)).unwrap(),
+        );
+
+        // 2. Simulate WebAuthn PRF extension output (32 random bytes derived by authenticator)
+        let prf_salt_bytes = [7u8; 32];
+        let prf_salt_b64 = B64.encode(prf_salt_bytes);
+        let prf_secret_bytes = [42u8; 32];
+        let prf_secret_b64 = B64.encode(prf_secret_bytes);
+        let cred_id = "cred_prf_hardware_touchid_12345";
+
+        let passkey_encrypted_dek = wrap_dek_with_passkey_secret(&bundle.dek_b64, &prf_secret_b64, cred_id)
+            .expect("wrap dek with prf secret");
+
+        // 3. Register Passkey with PRF salt
+        let Json(passkey_reg_resp) = register_passkey(
+            State(state.clone()),
+            headers,
+            Json(PasskeyRegisterRequest {
+                credential_id: cred_id.into(),
+                label: "MacBook Touch ID".into(),
+                passkey_encrypted_dek: passkey_encrypted_dek.clone(),
+                passkey_prf_salt_b64: Some(prf_salt_b64.clone()),
+                kdf_salt_b64: Some(bundle.kdf_salt_b64.clone()),
+                encrypted_dek: Some(bundle.encrypted_dek.clone()),
+                recovery_encrypted_dek: Some(bundle.recovery_encrypted_dek.clone()),
+                recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
+            }),
+        )
+        .await
+        .expect("register passkey");
+        assert_eq!(passkey_reg_resp["passkey_credential_id"], cred_id);
+        assert_eq!(passkey_reg_resp["passkey_prf_salt_b64"], prf_salt_b64);
+
+        // 4. Verify salt query returns has_passkey = true and passkey_prf_salt_b64
+        let Json(salt_info) = get_user_salt(
+            State(state.clone()),
+            Json(SaltQueryRequest {
+                email: "passkey_user@schule.de".into(),
+            }),
+        )
+        .await
+        .expect("get salt");
+        assert!(salt_info.has_passkey);
+        assert_eq!(salt_info.passkey_prf_salt_b64, Some(prf_salt_b64.clone()));
+
+        // 5. Login via Passkey Credential ID
+        let Json(login_resp) = login_with_passkey(
+            State(state.clone()),
+            Json(PasskeyLoginRequest {
+                email: Some("passkey_user@schule.de".into()),
+                credential_id: cred_id.into(),
+            }),
+        )
+        .await
+        .expect("login with passkey");
+        assert_eq!(login_resp.passkey_credential_id, Some(cred_id.into()));
+        assert_eq!(login_resp.passkey_prf_salt_b64, Some(prf_salt_b64));
+        assert_eq!(login_resp.passkey_encrypted_dek, Some(passkey_encrypted_dek.clone()));
+
+        // 6. Client unwraps DEK using the hardware PRF secret
+        let unwrapped_dek = unwrap_dek_with_passkey_secret(&prf_secret_b64, cred_id, &login_resp.passkey_encrypted_dek.unwrap())
+            .expect("unwrap dek");
+        assert_eq!(unwrapped_dek, bundle.dek_b64);
 
         let _ = fs::remove_file(&state.disk_store_path);
     }
