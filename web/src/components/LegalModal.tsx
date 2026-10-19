@@ -60,6 +60,11 @@ export const LegalModal: React.FC<LegalModalProps> = ({
   const [activeTab, setActiveTab] = useState<LegalTab>(initialTab);
   const [config, setConfig] = useState<LegalConfigData>(DEFAULT_LEGAL_CONFIG);
   const [copiedAvv, setCopiedAvv] = useState(false);
+  const [schoolName, setSchoolName] = useState('');
+  const [schoolStreet, setSchoolStreet] = useState('');
+  const [schoolCity, setSchoolCity] = useState('');
+  const [schoolSigDate, setSchoolSigDate] = useState('');
+  const [schoolSigPerson, setSchoolSigPerson] = useState('');
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -497,20 +502,66 @@ export const LegalModal: React.FC<LegalModalProps> = ({
                   gemäß Art. 28 Datenschutz-Grundverordnung (DSGVO)
                 </div>
 
-                <p>
-                  <strong>Zwischen:</strong><br />
-                  [Name der Schule / Schulträger]<br />
-                  [Straße, Hausnummer, PLZ Ort]<br />
-                  – nachfolgend <em>„Auftraggeber“</em> oder <em>„Schule“</em> genannt –
-                </p>
+                <div className="space-y-3">
+                  <p>
+                    <strong>Zwischen:</strong>
+                  </p>
+                  <div className="pl-4 border-l-2 border-teal-500 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-r-xl border border-slate-200 dark:border-slate-700 space-y-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                      <span className="text-[11px] text-slate-500 w-28 shrink-0">Schule / Träger:</span>
+                      <input
+                        type="text"
+                        value={schoolName}
+                        onChange={(e) => setSchoolName(e.target.value)}
+                        placeholder="z. B. Friedrich-Schiller-Gymnasium"
+                        className="w-full px-2.5 py-1 text-xs border border-teal-300 dark:border-teal-700 rounded-lg bg-white dark:bg-slate-900 font-mono text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                      <span className="text-[11px] text-slate-500 w-28 shrink-0">Straße &amp; Nr.:</span>
+                      <input
+                        type="text"
+                        value={schoolStreet}
+                        onChange={(e) => setSchoolStreet(e.target.value)}
+                        placeholder="z. B. Schillerstraße 15"
+                        className="w-full px-2.5 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 font-mono text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                      <span className="text-[11px] text-slate-500 w-28 shrink-0">PLZ &amp; Ort:</span>
+                      <input
+                        type="text"
+                        value={schoolCity}
+                        onChange={(e) => {
+                          setSchoolCity(e.target.value);
+                          if (!schoolSigDate || schoolSigDate.startsWith(e.target.value)) {
+                            setSchoolSigDate(`${e.target.value}, den ${new Date().toLocaleDateString('de-DE')}`);
+                          }
+                        }}
+                        placeholder="z. B. 70173 Stuttgart"
+                        className="w-full px-2.5 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 font-mono text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <div className="text-[10px] text-slate-500 pt-1">
+                      – nachfolgend <em>„Auftraggeber“</em> oder <em>„Schule“</em> genannt –
+                    </div>
+                  </div>
 
-                <p>
-                  <strong>und:</strong><br />
-                  {config.company ? `${config.company}, ` : ''}{config.name}<br />
-                  {config.address}<br />
-                  E-Mail: {config.email}<br />
-                  – nachfolgend <em>„Auftragnehmer“</em> oder <em>„Dienstanbieter“</em> genannt –
-                </p>
+                  <p>
+                    <strong>und:</strong>
+                  </p>
+                  <div className="pl-4 border-l-2 border-slate-400 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-r-xl border border-slate-200 dark:border-slate-700 text-xs">
+                    <p className="font-bold text-slate-900 dark:text-white">
+                      {config.company ? `${config.company}, ` : ''}{config.name} (Gradus21)
+                    </p>
+                    <p>{config.address}</p>
+                    <p>E-Mail: {config.email}</p>
+                    <div className="text-[10px] text-slate-500 pt-1">
+                      – nachfolgend <em>„Auftragnehmer“</em> genannt –
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-500">– gemeinsam nachfolgend „die Parteien“ genannt –</p>
+                </div>
 
                 <p>
                   <strong>§ 1 Gegenstand und Dauer des Auftrags</strong><br />
@@ -554,14 +605,48 @@ export const LegalModal: React.FC<LegalModalProps> = ({
                   Verarbeitung der Schülerdaten.
                 </p>
 
-                <div className="pt-4 flex justify-between border-t border-slate-200 dark:border-slate-800 text-[10px]">
-                  <div>
-                    Ort, Datum: _______________________<br /><br />
-                    Unterschrift Schule (Auftraggeber)
+                <div className="pt-6 grid grid-cols-1 sm:grid-cols-2 gap-6 border-t border-slate-200 dark:border-slate-800 text-xs">
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-2">
+                    <p className="font-bold text-slate-900 dark:text-white">Für die Schule (Auftraggeber):</p>
+                    <div className="space-y-1.5">
+                      <input
+                        type="text"
+                        value={schoolSigDate}
+                        onChange={(e) => setSchoolSigDate(e.target.value)}
+                        placeholder="Ort, Datum..."
+                        className="w-full px-2 py-0.5 text-xs border border-slate-200 dark:border-slate-700 rounded bg-white dark:bg-slate-900 font-mono"
+                      />
+                      <input
+                        type="text"
+                        value={schoolSigPerson}
+                        onChange={(e) => setSchoolSigPerson(e.target.value)}
+                        placeholder="Name &amp; Amtsbezeichnung (Schulleitung)..."
+                        className="w-full px-2 py-0.5 text-xs border border-slate-200 dark:border-slate-700 rounded bg-white dark:bg-slate-900 font-mono"
+                      />
+                    </div>
+                    <div className="border-b border-slate-400 pt-6"></div>
+                    <p className="text-[10px] text-slate-500 text-center">Unterschrift &amp; Schulstempel</p>
                   </div>
-                  <div>
-                    Ort, Datum: _______________________<br /><br />
-                    Unterschrift {config.name} (Auftragnehmer)
+
+                  <div className="p-3 rounded-xl bg-teal-500/10 border border-teal-500/20 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="font-bold text-slate-900 dark:text-white">Für den Auftragnehmer (Gradus21):</p>
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-teal-200/60 text-teal-900 dark:bg-teal-900/60 dark:text-teal-200">
+                        Vorausgefüllt
+                      </span>
+                    </div>
+                    <div className="text-[11px] font-mono text-slate-700 dark:text-slate-300 space-y-0.5">
+                      <p>Ort, Datum: Bietigheim-Bissingen, den {new Date().toLocaleDateString('de-DE')}</p>
+                      <p>Name: {config.name}</p>
+                      <p>Funktion: Inhaber &amp; Dienstanbieter Gradus21</p>
+                    </div>
+                    <div className="pt-2 border-b border-teal-600/40 pb-1 flex items-center justify-between">
+                      <span className="font-bold text-xs text-slate-900 dark:text-white">gez. {config.name}</span>
+                      <span className="text-[10px] text-teal-700 dark:text-teal-300 font-semibold">✓ Elektronisch gezeichnet</span>
+                    </div>
+                    <p className="text-[9px] text-slate-500 leading-tight">
+                      Rechtsgültig in elektronischer Form gem. Art. 28 Abs. 9 DSGVO ohne handschriftliche Schriftform.
+                    </p>
                   </div>
                 </div>
               </div>
