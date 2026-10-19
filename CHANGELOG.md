@@ -30,6 +30,28 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   - Automatic client migration: legacy monolithic `workspace` envelopes are unpacked, mapped to canonical UUIDs, and persisted as granular envelopes upon loading.
   - Dedicated deletion endpoint support: removing a class invokes `DELETE /api/envelopes/:id` for that exact class ID.
   - Optimistic Concurrency Control (OCC) with `expected_version` and `409 Conflict` resolution without silent data loss.
+- **Admin Control Panel & School Governance**:
+  - Dedicated 4-tab administrative dashboard (`UserManagementTab`, `CentralTemplatesTab`, `MailTemplatesTab`, `BackupConfigTab`).
+  - Teacher invitation flow via secure one-time tokens, user activation/deactivation, and demotion safeguards for the last remaining admin.
+  - Central global grading scales and weighting presets deployment, derivation, and custom overrides.
+  - SMTP notification system with configurable email templates (invitation, password reset, security alert), auto-submitted headers, and real-time delivery logs.
+  - Automated snapshot backups via cron schedules (`0 2 * * *`), automatic retention rotation, and atomic restoration with client-cache invalidation.
+- **Rebranding & Corporate Identity**:
+  - Complete rebranding from *BTE NotenFlow* to **Gradus21** across crates (`gradus21-core`, `gradus21-server`), frontend, API routes, and documentation.
+  - High-resolution SVG/PNG assets, light & dark theme logos, modern favicon, and polished visual styling.
+  - WCAG-compliant high-contrast dark mode and adaptive 44px touch targets for iPad/tablet browsers.
+- **Interactive Onboarding & Guided Demo Tour**:
+  - Built-in 10-chapter interactive walkthrough (`InteractiveDemoGuide`, `useInteractiveGuide`) explaining the four workspace modes, binnendifferentiation, and zero-knowledge encryption directly within the live UI.
+- **Authentication & Zero-Knowledge Key Management**:
+  - Integrated 4-step registration wizard guiding teachers through master password setup, RFC 6238 TOTP 2FA, 24-character emergency recovery code generation, and optional WebAuthn passkey registration.
+  - Password manager compatibility (Bitwarden, 1Password, Apple Keychain) with explicit autocomplete annotations (`username`, `current-password`, `new-password`, `one-time-code`).
+  - Browser-side emergency recovery key rotation (`handleRotateRecoveryKey`) with instant DEK re-wrapping.
+  - Hardware PRF (Pseudo-Random Function) extension support for biometric passkeys.
+- **Grading Engine & UX Optimizations**:
+  - Scale-Aware Direct Grading with instant parsing of German `1+` to `6`, Oberstufe MSS points `0-15`, and US letter grades `A+` to `F`.
+  - Target Grade Simulator v2 ("Was-wäre-wenn") in Rust/WASM across all three calculation modes (*Kategorien-Töpfe*, *Freie Faktoren*, *Punktesammler*).
+  - Dynamic lazy-loading of XLSX processing libraries to minimize initial bundle loading time.
+  - Rust 2024 edition support in multi-stage Docker build (`rust:bookworm`).
 - **Frontend Architecture & Modularization**:
   - Monolithic `App.tsx` decomposed from 4,060 lines into clean domain components and custom hooks (< 450 lines).
   - Modularized views in `web/src/views/` (`ClassMatrixView`, `SpeedGradingView`, `Student360View`, `GradingConfiguratorView`).
