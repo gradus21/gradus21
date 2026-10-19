@@ -16,7 +16,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         id: 'ov_welcome',
         title: 'Willkommen bei Gradus21! 🎓',
         content:
-          'Gradus21 revolutioniert die Notenverwaltung für Lehrkräfte: **100 % Client-Side Rust/WASM-Berechnung**, **Zero-Knowledge-Verschlüsselung** und Schluss mit kaputten Excel-Formeln bei Krankheitsfällen (`K`), Streichnoten oder leeren Kategorien.',
+          'Gradus21 revolutioniert die Notenverwaltung für Lehrkräfte:\n\n' +
+          '- **100 % Client-Side Rust/WASM**: Deterministische Berechnungen direkt im Browser\n' +
+          '- **Zero-Knowledge-Verschlüsselung**: Schülerdaten bleiben auf deinem Gerät geschützt (AES-256-GCM)\n' +
+          '- **Didaktik ohne Formel-Chaos**: Keine Formelabbrüche bei Attest (`K`), Streichnoten oder leeren Fächern',
         placement: 'center',
         badge: 'Zero-Knowledge & Rust/WASM',
         tip: 'Tipp: Du kannst diese interaktive Demo jederzeit über die Pfeiltasten (← / →) steuern oder mit der Esc-Taste beenden.',
@@ -25,7 +28,11 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         id: 'ov_modes',
         title: 'Vier spezialisierte Arbeitsmodi 🎛️',
         content:
-          'Statt einer unübersichtlichen Monstertabelle bietet dir Gradus21 vier spezialisierte Modi für jede Phase deines Schulalltags: **Klassen-Matrix**, **Speed-Grading**, **Schüler-360°-Akte** und den **Gewichtungs-Baukasten**.',
+          'Statt einer unübersichtlichen Monstertabelle bietet dir Gradus21 vier spezialisierte Modi für jede Phase deines Schulalltags:\n\n' +
+          '- **Klassen-Matrix**: Live-Schnittstellen und Notenübersicht der gesamten Klasse\n' +
+          '- **Speed-Grading**: Fokus-Erfassung von Klassenarbeiten im Sekundentakt per Tastatur\n' +
+          '- **Schüler-360°-Akte**: Stärkenprofil & interaktiver Was-wäre-wenn Simulator fürs Elterngespräch\n' +
+          '- **Gewichtungs-Baukasten**: Notenschlüssel, Kategorien und Streichnoten ohne Formeln',
         targetId: 'header-mode-tabs',
         placement: 'bottom',
         targetMode: 'matrix',
@@ -136,7 +143,9 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         id: 'setup_wizard_modal',
         title: 'Excel-Import (.xlsx) oder Manueller Start 📂',
         content:
-          '**Weg 1: Excel-Import**: Ziehe deine bisherige Excel-Notenliste einfach per Drag & Drop hinein. Gradus21 erkennt automatisch Schülernamen, Niveaustufen und vorhandene Tests.\n\n**Weg 2: Manueller Assistent**: Wähle eine fertige Vorlage (z. B. 3-Säulen, 50/50, Oberstufe MSS) und füge deine Schülerliste zeilenweise ein.',
+          'Wähle den passenden Weg für deinen Klassenstart:\n\n' +
+          '- **Weg 1: Excel-Import**: Ziehe deine bisherige .xlsx-Tabelle per Drag & Drop hinein. Namen, Niveaustufen und Tests werden automatisch erkannt.\n' +
+          '- **Weg 2: Manueller Assistent**: Wähle eine fertige Vorlage (z. B. 3-Säulen, 50/50, Oberstufe MSS) und füge deine Schülerliste zeilenweise ein.',
         targetId: 'wizard-dialog-card',
         placement: 'top',
         badge: 'Flexibler Import',
@@ -182,7 +191,11 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         id: 'cgm_scale_mode',
         title: '1. Notenskala & Berechnungsmodell 🎯',
         content:
-          'Wähle zunächst deine Notenskala:\n- **Klassische Noten 1–6** (mit Tendenz `+` und `-`)\n- **Oberstufe 0–15 MSS-Punkte**\n- **US Letter Grades (A+ bis F)**\n\nDarunter wählst du dein Modell: **Kategorien-Töpfe (Standard)**, **Freie Faktoren (1x, 2x)** oder **Punktesammler (Total Points)**.',
+          'Wähle zunächst deine gewünschte Notenskala:\n\n' +
+          '- **Klassische Noten 1–6**: Mit Feinstufen und Tendenzen (`+` und `-`)\n' +
+          '- **Oberstufe 0–15 MSS-Punkte**: Inklusive Defizit-Kennzeichnung\n' +
+          '- **US Letter Grades**: Von A+ bis F\n\n' +
+          'Darunter wählst du dein Modell: **Kategorien-Töpfe (Standard)**, **Freie Faktoren (1x, 2x)** oder **Punktesammler (Total Points)**.',
         targetId: 'configurator-scale-mode',
         placement: 'top',
         targetMode: 'configurator',
@@ -213,7 +226,11 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         id: 'cgm_curve_editor',
         title: '4. Notenschlüssel & Schwellenwerte einstellen 📐',
         content:
-          'Ab wie viel Prozent gibt es eine 1, ab wann eine 4? Wähle bewährte Vorlagen wie **Sek-I Standard**, **IHK 50%-Hürde**, **Pädagogisch Mild** oder **Streng**. Über die Regler kannst du jeden Prozentwert stufenlos feintunen.',
+          'Wähle bewährte Vorlagen für Schwellenwerte oder passe sie stufenlos an:\n\n' +
+          '- **Sek-I Standard**: Klassische prozentuale Verteilung\n' +
+          '- **IHK 50 %-Hürde**: Note 4 ab exakt 50 % der Gesamtpunkte\n' +
+          '- **Pädagogisch Mild / Streng**: Angepasst an Leistungsniveau und Bundesland\n\n' +
+          'Unten siehst du live die 16er-Feinstufen-Tabelle von 1+ bis 6 mit genauen Prozentgrenzen.',
         targetId: 'configurator-curve-editor',
         placement: 'top',
         targetMode: 'configurator',
@@ -257,7 +274,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         id: 'sg_inputs',
         title: 'Tastatur-Navigation & Eingabe-Formate ⌨️',
         content:
-          'Gib Noten wahlweise in **Prozent (%)**, **Rohpunkten (Pkt.)** oder **Direktnote (1-6)** ein. Drücke einfach `Enter` oder die Pfeiltasten, um zur nächsten Schülerin zu springen. Mit der Taste `K` setzt du den Status "Krank / Attest".',
+          'Eingabe nach deinen Wünschen per Tastatur:\n\n' +
+          '- **Flexible Formate**: Wahlweise in **Prozent (%)**, **Rohpunkten (Pkt.)** oder **Direktnote (1–6)**\n' +
+          '- **Navigation**: Mit `Enter` oder Pfeiltasten sofort zur nächsten Zeile springen\n' +
+          '- **Attest/Krank**: Taste `K` klammert kranke Schüler neutral aus – ohne Null-Punkte-Fehler!',
         targetId: 'speed-grading-table',
         placement: 'top',
         targetMode: 'speed_grading',
@@ -345,7 +365,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         id: 'ps_blur',
         title: 'Beamer-Modus: Namen & Noten ausblenden 👁️‍🗨️',
         content:
-          'Wenn dein Laptop mit dem Klassenzimmer-Beamer verbunden ist, drücke einfach `Alt+P` oder klicke auf **Namen ausblenden**. Alle sensiblen Schülernamen und Noten werden mit einem sanften Weichzeichner unleserlich gemacht.',
+          'Schütze die Privatsphäre deiner Schüler:innen am Klassenzimmer-Beamer:\n\n' +
+          '- **Shortcut `Alt+P`**: Schaltet den Beamer-Schutz blitzschnell an oder aus\n' +
+          '- **Weichzeichner**: Alle Schülernamen und Noten werden unleserlich geblurrt\n' +
+          '- **Unterrichtstauglich**: Zeige Aufgaben oder den Notenspiegel an der Wand, ohne Noten preiszugeben',
         targetId: 'header-privacy-blur',
         placement: 'bottom',
         targetMode: 'matrix',

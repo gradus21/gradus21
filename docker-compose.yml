@@ -11,7 +11,7 @@ services:
       - "${POSTGRES_PORT:-5435}:5432"
     volumes:
       - gradus21_pgdata:/var/lib/postgresql/data
-      - ./migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/001_initial_schema.sql:ro
+      - ./migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gradus21} -d ${POSTGRES_DB:-gradus21}"]
       interval: 5s
@@ -33,8 +33,24 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-gradus21}:${POSTGRES_PASSWORD:-gradus21_secret_db_pw}@postgres:5432/${POSTGRES_DB:-gradus21}
       JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_signing_key_change_in_prod_32b}
       SERVER_ENCRYPTION_KEY: ${SERVER_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-gradus21.app}
+      WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-Gradus21}
+      WEBAUTHN_RP_ORIGIN: ${WEBAUTHN_RP_ORIGIN:-https://gradus21.app}
+      WEBAUTHN_ALLOWED_ORIGINS: ${WEBAUTHN_ALLOWED_ORIGINS:-https://gradus21.app}
       RUST_LOG: info
       PORT: 8080
+      # Rechtliche Angaben (§ 5 DDG Impressum & DSGVO Konfiguration)
+      LEGAL_IMPRESSUM_NAME: ${LEGAL_IMPRESSUM_NAME:-Julian Kallidat}
+      LEGAL_IMPRESSUM_COMPANY: ${LEGAL_IMPRESSUM_COMPANY:-}
+      LEGAL_IMPRESSUM_ADDRESS: ${LEGAL_IMPRESSUM_ADDRESS:-Musterstraße 1, 10115 Berlin, Deutschland}
+      LEGAL_IMPRESSUM_EMAIL: ${LEGAL_IMPRESSUM_EMAIL:-kontakt@gradus21.app}
+      LEGAL_IMPRESSUM_PHONE: ${LEGAL_IMPRESSUM_PHONE:-}
+      LEGAL_IMPRESSUM_REPRESENTATIVE: ${LEGAL_IMPRESSUM_REPRESENTATIVE:-}
+      LEGAL_IMPRESSUM_REGISTER: ${LEGAL_IMPRESSUM_REGISTER:-}
+      LEGAL_IMPRESSUM_VAT_ID: ${LEGAL_IMPRESSUM_VAT_ID:-}
+      LEGAL_HOSTING_PROVIDER: ${LEGAL_HOSTING_PROVIDER:-Hetzner Online GmbH (Deutschland)}
+      LEGAL_HOSTING_LOCATION: ${LEGAL_HOSTING_LOCATION:-Falkenstein / Nürnberg, Deutschland (EU)}
+      LEGAL_DPO_CONTACT: ${LEGAL_DPO_CONTACT:-}
     volumes:
       - gradus21_vaultdata:/app/data
     ports:

@@ -12,6 +12,7 @@ import {
 } from '../wasm-pkg/gradus21_core';
 import { escapeHtml } from './ExportAndPrintHelpers';
 import { FlowRibbonLogo } from './FlowRibbonLogo';
+import { LegalModal, LegalTab } from './LegalModal';
 import {
   AlertCircle,
   ArrowLeft,
@@ -209,6 +210,13 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   const [userPasskeys, setUserPasskeys] = useState<UserPasskeyItem[]>([]);
   const [editingPasskeyId, setEditingPasskeyId] = useState<string | null>(null);
   const [editingPasskeyLabel, setEditingPasskeyLabel] = useState<string>('');
+  const [legalModalOpen, setLegalModalOpen] = useState(false);
+  const [legalTab, setLegalTab] = useState<LegalTab>('impressum');
+
+  const handleOpenLegal = (tab: LegalTab) => {
+    setLegalTab(tab);
+    setLegalModalOpen(true);
+  };
 
   const fetchUserPasskeys = async () => {
     if (!session?.token) return;
@@ -2941,7 +2949,44 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             </div>
           )}
         </div>
+
+        {/* Rechtliche Pflichtangaben & Schul-Compliance (DDG / DSGVO) */}
+        <div
+          className="pt-4 mt-2 border-t flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-[11px] font-medium"
+          style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-muted)' }}
+        >
+          <button
+            type="button"
+            onClick={() => handleOpenLegal('impressum')}
+            className="hover:underline transition hover:opacity-100"
+          >
+            Impressum
+          </button>
+          <span>•</span>
+          <button
+            type="button"
+            onClick={() => handleOpenLegal('privacy')}
+            className="hover:underline transition hover:opacity-100"
+          >
+            Datenschutz
+          </button>
+          <span>•</span>
+          <button
+            type="button"
+            onClick={() => handleOpenLegal('school_guide')}
+            className="hover:underline transition hover:opacity-100 text-teal-600 dark:text-teal-400 font-semibold"
+          >
+            Schul-Datenschutz & AVV
+          </button>
+        </div>
       </div>
+
+      {/* Interaktives Rechts- & Compliance-Modal */}
+      <LegalModal
+        isOpen={legalModalOpen}
+        initialTab={legalTab}
+        onClose={() => setLegalModalOpen(false)}
+      />
     </div>
   );
 };

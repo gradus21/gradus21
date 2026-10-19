@@ -47,6 +47,44 @@ pub struct UserPasskeyRecord {
     pub last_used_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LegalConfig {
+    pub name: String,
+    pub company: Option<String>,
+    pub address: String,
+    pub email: String,
+    pub phone: Option<String>,
+    pub representative: Option<String>,
+    pub register: Option<String>,
+    pub vat_id: Option<String>,
+    pub hosting_provider: String,
+    pub hosting_location: String,
+    pub dpo_contact: Option<String>,
+}
+
+impl Default for LegalConfig {
+    fn default() -> Self {
+        Self {
+            name: std::env::var("LEGAL_IMPRESSUM_NAME")
+                .unwrap_or_else(|_| "Julian Kallidat".into()),
+            company: std::env::var("LEGAL_IMPRESSUM_COMPANY").ok().filter(|s| !s.trim().is_empty()),
+            address: std::env::var("LEGAL_IMPRESSUM_ADDRESS")
+                .unwrap_or_else(|_| "Musterstraße 1, 10115 Berlin, Deutschland".into()),
+            email: std::env::var("LEGAL_IMPRESSUM_EMAIL")
+                .unwrap_or_else(|_| "kontakt@gradus21.app".into()),
+            phone: std::env::var("LEGAL_IMPRESSUM_PHONE").ok().filter(|s| !s.trim().is_empty()),
+            representative: std::env::var("LEGAL_IMPRESSUM_REPRESENTATIVE").ok().filter(|s| !s.trim().is_empty()),
+            register: std::env::var("LEGAL_IMPRESSUM_REGISTER").ok().filter(|s| !s.trim().is_empty()),
+            vat_id: std::env::var("LEGAL_IMPRESSUM_VAT_ID").ok().filter(|s| !s.trim().is_empty()),
+            hosting_provider: std::env::var("LEGAL_HOSTING_PROVIDER")
+                .unwrap_or_else(|_| "Hetzner Online GmbH (Deutschland)".into()),
+            hosting_location: std::env::var("LEGAL_HOSTING_LOCATION")
+                .unwrap_or_else(|_| "Falkenstein / Nürnberg, Deutschland (EU)".into()),
+            dpo_contact: std::env::var("LEGAL_DPO_CONTACT").ok().filter(|s| !s.trim().is_empty()),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub db: Option<PgPool>,
@@ -64,6 +102,7 @@ pub struct AppState {
     pub webauthn: Arc<Webauthn>,
     pub reg_challenges: Arc<RwLock<HashMap<String, (Instant, PasskeyRegistration, Uuid)>>>,
     pub auth_challenges: Arc<RwLock<HashMap<String, (Instant, PasskeyAuthentication, Option<Uuid>)>>>,
+    pub legal_config: LegalConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -835,6 +874,8 @@ async fn main() {
 
     let webauthn = create_webauthn();
 
+    let legal_config = LegalConfig::default();
+
     let state = AppState {
         db,
         disk_store_path,
@@ -851,6 +892,7 @@ async fn main() {
         webauthn,
         reg_challenges: Arc::new(RwLock::new(HashMap::new())),
         auth_challenges: Arc::new(RwLock::new(HashMap::new())),
+        legal_config,
     };
 
     // Spawn background tasks (Automated snapshot scheduler & retention)
@@ -874,6 +916,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/api/health", get(health_check))
+        .route("/api/legal/info", get(get_legal_info))
         .route("/api/auth/salt", post(get_user_salt))
         .route("/api/auth/register", post(register_user))
         .route("/api/auth/login", post(login_user))
@@ -1013,6 +1056,10 @@ async fn health_check(State(state): State<AppState>) -> Json<serde_json::Value> 
         "registered_users": user_count,
         "stored_envelopes": env_count
     }))
+}
+
+async fn get_legal_info(State(state): State<AppState>) -> Json<LegalConfig> {
+    Json(state.legal_config.clone())
 }
 
 async fn get_user_salt(
@@ -2789,6 +2836,7 @@ mod tests {
             webauthn,
             reg_challenges: Arc::new(RwLock::new(HashMap::new())),
             auth_challenges: Arc::new(RwLock::new(HashMap::new())),
+            legal_config: LegalConfig::default(),
         }
     }
 

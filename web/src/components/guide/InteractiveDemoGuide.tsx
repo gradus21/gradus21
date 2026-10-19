@@ -22,6 +22,128 @@ interface TargetRect {
   height: number;
 }
 
+/**
+ * Renders inline markdown: **bold** and `code`
+ */
+function renderInlineMarkdown(text: string): React.ReactNode {
+  const regex = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  const parts = text.split(regex);
+
+  return parts.map((part, idx) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      const boldText = part.slice(2, -2);
+      return (
+        <strong key={idx} className="font-bold" style={{ color: 'var(--text-primary)' }}>
+          {boldText}
+        </strong>
+      );
+    }
+    if (part.startsWith('`') && part.endsWith('`')) {
+      const codeText = part.slice(1, -1);
+      return (
+        <code
+          key={idx}
+          className="px-1.5 py-0.5 rounded font-mono text-[11px] font-semibold border mx-0.5"
+          style={{
+            backgroundColor: 'var(--bg-subtle)',
+            borderColor: 'var(--border-subtle)',
+            color: 'var(--primary-text)',
+          }}
+        >
+          {codeText}
+        </code>
+      );
+    }
+    return part;
+  });
+}
+
+/**
+ * Renders structured rich guide content:
+ * - Paragraphs
+ * - Clean bullet lists (with styled dots)
+ * - Inline markdown formatting
+ */
+function renderRichContent(content: string): React.ReactNode {
+  // Split into paragraphs / sections by double newlines
+  const sections = content.split(/\n\s*\n/);
+
+  return (
+    <div className="space-y-2.5 text-xs">
+      {sections.map((section, sIdx) => {
+        const rawLines = section.split('\n').map((l) => l.trim()).filter(Boolean);
+        if (rawLines.length === 0) return null;
+
+        // Group consecutive lines into either 'list' or 'paragraph' chunks
+        type Chunk = { type: 'p'; lines: string[] } | { type: 'list'; items: string[] };
+        const chunks: Chunk[] = [];
+
+        rawLines.forEach((line) => {
+          const isListItem = /^[-*•]\s+/.test(line);
+          const lastChunk = chunks[chunks.length - 1];
+
+          if (isListItem) {
+            const cleanText = line.replace(/^[-*•]\s+/, '');
+            if (lastChunk && lastChunk.type === 'list') {
+              lastChunk.items.push(cleanText);
+            } else {
+              chunks.push({ type: 'list', items: [cleanText] });
+            }
+          } else {
+            if (lastChunk && lastChunk.type === 'p') {
+              lastChunk.lines.push(line);
+            } else {
+              chunks.push({ type: 'p', lines: [line] });
+            }
+          }
+        });
+
+        return (
+          <React.Fragment key={sIdx}>
+            {chunks.map((chunk, cIdx) => {
+              if (chunk.type === 'list') {
+                return (
+                  <ul key={cIdx} className="space-y-1.5 my-2 pl-0.5">
+                    {chunk.items.map((item, itemIdx) => (
+                      <li
+                        key={itemIdx}
+                        className="flex items-start gap-2.5 p-2 rounded-lg border text-xs"
+                        style={{
+                          backgroundColor: 'var(--bg-subtle)',
+                          borderColor: 'var(--border-subtle)',
+                        }}
+                      >
+                        <span
+                          className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0"
+                          style={{ backgroundColor: 'var(--primary-500)' }}
+                        />
+                        <div className="flex-1 leading-snug" style={{ color: 'var(--text-secondary)' }}>
+                          {renderInlineMarkdown(item)}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                );
+              }
+
+              return (
+                <p key={cIdx} className="leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                  {chunk.lines.map((line, lIdx) => (
+                    <React.Fragment key={lIdx}>
+                      {lIdx > 0 && <br />}
+                      {renderInlineMarkdown(line)}
+                    </React.Fragment>
+                  ))}
+                </p>
+              );
+            })}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
 interface InteractiveDemoGuideProps {
   isOpen: boolean;
   chapterId: GuideChapterId;
@@ -441,12 +563,8 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
             )}
           </div>
 
-          <div
-            className="text-xs leading-relaxed space-y-2 whitespace-pre-line"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            {currentStep.content}
-          </div>
+          {/* Rich Markdown & Structured Lists */}
+          {renderRichContent(currentStep.content)}
 
           {/* Optional Tip Callout */}
           {currentStep.tip && (
@@ -459,7 +577,7 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
               }}
             >
               <HelpCircle className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0 mt-0.5" />
-              <span>{currentStep.tip}</span>
+              <div className="flex-1">{renderInlineMarkdown(currentStep.tip)}</div>
             </div>
           )}
 

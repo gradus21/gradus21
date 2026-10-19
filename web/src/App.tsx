@@ -6,6 +6,7 @@ import { ClassManagementModal } from './components/ClassManagementModal';
 import { SettingsModal } from './components/SettingsModal';
 import { VaultLockAndAuthModal } from './components/VaultLockAndAuthModal';
 import { AdminModal } from './components/admin/AdminModal';
+import { LegalModal, LegalTab } from './components/LegalModal';
 import { CellDisplayFormat, TermFilterId } from './data/demoClasses';
 import { useVaultWorkspaceSync } from './hooks/useVaultWorkspaceSync';
 import { useClassroomCalculations } from './hooks/useClassroomCalculations';
@@ -70,6 +71,8 @@ export const App: React.FC = () => {
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
   const [showVaultInspector, setShowVaultInspector] = useState<boolean>(false);
   const [showAdminModal, setShowAdminModal] = useState<boolean>(false);
+  const [showLegalModal, setShowLegalModal] = useState<boolean>(false);
+  const [legalTab, setLegalTab] = useState<LegalTab>('impressum');
 
   // Interactive Demo & Guide Hook
   const {
@@ -350,6 +353,46 @@ export const App: React.FC = () => {
         )}
       </main>
 
+      {/* APP FOOTER / LEGAL COMPLIANCE LINKS */}
+      <footer className="mt-auto py-3 px-6 border-t border-slate-200/60 dark:border-slate-800/60 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500 dark:text-slate-400">
+        <div className="flex items-center gap-2 font-medium">
+          <span className="font-bold text-slate-700 dark:text-slate-300">Gradus21 v1.0.0</span>
+          <span>·</span>
+          <span>Zero-Knowledge E2EE & Client-Side Rust/WASM</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              setLegalTab('impressum');
+              setShowLegalModal(true);
+            }}
+            className="hover:underline transition hover:text-slate-800 dark:hover:text-slate-200"
+          >
+            Impressum
+          </button>
+          <span>·</span>
+          <button
+            onClick={() => {
+              setLegalTab('privacy');
+              setShowLegalModal(true);
+            }}
+            className="hover:underline transition hover:text-slate-800 dark:hover:text-slate-200"
+          >
+            Datenschutz
+          </button>
+          <span>·</span>
+          <button
+            onClick={() => {
+              setLegalTab('school_guide');
+              setShowLegalModal(true);
+            }}
+            className="hover:underline transition text-teal-600 dark:text-teal-400 font-semibold"
+          >
+            Schul-Datenschutz & AVV
+          </button>
+        </div>
+      </footer>
+
       {/* MODALS */}
       {showClassWizard && (
         <ClassSetupAndExcelWizard
@@ -429,6 +472,13 @@ export const App: React.FC = () => {
         onClose={() => setIsChapterSelectOpen(false)}
         onStartChapter={handleStartGuideChapter}
         completedChapters={completedChapters}
+      />
+
+      {/* RECHTLICHES, DATENSCHUTZ & AVV-MODAL */}
+      <LegalModal
+        isOpen={showLegalModal}
+        initialTab={legalTab}
+        onClose={() => setShowLegalModal(false)}
       />
     </div>
   );

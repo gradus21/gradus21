@@ -718,7 +718,7 @@ dependencies = [
 
 [[package]]
 name = "gradus21-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -737,7 +737,7 @@ dependencies = [
 
 [[package]]
 name = "gradus21-server"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "aes-gcm",
  "argon2",
