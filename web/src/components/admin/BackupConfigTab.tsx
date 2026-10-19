@@ -28,9 +28,10 @@ interface BackupScheduleConfig {
 
 interface BackupConfigTabProps {
   token: string;
+  onRestoreSuccess?: () => Promise<void> | void;
 }
 
-export const BackupConfigTab: React.FC<BackupConfigTabProps> = ({ token }) => {
+export const BackupConfigTab: React.FC<BackupConfigTabProps> = ({ token, onRestoreSuccess }) => {
   const [backups, setBackups] = useState<BackupEntry[]>([]);
   const [schedule, setSchedule] = useState<BackupScheduleConfig>({
     auto_backup_enabled: true,
@@ -190,9 +191,12 @@ export const BackupConfigTab: React.FC<BackupConfigTabProps> = ({ token }) => {
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       setSuccessMsg(
-        `Wiederherstellung erfolgreich abgeschlossen (${data.restored_users_count} Benutzer, ${data.restored_envelopes_count} Umschläge).`
+        `Wiederherstellung erfolgreich abgeschlossen (${data.restored_users_count} Benutzer, ${data.restored_envelopes_count} Umschläge). Daten werden aktualisiert...`
       );
-      fetchData();
+      await fetchData();
+      if (onRestoreSuccess) {
+        await onRestoreSuccess();
+      }
     } catch (err: any) {
       setErrorMsg('Wiederherstellung fehlgeschlagen: ' + (err.message || String(err)));
     } finally {

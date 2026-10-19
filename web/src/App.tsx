@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import initWasm, {
   wasm_calculate_class_report,
   wasm_decrypt_envelope,
@@ -242,6 +242,7 @@ export const App: React.FC = () => {
   const [showVaultInspector, setShowVaultInspector] = useState<boolean>(false);
   const [vaultSession, setVaultSession] = useState<ActiveVaultSession | null>(null);
   const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
+  const isRestoringRef = useRef<boolean>(false);
   const [sampleEnvelope, setSampleEnvelope] = useState<{
     entityId: string;
     plaintext: string;
@@ -304,53 +305,64 @@ export const App: React.FC = () => {
   }, [userSettings.defaultCellFormat]);
 
   // Lädt und entschlüsselt den Arbeitsbereich ausschließlich für die übergebene User-ID (strikte Mandantentrennung!)
-  const loadIsolatedUserWorkspace = async (session: ActiveVaultSession) => {
+  const loadIsolatedUserWorkspace = async (
+    session: ActiveVaultSession,
+    forceServerFetch = false
+  ) => {
     const { dekB64, userId, token, email } = session;
     if (!dekB64 || !userId) return;
 
     const userCacheKey = getUserEncryptedCacheKey(userId);
-    const cachedRaw = localStorage.getItem(userCacheKey);
-    if (cachedRaw) {
-      try {
-        const parsed = JSON.parse(cachedRaw);
-        if (parsed.encryptedDatasetsEnvelope) {
-          const decryptedJson = wasm_decrypt_envelope(
-            dekB64,
-            userId,
-            'workspace_datasets_v2',
-            parsed.encryptedDatasetsEnvelope
-          );
-          const restoredDatasets = JSON.parse(decryptedJson) as ClassroomSubjectDataset[];
-          if (Array.isArray(restoredDatasets) && restoredDatasets.length > 0) {
-            setDatasets(restoredDatasets);
-            setActiveClassId(restoredDatasets[0].id);
-          }
-          if (parsed.encryptedSettingsEnvelope) {
-            try {
-              const decSettings = wasm_decrypt_envelope(
-                dekB64,
-                userId,
-                'user_sync_settings_v1',
-                parsed.encryptedSettingsEnvelope
-              );
-              setUserSettings({
-                ...DEFAULT_USER_SYNC_SETTINGS,
-                ...JSON.parse(decSettings),
-              });
-            } catch {
-              setUserSettings(DEFAULT_USER_SYNC_SETTINGS);
+    let localWorkspacePayload: string | null = null;
+    let localSettingsPayload: string | null = null;
+
+    if (!forceServerFetch) {
+      const cachedRaw = localStorage.getItem(userCacheKey);
+      if (cachedRaw) {
+        try {
+          const parsed = JSON.parse(cachedRaw);
+          if (parsed.encryptedDatasetsEnvelope) {
+            localWorkspacePayload = parsed.encryptedDatasetsEnvelope;
+            localSettingsPayload = parsed.encryptedSettingsEnvelope || null;
+            const decryptedJson = wasm_decrypt_envelope(
+              dekB64,
+              userId,
+              'workspace_datasets_v2',
+              parsed.encryptedDatasetsEnvelope
+            );
+            const restoredDatasets = JSON.parse(decryptedJson) as ClassroomSubjectDataset[];
+            if (Array.isArray(restoredDatasets) && restoredDatasets.length > 0) {
+              setDatasets(restoredDatasets);
+              setActiveClassId(restoredDatasets[0].id);
             }
+            if (parsed.encryptedSettingsEnvelope) {
+              try {
+                const decSettings = wasm_decrypt_envelope(
+                  dekB64,
+                  userId,
+                  'user_sync_settings_v1',
+                  parsed.encryptedSettingsEnvelope
+                );
+                setUserSettings({
+                  ...DEFAULT_USER_SYNC_SETTINGS,
+                  ...JSON.parse(decSettings),
+                });
+              } catch {
+                setUserSettings(DEFAULT_USER_SYNC_SETTINGS);
+              }
+            }
+            setLoadedUserId(userId);
+            setSyncStatus('synced');
           }
-          setLoadedUserId(userId);
-          setSyncStatus('synced');
-          return;
+        } catch {
+          // Falls lokaler Cache nicht entschlüsselt werden konnte, versuche Server-Abruf
         }
-      } catch {
-        // Falls lokaler Cache nicht entschlüsselt werden konnte, versuche Server-Abruf
       }
     }
 
-    // Versuche verschlüsselte Envelopes dieses Nutzers vom Server zu laden
+    // Wenn online, immer den aktuellen Server-Zustand prüfen!
+    // Falls auf dem Server andere Daten liegen (z.B. nach Einspielen eines Snapshots oder Änderungen auf anderem Gerät),
+    // übernehmen wir die Serverdaten und überschreiben den Server NICHT mit veralteten lokalen Cache-Daten!
     if (token) {
       try {
         const envRes = await fetch('/api/envelopes', {
@@ -370,35 +382,57 @@ export const App: React.FC = () => {
             (e) => e.owner_user_id === userId && e.entity_type === 'user_settings'
           );
 
-          if (wsEnv) {
-            const decWs = wasm_decrypt_envelope(
-              dekB64,
-              userId,
-              'workspace_datasets_v2',
-              wsEnv.encrypted_payload
-            );
-            const restoredDatasets = JSON.parse(decWs) as ClassroomSubjectDataset[];
-            if (Array.isArray(restoredDatasets) && restoredDatasets.length > 0) {
-              setDatasets(restoredDatasets);
-              setActiveClassId(restoredDatasets[0].id);
-              if (settingsEnv) {
-                try {
-                  const decSet = wasm_decrypt_envelope(
-                    dekB64,
-                    userId,
-                    'user_sync_settings_v1',
-                    settingsEnv.encrypted_payload
-                  );
-                  setUserSettings({
-                    ...DEFAULT_USER_SYNC_SETTINGS,
-                    ...JSON.parse(decSet),
-                  });
-                } catch {
-                  setUserSettings(DEFAULT_USER_SYNC_SETTINGS);
+          if (wsEnv && wsEnv.encrypted_payload) {
+            if (forceServerFetch || wsEnv.encrypted_payload !== localWorkspacePayload) {
+              const decWs = wasm_decrypt_envelope(
+                dekB64,
+                userId,
+                'workspace_datasets_v2',
+                wsEnv.encrypted_payload
+              );
+              const restoredDatasets = JSON.parse(decWs) as ClassroomSubjectDataset[];
+              if (Array.isArray(restoredDatasets) && restoredDatasets.length > 0) {
+                setDatasets(restoredDatasets);
+                setActiveClassId(restoredDatasets[0].id);
+                if (settingsEnv && settingsEnv.encrypted_payload) {
+                  try {
+                    const decSet = wasm_decrypt_envelope(
+                      dekB64,
+                      userId,
+                      'user_sync_settings_v1',
+                      settingsEnv.encrypted_payload
+                    );
+                    setUserSettings({
+                      ...DEFAULT_USER_SYNC_SETTINGS,
+                      ...JSON.parse(decSet),
+                    });
+                  } catch {
+                    // ignore
+                  }
                 }
-              } else {
-                setUserSettings(DEFAULT_USER_SYNC_SETTINGS);
+
+                // Lokalen Cache mit Serverstand aktualisieren
+                const persistedSessionMetadata: ActiveVaultSession = {
+                  ...session,
+                  dekB64: '',
+                  recoveryKeyFormatted: undefined,
+                };
+                localStorage.setItem(
+                  userCacheKey,
+                  JSON.stringify({
+                    session: persistedSessionMetadata,
+                    encryptedDatasetsEnvelope: wsEnv.encrypted_payload,
+                    encryptedSettingsEnvelope: settingsEnv?.encrypted_payload || undefined,
+                    isLocked: false,
+                  })
+                );
+
+                setLoadedUserId(userId);
+                setSyncStatus('synced');
+                return;
               }
+            } else {
+              // Server und lokaler Cache stimmen überein
               setLoadedUserId(userId);
               setSyncStatus('synced');
               return;
@@ -406,12 +440,15 @@ export const App: React.FC = () => {
           }
         }
       } catch {
-        // Server nicht erreichbar -> weiter zum Initial-Setup für diesen Nutzer
+        // Server nicht erreichbar -> weiter mit lokalem Stand
       }
     }
 
+    if (localWorkspacePayload) {
+      return;
+    }
+
     // Falls weder im nutzerspezifischen Cache noch auf dem Server Daten für diese User-ID existieren:
-    // Neue Lehrkraft-Konten starten mit einem eigenen, leeren Arbeitsbereich
     const isDemoUser = userId === DEMO_OWNER_USER_ID;
 
     const freshDatasets = isDemoUser
@@ -578,6 +615,7 @@ export const App: React.FC = () => {
   // Automatically encrypt and persist datasets + userSettings (Debounced 350ms: Strict Per-User Cache + Rust Axum Server)
   useEffect(() => {
     if (
+      isRestoringRef.current ||
       !wasmReady ||
       !vaultSession ||
       !vaultSession.dekB64 ||
@@ -4211,6 +4249,46 @@ export const App: React.FC = () => {
           isOpen={showAdminModal}
           onClose={() => setShowAdminModal(false)}
           session={vaultSession}
+          onRestoreSuccess={async () => {
+            if (!vaultSession) return;
+            isRestoringRef.current = true;
+            try {
+              setLoadedUserId(null);
+              // Lokale Caches leeren, damit keine alten Notenstände zurückgeschrieben werden
+              for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.startsWith('bte_notenflow_user_e2ee_')) {
+                  try {
+                    const raw = localStorage.getItem(key);
+                    if (raw) {
+                      const p = JSON.parse(raw);
+                      delete p.encryptedDatasetsEnvelope;
+                      delete p.encryptedSettingsEnvelope;
+                      localStorage.setItem(key, JSON.stringify(p));
+                    }
+                  } catch {
+                    localStorage.removeItem(key);
+                  }
+                }
+              }
+              // Erzwungenes Neuladen direkt vom Server
+              await loadIsolatedUserWorkspace(vaultSession, true);
+              setShowAdminModal(false);
+              alert(
+                'Der Server-Snapshot wurde erfolgreich eingespielt! Dein Arbeitsbereich wurde auf den Stand des Snapshots zurückgesetzt.'
+              );
+            } catch (e: any) {
+              console.error('Fehler beim Neuladen nach Snapshot:', e);
+              alert(
+                'Der Snapshot wurde eingespielt. Bitte melde dich erneut an, um den wiederhergestellten Tresor zu entschlüsseln.'
+              );
+              handleLockVault();
+            } finally {
+              setTimeout(() => {
+                isRestoringRef.current = false;
+              }, 500);
+            }
+          }}
         />
       )}
     </div>

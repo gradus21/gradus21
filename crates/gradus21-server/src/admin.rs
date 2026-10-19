@@ -573,9 +573,12 @@ pub async fn restore_backup(
         serde_json::from_value(users_val.clone())
             .map_err(|e| (StatusCode::BAD_REQUEST, format!("Fehler beim Parsen der Benutzer: {}", e)))?;
 
-    let restored_envelopes: std::collections::HashMap<Uuid, EncryptedEnvelopeRecord> =
+    let mut restored_envelopes: std::collections::HashMap<Uuid, EncryptedEnvelopeRecord> =
         serde_json::from_value(envelopes_val.clone())
             .map_err(|e| (StatusCode::BAD_REQUEST, format!("Fehler beim Parsen der Envelopes: {}", e)))?;
+
+    // Filter out orphaned envelopes whose owner does not exist in restored_users
+    restored_envelopes.retain(|_, env| restored_users.contains_key(&env.owner_user_id));
 
     // 1. Wipe and replace memory
     {
@@ -597,6 +600,48 @@ pub async fn restore_backup(
         }
         for env in restored_envelopes.values() {
             crate::sync_envelope_to_pg(&state, env).await;
+        }
+    }
+
+    // 3. Restore system_settings & global_templates if present
+    if let Some(settings_val) = payload.get("system_settings") {
+        if let Ok(settings) = serde_json::from_value::<std::collections::HashMap<String, serde_json::Value>>(settings_val.clone()) {
+            {
+                let mut mem_set = state.mem_settings.write().unwrap();
+                *mem_set = settings.clone();
+            }
+            if let Some(pool) = &state.db {
+                let _ = sqlx::query("DELETE FROM system_settings").execute(pool).await;
+                for (k, v) in settings {
+                    save_setting_to_pg(&state, &k, &v).await;
+                }
+            }
+        }
+    }
+
+    if let Some(templates_val) = payload.get("global_templates") {
+        if let Ok(templates) = serde_json::from_value::<std::collections::HashMap<Uuid, GlobalTemplateRecord>>(templates_val.clone()) {
+            {
+                let mut mem_tpl = state.mem_global_templates.write().unwrap();
+                *mem_tpl = templates.clone();
+            }
+            if let Some(pool) = &state.db {
+                let _ = sqlx::query("DELETE FROM grading_templates WHERE owner_user_id IS NULL").execute(pool).await;
+                for tpl in templates.values() {
+                    let payload_str = serde_json::to_string(&tpl.payload).unwrap_or_default();
+                    let _ = sqlx::query(
+                        r#"INSERT INTO grading_templates (id, owner_user_id, is_encrypted, payload, created_at, updated_at)
+                        VALUES ($1, NULL, FALSE, $2, $3, $4)
+                        ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at"#,
+                    )
+                    .bind(tpl.id)
+                    .bind(payload_str)
+                    .bind(tpl.created_at)
+                    .bind(tpl.updated_at)
+                    .execute(pool)
+                    .await;
+                }
+            }
         }
     }
 

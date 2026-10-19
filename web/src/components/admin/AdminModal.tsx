@@ -20,6 +20,7 @@ interface AdminModalProps {
   isOpen: boolean;
   onClose: () => void;
   session: ActiveVaultSession;
+  onRestoreSuccess?: () => Promise<void> | void;
 }
 
 type AdminTab = 'users' | 'backups' | 'templates' | 'smtp' | 'mails';
@@ -28,6 +29,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   isOpen,
   onClose,
   session,
+  onRestoreSuccess,
 }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('users');
 
@@ -137,7 +139,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             {activeTab === 'users' && (
               <UserManagementTab token={session.token} currentUserId={session.userId} />
             )}
-            {activeTab === 'backups' && <BackupConfigTab token={session.token} />}
+            {activeTab === 'backups' && (
+              <BackupConfigTab token={session.token} onRestoreSuccess={onRestoreSuccess} />
+            )}
             {activeTab === 'templates' && <CentralTemplatesTab token={session.token} />}
             {activeTab === 'smtp' && <SmtpConfigTab token={session.token} />}
             {activeTab === 'mails' && <MailTemplatesTab token={session.token} />}
