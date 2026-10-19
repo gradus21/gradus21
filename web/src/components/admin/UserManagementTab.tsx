@@ -176,7 +176,9 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
         throw new Error(await res.text());
       }
       const data = await res.json();
-      const fullUrl = `${window.location.origin}${data.invite_url}`;
+      const fullUrl = data.invite_url.startsWith('http')
+        ? data.invite_url
+        : `${window.location.origin}${data.invite_url}`;
       setCreatedInviteUrl(fullUrl);
       setSuccessMsg(`Einladung für ${inviteEmail} erfolgreich erstellt!`);
     } catch (err: any) {

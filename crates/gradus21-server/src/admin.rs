@@ -9,7 +9,10 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use lettre::{
-    message::{header::ContentType, Mailbox},
+    message::{
+        header::{ContentType, HeaderName, HeaderValue},
+        Mailbox,
+    },
     transport::smtp::authentication::Credentials,
     AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
 };
@@ -270,7 +273,24 @@ pub async fn invite_user(
     };
     save_setting_to_pg(&state, "pending_invites", &invites).await;
 
-    let invite_url = format!("/#invite={}", invite_token);
+    let base_url = headers
+        .get("origin")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            let host = headers
+                .get("x-forwarded-host")
+                .or_else(|| headers.get("host"))
+                .and_then(|v| v.to_str().ok())?;
+            let proto = headers
+                .get("x-forwarded-proto")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("https");
+            Some(format!("{}://{}", proto, host))
+        })
+        .unwrap_or_else(|| "https://g21-dev.kallidat.com".to_string());
+
+    let invite_full_url = format!("{}/#invite={}", base_url.trim_end_matches('/'), invite_token);
 
     // If send_mail is true and SMTP is configured, trigger invite mail
     if payload.send_mail.unwrap_or(false) {
@@ -285,14 +305,21 @@ pub async fn invite_user(
             let body = invite_tpl
                 .body_text
                 .replace("{{user_email}}", &clean_email)
-                .replace("{{invite_url}}", &invite_url)
+                .replace("{{invite_url}}", &invite_full_url)
                 .replace("{{school_name}}", "Gradus21");
 
             let subject = invite_tpl
                 .subject
                 .replace("{{school_name}}", "Gradus21");
 
-            let _ = send_email_internal(&cfg, &clean_email, &subject, &body).await;
+            match send_email_internal(&cfg, &clean_email, &subject, &body).await {
+                Ok(_) => {
+                    tracing::info!("Einladungs-E-Mail erfolgreich an {} versendet", clean_email);
+                }
+                Err(e) => {
+                    tracing::error!("Fehler beim Senden der Einladungs-E-Mail an {}: {}", clean_email, e);
+                }
+            }
         }
     }
 
@@ -300,7 +327,7 @@ pub async fn invite_user(
         "success": true,
         "email": clean_email,
         "invite_token": invite_token,
-        "invite_url": invite_url
+        "invite_url": invite_full_url
     })))
 }
 
@@ -936,11 +963,15 @@ async fn send_email_internal(
         .parse()
         .map_err(|e| format!("Ungültige Empfänger-Adresse: {}", e))?;
 
+    let hdr_auto = HeaderName::new_from_ascii_str("Auto-Submitted");
+    let hdr_suppress = HeaderName::new_from_ascii_str("X-Auto-Response-Suppress");
     let email = Message::builder()
         .from(from_mailbox)
         .to(to_mailbox)
         .subject(subject)
         .header(ContentType::TEXT_PLAIN)
+        .raw_header(HeaderValue::new(hdr_auto, "auto-generated".into()))
+        .raw_header(HeaderValue::new(hdr_suppress, "All".into()))
         .body(body.to_string())
         .map_err(|e| format!("Fehler beim Erstellen der E-Mail: {}", e))?;
 
