@@ -1220,6 +1220,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   const handleVerify2FA = async () => {
     if (!session) return;
     setErrorMsg(null);
+    setStatusMsg('Code wird überprüft...');
     const res = await fetch('/api/auth/2fa/verify', {
       method: 'POST',
       headers: {
@@ -1230,10 +1231,100 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     });
     if (!res.ok) {
       setErrorMsg('Der 6-stellige Code stimmt noch nicht. Bitte prüfe die Anzeige auf deinem Handy.');
+      setStatusMsg(null);
       return;
     }
+    setTotpVerifyInput('');
     onUnlockSuccess({ ...session, totpEnabled: true });
     setStatusMsg('Zwei-Faktor-Schutz ist jetzt aktiv!');
+  };
+
+  const handleReconfigure2FA = async () => {
+    if (!session) return;
+    setErrorMsg(null);
+    setStatusMsg('Neuer 2FA-Einrichtungsschlüssel wird generiert...');
+
+    try {
+      const res = await fetch('/api/auth/2fa/reconfigure', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+        },
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        setErrorMsg(errText || '2FA konnte nicht zurückgesetzt werden.');
+        setStatusMsg(null);
+        return;
+      }
+
+      const data = await res.json();
+      setTotpVerifyInput('');
+      const updated: ActiveVaultSession = {
+        ...session,
+        totpEnabled: false,
+        totpSecretBase32: data.totp_secret_base32,
+        totpSetupUri: data.totp_setup_uri,
+      };
+      onUnlockSuccess(updated);
+      if (data.totp_setup_uri) {
+        QRCode.toDataURL(data.totp_setup_uri, {
+          width: 240,
+          margin: 3,
+          errorCorrectionLevel: 'M',
+          color: { dark: '#000000', light: '#FFFFFF' },
+        })
+          .then((url) => setQrSvgDataUrl(url))
+          .catch(() => setQrSvgDataUrl(null));
+      }
+      setStatusMsg(
+        'Neuer 2FA-Schlüssel erstellt! Bitte scanne den neuen QR-Code und gib zur Bestätigung den 6-stelligen Code ein.'
+      );
+    } catch (err: any) {
+      setErrorMsg('Fehler beim Neukonfigurieren von 2FA: ' + String(err));
+      setStatusMsg(null);
+    }
+  };
+
+  const handleDisable2FA = async () => {
+    if (!session) return;
+    if (
+      !window.confirm(
+        'Möchtest du die Zwei-Faktor-Authentifizierung (2FA) wirklich für dieses Konto deaktivieren?'
+      )
+    ) {
+      return;
+    }
+    setErrorMsg(null);
+    setStatusMsg('2FA wird deaktiviert...');
+
+    try {
+      const res = await fetch('/api/auth/2fa/disable', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+        },
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        setErrorMsg(errText || '2FA konnte nicht deaktiviert werden.');
+        setStatusMsg(null);
+        return;
+      }
+
+      const updated: ActiveVaultSession = {
+        ...session,
+        totpEnabled: false,
+      };
+      onUnlockSuccess(updated);
+      setQrSvgDataUrl(null);
+      setStatusMsg('Zwei-Faktor-Authentifizierung wurde deaktiviert.');
+    } catch (err: any) {
+      setErrorMsg('Fehler beim Deaktivieren von 2FA: ' + String(err));
+      setStatusMsg(null);
+    }
   };
 
   const handlePrintRecoverySheet = () => {
@@ -2481,6 +2572,33 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 : 'Scanne den QR-Code links mit Bitwarden, Apple Passwörter oder Google Authenticator – oder kopiere den Einrichtungsschlüssel direkt in Bitwarden:'}
             </p>
 
+            {session.totpEnabled && (
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleReconfigure2FA}
+                  className="px-3.5 py-1.5 rounded-xl border text-xs font-bold transition hover:opacity-80"
+                  style={{
+                    backgroundColor: 'var(--primary-soft)',
+                    color: 'var(--primary-text)',
+                    borderColor: 'var(--border-subtle)',
+                  }}
+                >
+                  2FA neu konfigurieren (neues Handy / Bitwarden)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDisable2FA}
+                  className="px-3 py-1.5 rounded-xl border text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition"
+                  style={{
+                    borderColor: 'var(--border-subtle)',
+                  }}
+                >
+                  2FA deaktivieren
+                </button>
+              </div>
+            )}
+
             {!session.totpEnabled && session.totpSecretBase32 && (
               <div
                 className="p-2 px-3 rounded-xl border flex flex-wrap items-center justify-between gap-2"
@@ -2536,6 +2654,14 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                   style={{ backgroundColor: 'var(--primary-500)' }}
                 >
                   Handy-Schutz aktivieren
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReconfigure2FA}
+                  className="px-2.5 py-1.5 text-[11px] font-medium opacity-75 hover:opacity-100 underline ml-1"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Neuen Code generieren
                 </button>
               </div>
             )}

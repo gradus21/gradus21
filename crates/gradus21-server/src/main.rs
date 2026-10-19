@@ -655,6 +655,8 @@ async fn main() {
         .route("/api/auth/passkey", delete(delete_passkey))
         .route("/api/auth/2fa/setup", get(get_2fa_setup_info))
         .route("/api/auth/2fa/verify", post(verify_and_enable_2fa))
+        .route("/api/auth/2fa/reconfigure", post(reconfigure_2fa))
+        .route("/api/auth/2fa/disable", post(disable_2fa))
         .route("/api/envelopes", get(list_envelopes).post(upsert_envelope))
         .route("/api/envelopes/batch", post(batch_sync_envelopes))
         .route("/api/envelopes/:id", delete(delete_envelope))
@@ -1414,6 +1416,86 @@ async fn verify_and_enable_2fa(
     Ok(Json(serde_json::json!({ "totp_enabled": true })))
 }
 
+async fn reconfigure_2fa(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let claims = authenticate_request(&state, &headers)?;
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
+    check_auth_rate_limit(&state, &format!("2fa_reconfigure:{}", user_id))?;
+
+    let new_secret_b32 = totp::generate_totp_secret_base32();
+    let enc = encrypt_entity_envelope(
+        &state.server_encryption_key_b64,
+        "server",
+        &user_id.to_string(),
+        &new_secret_b32,
+    )
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let (email, updated_user) = {
+        let mut users = state.mem_users.write().unwrap();
+        let user_opt = if let Some(u) = users.get_mut(&user_id) {
+            Some(u)
+        } else {
+            users.values_mut().find(|u| u.email == claims.email)
+        };
+
+        if let Some(user) = user_opt {
+            user.totp_secret_server_encrypted = Some(enc);
+            user.totp_enabled = false;
+            (user.email.clone(), user.clone())
+        } else {
+            return Err((StatusCode::NOT_FOUND, "Benutzer nicht gefunden".into()));
+        }
+    };
+
+    sync_user_to_pg(&state, &updated_user).await;
+    persist_to_disk(&state);
+
+    let uri = totp::build_otpauth_uri(&email, &new_secret_b32);
+    Ok(Json(serde_json::json!({
+        "totp_enabled": false,
+        "totp_secret_base32": new_secret_b32,
+        "totp_setup_uri": uri
+    })))
+}
+
+async fn disable_2fa(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let claims = authenticate_request(&state, &headers)?;
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
+    check_auth_rate_limit(&state, &format!("2fa_disable:{}", user_id))?;
+
+    let updated_user = {
+        let mut users = state.mem_users.write().unwrap();
+        let user_opt = if let Some(u) = users.get_mut(&user_id) {
+            Some(u)
+        } else {
+            users.values_mut().find(|u| u.email == claims.email)
+        };
+
+        if let Some(user) = user_opt {
+            user.totp_enabled = false;
+            user.clone()
+        } else {
+            return Err((StatusCode::NOT_FOUND, "Benutzer nicht gefunden".into()));
+        }
+    };
+
+    sync_user_to_pg(&state, &updated_user).await;
+    persist_to_disk(&state);
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "totp_enabled": false
+    })))
+}
+
 async fn list_envelopes(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1922,6 +2004,45 @@ mod tests {
         let second_setup = get_2fa_setup_info(State(state.clone()), headers.clone()).await;
         assert!(second_setup.is_err());
         assert_eq!(second_setup.unwrap_err().0, StatusCode::CONFLICT);
+
+        // 3b. Reconfiguring 2FA generates a new secret and temporarily resets totp_enabled to false until verified
+        let Json(reconf_info) = reconfigure_2fa(State(state.clone()), headers.clone())
+            .await
+            .expect("reconfigure 2fa");
+        assert_eq!(reconf_info["totp_enabled"], false);
+        let new_secret_b32 = reconf_info["totp_secret_base32"].as_str().unwrap().to_string();
+        assert_ne!(new_secret_b32, secret_b32);
+
+        // Verify with new secret enables 2FA again
+        let new_valid_code = totp::current_totp_code(&new_secret_b32).expect("new code");
+        let Json(re_verified) = verify_and_enable_2fa(
+            State(state.clone()),
+            headers.clone(),
+            Json(VerifyTotpRequest {
+                totp_code: new_valid_code,
+            }),
+        )
+        .await
+        .expect("re-enable 2fa");
+        assert_eq!(re_verified["totp_enabled"], true);
+
+        // 3c. Disabling 2FA resets totp_enabled to false
+        let Json(disabled_info) = disable_2fa(State(state.clone()), headers.clone())
+            .await
+            .expect("disable 2fa");
+        assert_eq!(disabled_info["totp_enabled"], false);
+
+        // Re-enable again for remaining tests
+        let valid_code_again = totp::current_totp_code(&new_secret_b32).expect("code again");
+        let _ = verify_and_enable_2fa(
+            State(state.clone()),
+            headers.clone(),
+            Json(VerifyTotpRequest {
+                totp_code: valid_code_again,
+            }),
+        )
+        .await
+        .expect("re-enable 2fa again");
 
         // 4. Upsert envelope and verify tenant isolation + OCC
         let env_id = Uuid::new_v4();
