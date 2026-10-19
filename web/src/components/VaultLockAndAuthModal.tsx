@@ -1545,16 +1545,20 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
                   <div>
                     <label
+                      htmlFor="reg-totp"
                       className="block font-semibold mb-1 text-center"
                       style={{ color: 'var(--text-secondary)' }}
                     >
                       6-stelligen Code aus der Authenticator-App eingeben:
                     </label>
                     <input
+                      id="reg-totp"
+                      name="totp"
                       type="text"
                       inputMode="numeric"
                       pattern="[0-9]*"
                       maxLength={6}
+                      autoComplete="one-time-code"
                       value={regTotpCode}
                       onChange={(e) => setRegTotpCode(e.target.value.replace(/\D/g, ''))}
                       placeholder="123456"
@@ -1776,13 +1780,17 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               </p>
               <div>
                 <label
+                  htmlFor="recover-email"
                   className="block font-semibold mb-1"
                   style={{ color: 'var(--text-secondary)' }}
                 >
                   Deine E-Mail-Adresse
                 </label>
                 <input
+                  id="recover-email"
+                  name="username"
                   type="email"
+                  autoComplete="username"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-xl border bg-transparent"
@@ -1791,13 +1799,18 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               </div>
               <div>
                 <label
+                  htmlFor="recover-code"
                   className="block font-semibold mb-1"
                   style={{ color: 'var(--text-secondary)' }}
                 >
                   Notfall-Code (vom Notfallblatt)
                 </label>
                 <input
+                  id="recover-code"
+                  name="recovery-code"
                   type="text"
+                  autoComplete="off"
+                  spellCheck="false"
                   value={recoveryKeyInput}
                   onChange={(e) => setRecoveryKeyInput(e.target.value)}
                   placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
@@ -1807,13 +1820,17 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               </div>
               <div>
                 <label
+                  htmlFor="recover-new-password"
                   className="block font-semibold mb-1"
                   style={{ color: 'var(--text-secondary)' }}
                 >
                   Neues Passwort wählen
                 </label>
                 <input
+                  id="recover-new-password"
+                  name="new-password"
                   type="password"
+                  autoComplete="new-password"
                   value={newPasswordInput}
                   onChange={(e) => setNewPasswordInput(e.target.value)}
                   placeholder="Neues Passwort"
@@ -1834,13 +1851,17 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             <form onSubmit={handleStartRegistration} className="space-y-3.5 text-xs">
               <div>
                 <label
+                  htmlFor="register-email"
                   className="block font-semibold mb-1"
                   style={{ color: 'var(--text-secondary)' }}
                 >
                   E-Mail-Adresse
                 </label>
                 <input
+                  id="register-email"
+                  name="username"
                   type="email"
+                  autoComplete="username"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -1850,13 +1871,17 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               </div>
               <div>
                 <label
+                  htmlFor="register-password"
                   className="block font-semibold mb-1"
                   style={{ color: 'var(--text-secondary)' }}
                 >
                   Master-Passwort (mind. 8 Zeichen)
                 </label>
                 <input
+                  id="register-password"
+                  name="new-password"
                   type="password"
+                  autoComplete="new-password"
                   required
                   minLength={8}
                   value={password}
@@ -1867,13 +1892,17 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               </div>
               <div>
                 <label
+                  htmlFor="register-password-confirm"
                   className="block font-semibold mb-1"
                   style={{ color: 'var(--text-secondary)' }}
                 >
                   Master-Passwort wiederholen
                 </label>
                 <input
+                  id="register-password-confirm"
+                  name="confirm-password"
                   type="password"
+                  autoComplete="new-password"
                   required
                   minLength={8}
                   value={confirmPassword}
@@ -1905,13 +1934,17 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             <form onSubmit={handleLoginVault} className="space-y-3.5 text-xs">
               <div>
                 <label
+                  htmlFor="login-email"
                   className="block font-semibold mb-1"
                   style={{ color: 'var(--text-secondary)' }}
                 >
                   E-Mail-Adresse
                 </label>
                 <input
+                  id="login-email"
+                  name="username"
                   type="email"
+                  autoComplete="username"
                   required
                   value={email}
                   onChange={(e) => {
@@ -1924,13 +1957,17 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               </div>
               <div>
                 <label
+                  htmlFor="login-password"
                   className="block font-semibold mb-1"
                   style={{ color: 'var(--text-secondary)' }}
                 >
                   Passwort
                 </label>
                 <input
+                  id="login-password"
+                  name="password"
                   type="password"
+                  autoComplete="current-password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -1941,16 +1978,20 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               {(session?.totpEnabled || loginRequiresTotp) && (
                 <div>
                   <label
+                    htmlFor="login-totp"
                     className="block font-semibold mb-1"
                     style={{ color: 'var(--text-secondary)' }}
                   >
                     6-stelliger Sicherheitscode (vom Handy)
                   </label>
                   <input
+                    id="login-totp"
+                    name="totp"
                     type="text"
                     inputMode="numeric"
                     pattern="[0-9]*"
                     maxLength={6}
+                    autoComplete="one-time-code"
                     value={totpCode}
                     onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ''))}
                     placeholder="123456"
@@ -2254,9 +2295,16 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             {!session.totpEnabled && (
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <input
+                  id="settings-totp"
+                  name="totp"
                   type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  autoComplete="one-time-code"
+                  aria-label="6-stelliger Zahlencode aus Authenticator-App"
                   value={totpVerifyInput}
-                  onChange={(e) => setTotpVerifyInput(e.target.value)}
+                  onChange={(e) => setTotpVerifyInput(e.target.value.replace(/\D/g, ''))}
                   placeholder="6-stelliger Zahlencode"
                   className="w-40 px-3 py-1.5 rounded-xl border font-mono text-xs bg-white dark:bg-slate-900"
                   style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
