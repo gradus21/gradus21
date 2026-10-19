@@ -411,11 +411,8 @@ export const App: React.FC = () => {
     }
 
     // Falls weder im nutzerspezifischen Cache noch auf dem Server Daten für diese User-ID existieren:
-    // Nur das Demo-Konto (julian@gemeinschaftsschule.de) erhält die 3 Demo-Klassen,
-    // jedes neu angelegte Lehrkraft-Konto startet mit einem eigenen, komplett leeren Arbeitsbereich!
-    const isDemoUser =
-      userId === DEMO_OWNER_USER_ID ||
-      email.trim().toLowerCase() === 'julian@gemeinschaftsschule.de';
+    // Neue Lehrkraft-Konten starten mit einem eigenen, leeren Arbeitsbereich
+    const isDemoUser = userId === DEMO_OWNER_USER_ID;
 
     const freshDatasets = isDemoUser
       ? INITIAL_CLASS_DATASETS
@@ -525,105 +522,53 @@ export const App: React.FC = () => {
         }
       }
 
-      const lastActiveUserId =
-        localStorage.getItem(ACTIVE_USER_ID_STORAGE_KEY) || DEMO_OWNER_USER_ID;
+      const lastActiveUserId = localStorage.getItem(ACTIVE_USER_ID_STORAGE_KEY);
 
-      // Check if we have a user-scoped cached E2EE vault session in localStorage
-      const userCacheKey = getUserEncryptedCacheKey(lastActiveUserId);
-      const cachedRaw = localStorage.getItem(userCacheKey);
-      if (cachedRaw) {
-        try {
-          const parsed = JSON.parse(cachedRaw);
-          if (parsed.session) {
-            const sessionDek =
-              sessionStorage.getItem(`bte_notenflow_dek_${lastActiveUserId}`) || '';
-            if (lockedFlag || parsed.isLocked || !sessionDek) {
-              const emptyLocked = createFreshWorkspaceForNewTeacher('locked');
-              setDatasets(emptyLocked);
-              setActiveClassId(emptyLocked[0].id);
-              setVaultSession({
+      if (lastActiveUserId) {
+        // Check if we have a user-scoped cached E2EE vault session in localStorage
+        const userCacheKey = getUserEncryptedCacheKey(lastActiveUserId);
+        const cachedRaw = localStorage.getItem(userCacheKey);
+        if (cachedRaw) {
+          try {
+            const parsed = JSON.parse(cachedRaw);
+            if (parsed.session) {
+              const sessionDek =
+                sessionStorage.getItem(`bte_notenflow_dek_${lastActiveUserId}`) || '';
+              if (lockedFlag || parsed.isLocked || !sessionDek) {
+                const emptyLocked = createFreshWorkspaceForNewTeacher('locked');
+                setDatasets(emptyLocked);
+                setActiveClassId(emptyLocked[0].id);
+                setVaultSession({
+                  ...parsed.session,
+                  dekB64: '',
+                  recoveryKeyFormatted: undefined,
+                });
+                setIsVaultLocked(true);
+                return;
+              }
+
+              const restoredSession: ActiveVaultSession = {
                 ...parsed.session,
-                dekB64: '',
+                dekB64: sessionDek,
                 recoveryKeyFormatted: undefined,
-              });
-              setIsVaultLocked(true);
+              };
+              setVaultSession(restoredSession);
+              await loadIsolatedUserWorkspace(restoredSession);
               return;
             }
-
-            const restoredSession: ActiveVaultSession = {
-              ...parsed.session,
-              dekB64: sessionDek,
-              recoveryKeyFormatted: undefined,
-            };
-            setVaultSession(restoredSession);
-            await loadIsolatedUserWorkspace(restoredSession);
-            return;
+          } catch {
+            // Proceed to lock screen if cache is invalid
           }
-        } catch {
-          // Proceed with fresh vault creation
         }
       }
 
-      // Generate initial E2EE Vault in Rust WASM and register with Axum server
-      const vaultJson = wasm_generate_vault('LehrerPasswort#2026!');
-      const bundle = JSON.parse(vaultJson);
-      let serverUserId = DEMO_OWNER_USER_ID;
-      let token = '';
-      let totpSecret = 'JBSWY3DPEHPK3PXP';
-      let totpUri: string | undefined;
-      let isAdmin = false;
-
-      try {
-        const email = 'julian@gemeinschaftsschule.de';
-        const regRes = await fetch('/api/auth/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email,
-            auth_key_b64: bundle.auth_key_b64,
-            kdf_salt_b64: bundle.kdf_salt_b64,
-            kdf_params: bundle.kdf_params,
-            encrypted_dek: bundle.encrypted_dek,
-            recovery_encrypted_dek: bundle.recovery_encrypted_dek,
-            recovery_auth_key_b64: bundle.recovery_auth_key_b64,
-          }),
-        });
-        if (regRes.ok) {
-          const authData = await regRes.json();
-          serverUserId = authData.user_id;
-          token = authData.token;
-          totpSecret = authData.totp_secret_base32 || totpSecret;
-          totpUri = authData.totp_setup_uri;
-          isAdmin = authData.is_admin ?? false;
-        }
-      } catch {
-        // Offline-first fallback
-      }
-
-      if (!lockedFlag && bundle.dek_b64) {
-        sessionStorage.setItem(`bte_notenflow_dek_${serverUserId}`, bundle.dek_b64);
-      }
-
-      const initialSession: ActiveVaultSession = {
-        token,
-        userId: serverUserId,
-        email: 'julian@gemeinschaftsschule.de',
-        isAdmin,
-        kdfSaltB64: bundle.kdf_salt_b64,
-        dekB64: lockedFlag ? '' : bundle.dek_b64,
-        encryptedDek: bundle.encrypted_dek,
-        recoveryEncryptedDek: bundle.recovery_encrypted_dek,
-        recoveryKeyFormatted: bundle.recovery_key_formatted,
-        totpEnabled: false,
-        totpSetupUri: totpUri,
-        totpSecretBase32: totpSecret,
-        serverSyncedCount: INITIAL_CLASS_DATASETS.length,
-      };
-      localStorage.setItem(ACTIVE_USER_ID_STORAGE_KEY, serverUserId);
-      setVaultSession(initialSession);
-      if (!lockedFlag) {
-        await loadIsolatedUserWorkspace(initialSession);
-      }
+      // Keine gespeicherte Sitzung vorhanden (Erstbesuch oder Incognito):
+      // Tresor sperren und Vollbild-Login-/Registrierungsdialog anzeigen
+      const emptyLocked = createFreshWorkspaceForNewTeacher('locked');
+      setDatasets(emptyLocked);
+      setActiveClassId(emptyLocked[0].id);
+      setVaultSession(null);
+      setIsVaultLocked(true);
     })();
     return () => {
       mounted = false;

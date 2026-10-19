@@ -153,8 +153,8 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   onCloseInspector,
 }) => {
   const [authTab, setAuthTab] = useState<'login' | 'register' | 'recover'>('login');
-  const [email, setEmail] = useState(session?.email || 'julian@gemeinschaftsschule.de');
-  const [password, setPassword] = useState('LehrerPasswort#2026!');
+  const [email, setEmail] = useState(session?.email || '');
+  const [password, setPassword] = useState('');
   const [totpCode, setTotpCode] = useState('');
   const [recoveryKeyInput, setRecoveryKeyInput] = useState('');
   const [newPasswordInput, setNewPasswordInput] = useState('');
