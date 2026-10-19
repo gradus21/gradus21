@@ -41,8 +41,8 @@ interface LegalModalProps {
 const DEFAULT_LEGAL_CONFIG: LegalConfigData = {
   name: 'Julian Kallidat',
   company: null,
-  address: 'Musterstraße 1, 10115 Berlin, Deutschland',
-  email: 'kontakt@gradus21.app',
+  address: 'Hardtstr. 6, 76467 Bietigheim, Deutschland',
+  email: 'kontakt@gradus21.de',
   phone: null,
   representative: null,
   register: null,
@@ -636,7 +636,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({
                       </span>
                     </div>
                     <div className="text-[11px] font-mono text-slate-700 dark:text-slate-300 space-y-0.5">
-                      <p>Ort, Datum: Bietigheim-Bissingen, den {new Date().toLocaleDateString('de-DE')}</p>
+                      <p>Ort, Datum: Bietigheim, den {new Date().toLocaleDateString('de-DE')}</p>
                       <p>Name: {config.name}</p>
                       <p>Funktion: Inhaber &amp; Dienstanbieter Gradus21</p>
                     </div>

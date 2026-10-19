@@ -69,9 +69,9 @@ impl Default for LegalConfig {
                 .unwrap_or_else(|_| "Julian Kallidat".into()),
             company: std::env::var("LEGAL_IMPRESSUM_COMPANY").ok().filter(|s| !s.trim().is_empty()),
             address: std::env::var("LEGAL_IMPRESSUM_ADDRESS")
-                .unwrap_or_else(|_| "Musterstraße 1, 10115 Berlin, Deutschland".into()),
+                .unwrap_or_else(|_| "Hardtstr. 6, 76467 Bietigheim, Deutschland".into()),
             email: std::env::var("LEGAL_IMPRESSUM_EMAIL")
-                .unwrap_or_else(|_| "kontakt@gradus21.app".into()),
+                .unwrap_or_else(|_| "kontakt@gradus21.de".into()),
             phone: std::env::var("LEGAL_IMPRESSUM_PHONE").ok().filter(|s| !s.trim().is_empty()),
             representative: std::env::var("LEGAL_IMPRESSUM_REPRESENTATIVE").ok().filter(|s| !s.trim().is_empty()),
             register: std::env::var("LEGAL_IMPRESSUM_REGISTER").ok().filter(|s| !s.trim().is_empty()),
