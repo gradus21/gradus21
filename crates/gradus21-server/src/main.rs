@@ -428,6 +428,25 @@ async fn ensure_pg_schema_and_load(
             }
         }
     }
+
+    // Seed default global templates into PostgreSQL if not already present
+    for default_tpl in admin::default_global_templates() {
+        if !templates_map.contains_key(&default_tpl.id) {
+            let payload_str = serde_json::to_string(&default_tpl).unwrap_or_default();
+            let _ = sqlx::query(
+                r#"INSERT INTO grading_templates (id, owner_user_id, is_encrypted, payload, created_at, updated_at)
+                VALUES ($1, NULL, FALSE, $2, $3, $4)
+                ON CONFLICT (id) DO NOTHING"#,
+            )
+            .bind(default_tpl.id)
+            .bind(payload_str)
+            .bind(default_tpl.created_at)
+            .bind(default_tpl.updated_at)
+            .execute(pool)
+            .await;
+            templates_map.insert(default_tpl.id, default_tpl);
+        }
+    }
 }
 
 pub async fn sync_user_to_pg(state: &AppState, user: &UserRecord) {
@@ -617,6 +636,11 @@ async fn main() {
     let enable_admin_panel = std::env::var("ENABLE_ADMIN_PANEL")
         .map(|v| v.trim() != "false" && v.trim() != "0")
         .unwrap_or(true);
+
+    // Ensure all default global templates are present in memory/disk
+    for default_tpl in admin::default_global_templates() {
+        initial_disk.global_templates.entry(default_tpl.id).or_insert(default_tpl);
+    }
 
     let state = AppState {
         db,
@@ -2579,6 +2603,36 @@ mod tests {
         let _ = fs::remove_file(backup_dir.join(&entry.filename));
         let _ = fs::remove_dir(backup_dir);
         let _ = fs::remove_file(&state.disk_store_path);
+    }
+
+    #[tokio::test]
+    async fn test_default_global_templates_rollout() {
+        let default_tpls = admin::default_global_templates();
+        assert_eq!(default_tpls.len(), 17);
+
+        let curves = default_tpls.iter().filter(|t| t.template_type == "curve").count();
+        let weightings = default_tpls.iter().filter(|t| t.template_type == "weighting").count();
+        let levels = default_tpls.iter().filter(|t| t.template_type == "levels").count();
+
+        assert_eq!(curves, 5);
+        assert_eq!(weightings, 8);
+        assert_eq!(levels, 4);
+
+        let state = create_test_state();
+        // Seed default templates into state.mem_global_templates
+        {
+            let mut map = state.mem_global_templates.write().unwrap();
+            for tpl in &default_tpls {
+                map.insert(tpl.id, tpl.clone());
+            }
+        }
+
+        // Unauthenticated client can list global templates
+        let empty_headers = HeaderMap::new();
+        let Json(listed) = admin::list_global_templates(State(state.clone()), empty_headers)
+            .await
+            .expect("unauthenticated list global templates");
+        assert_eq!(listed.len(), 17);
     }
 }
 

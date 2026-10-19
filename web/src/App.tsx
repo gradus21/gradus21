@@ -13,6 +13,7 @@ import { ClassManagementModal } from './components/ClassManagementModal';
 import { SettingsModal, WEIGHTING_PRESET_CATALOG } from './components/SettingsModal';
 import { ActiveVaultSession, VaultLockAndAuthModal } from './components/VaultLockAndAuthModal';
 import { AdminModal } from './components/admin/AdminModal';
+import { GlobalTemplateRecord } from './components/admin/CentralTemplatesTab';
 import {
   exportClassToXlsx,
   printClassConferenceReport,
@@ -49,6 +50,7 @@ import {
   EyeOff,
   FileSpreadsheet,
   FolderPlus,
+  Globe,
   KeyRound,
   Lock,
   Plus,
@@ -249,6 +251,34 @@ export const App: React.FC = () => {
     ciphertext: string;
     decryptedVerify: string;
   } | null>(null);
+
+  // Global School Templates from Server (Zentral bereitgestellt)
+  const [globalTemplates, setGlobalTemplates] = useState<GlobalTemplateRecord[]>([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchTemplates = async () => {
+      try {
+        const headers: Record<string, string> = {};
+        if (vaultSession?.token) {
+          headers['Authorization'] = `Bearer ${vaultSession.token}`;
+        }
+        const res = await fetch('/api/templates', { headers });
+        if (res.ok) {
+          const list = await res.json();
+          if (isMounted && Array.isArray(list)) {
+            setGlobalTemplates(list);
+          }
+        }
+      } catch (e) {
+        // silent fallback to offline presets
+      }
+    };
+    fetchTemplates();
+    return () => {
+      isMounted = false;
+    };
+  }, [vaultSession?.token]);
 
   // Global Keyboard Shortcuts (Alt+P: Toggle Privacy Blur, Escape: Close Modals)
   useEffect(() => {
@@ -929,6 +959,66 @@ export const App: React.FC = () => {
         level_threshold_offsets: offsets,
       },
     }));
+  };
+
+  const applyGlobalCurveTemplate = (tpl: GlobalTemplateRecord) => {
+    if (tpl.payload?.cutoffs) {
+      const c = tpl.payload.cutoffs;
+      const n1 = c.n1 ?? c['1'] ?? c['15'] ?? 90;
+      const n2 = c.n2 ?? c['2'] ?? c['12'] ?? 75;
+      const n3 = c.n3 ?? c['3'] ?? c['9'] ?? 58;
+      const n4 = c.n4 ?? c['4'] ?? c['6'] ?? 42;
+      const n5 = c.n5 ?? c['5'] ?? c['3'] ?? 20;
+      applyCurveCutoffs({ n1, n2, n3, n4, n5 }, tpl.title);
+    }
+    if (tpl.payload?.scale_id) {
+      updateSubjectConfig((ds) => ({
+        ...ds,
+        config: {
+          ...ds.config,
+          scale_id: tpl.payload.scale_id,
+        },
+      }));
+    }
+  };
+
+  const applyGlobalWeightingTemplate = (tpl: GlobalTemplateRecord) => {
+    updateSubjectConfig((ds) => {
+      let nextCats = [...ds.categories];
+      if (tpl.payload?.categories && Array.isArray(tpl.payload.categories)) {
+        nextCats = tpl.payload.categories.map((c: any, idx: number) => ({
+          id: c.id || `cat_g_${idx}_${Date.now()}`,
+          name: c.name || `Kategorie ${idx + 1}`,
+          short_code: c.short_code || `K${idx + 1}`,
+          weight: typeof c.weight === 'number' ? (c.weight > 1 ? c.weight / 100 : c.weight) : 0.5,
+          drop_lowest_count: c.drop_lowest_count || 0,
+        }));
+      } else if (tpl.payload?.weights && Array.isArray(tpl.payload.weights)) {
+        nextCats = ds.categories.map((c, i) => ({
+          ...c,
+          weight: tpl.payload.weights[i] ?? 0.2,
+        }));
+      }
+      const firstCatId = nextCats[0]?.id || ds.categories[0]?.id;
+      const validIds = new Set(nextCats.map((c) => c.id));
+      return {
+        ...ds,
+        config: {
+          ...ds.config,
+          scale_id: tpl.payload?.scale_id || ds.config.scale_id,
+        },
+        categories: nextCats,
+        assessments: ds.assessments.map((a) =>
+          validIds.has(a.category_id) ? a : { ...a, category_id: firstCatId }
+        ),
+      };
+    });
+  };
+
+  const applyGlobalLevelTemplate = (tpl: GlobalTemplateRecord) => {
+    const offsets = tpl.payload?.offsets || { G: -5, M: 0, E: 3 };
+    const enable = tpl.payload?.enable ?? true;
+    applyDifferentiationPreset(offsets, enable);
   };
 
   const activeFineThresholds = useMemo(() => {
@@ -2622,25 +2712,52 @@ export const App: React.FC = () => {
                   </div>
 
                   <div className="grid grid-cols-2 gap-1.5">
-                    {Object.entries(GRADING_CURVE_PRESETS).map(([key, preset]) => (
-                      <button
-                        key={key}
-                        onClick={() => applyCurveCutoffs(preset.cutoffs, key)}
-                        className={`p-2 rounded-xl border text-left text-xs transition ${
-                          curvePresetKey === key ? 'ring-2 ring-teal-500 font-bold' : ''
-                        }`}
-                        style={{
-                          backgroundColor:
-                            curvePresetKey === key
-                              ? 'var(--primary-soft)'
-                              : 'var(--bg-subtle)',
-                          borderColor: 'var(--border-subtle)',
-                          color: 'var(--text-primary)',
-                        }}
-                      >
-                        {preset.name}
-                      </button>
-                    ))}
+                    {globalTemplates.filter((t) => t.template_type === 'curve').length > 0
+                      ? globalTemplates
+                          .filter((t) => t.template_type === 'curve')
+                          .map((tpl) => (
+                            <button
+                              key={tpl.id}
+                              onClick={() => applyGlobalCurveTemplate(tpl)}
+                              className={`p-2 rounded-xl border text-left text-xs transition ${
+                                curvePresetKey === tpl.title ? 'ring-2 ring-teal-500 font-bold' : ''
+                              }`}
+                              style={{
+                                backgroundColor:
+                                  curvePresetKey === tpl.title
+                                    ? 'var(--primary-soft)'
+                                    : 'var(--bg-subtle)',
+                                borderColor: 'var(--border-subtle)',
+                                color: 'var(--text-primary)',
+                              }}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="truncate">{tpl.title}</span>
+                                <span className="text-[9px] px-1 bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded font-semibold ml-1 shrink-0">
+                                  Global
+                                </span>
+                              </div>
+                            </button>
+                          ))
+                      : Object.entries(GRADING_CURVE_PRESETS).map(([key, preset]) => (
+                          <button
+                            key={key}
+                            onClick={() => applyCurveCutoffs(preset.cutoffs, key)}
+                            className={`p-2 rounded-xl border text-left text-xs transition ${
+                              curvePresetKey === key ? 'ring-2 ring-teal-500 font-bold' : ''
+                            }`}
+                            style={{
+                              backgroundColor:
+                                curvePresetKey === key
+                                  ? 'var(--primary-soft)'
+                                  : 'var(--bg-subtle)',
+                              borderColor: 'var(--border-subtle)',
+                              color: 'var(--text-primary)',
+                            }}
+                          >
+                            {preset.name}
+                          </button>
+                        ))}
                   </div>
 
                   <div className="space-y-2.5 pt-1 text-xs">
@@ -3130,6 +3247,66 @@ export const App: React.FC = () => {
                 </form>
               )}
 
+              {/* Globale Vorlagen der Schule */}
+              {globalTemplates.filter((t) => t.template_type === 'weighting').length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-1">
+                    <label
+                      className="block text-xs font-bold uppercase tracking-wider flex items-center gap-1.5"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      <Globe className="w-3.5 h-3.5 text-indigo-500" />
+                      <span>Globale Fach-Vorlagen (Zentral bereitgestellt)</span>
+                    </label>
+                    <span className="text-[10px] text-slate-400">
+                      Vorlage anklicken zum Übernehmen und anschließenden Anpassen
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
+                    {globalTemplates
+                      .filter((t) => t.template_type === 'weighting')
+                      .map((tpl) => (
+                        <button
+                          key={tpl.id}
+                          type="button"
+                          onClick={() => applyGlobalWeightingTemplate(tpl)}
+                          className="p-3 rounded-xl border text-left transition hover:border-teal-500 group"
+                          style={{
+                            backgroundColor: 'var(--bg-subtle)',
+                            borderColor: 'var(--border-subtle)',
+                            color: 'var(--text-primary)',
+                          }}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold">{tpl.title}</span>
+                            <span className="text-[9px] px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded font-semibold">
+                              Global
+                            </span>
+                          </div>
+                          <div
+                            className="text-[11px] mt-0.5 line-clamp-1"
+                            style={{ color: 'var(--text-secondary)' }}
+                          >
+                            {tpl.description}
+                          </div>
+                          {tpl.payload?.categories && (
+                            <div className="text-[10px] mt-1 text-teal-600 dark:text-teal-400 font-mono">
+                              {tpl.payload.categories
+                                .map(
+                                  (c: any) =>
+                                    `${c.short_code || c.name} ${Math.round(
+                                      (c.weight > 1 ? c.weight / 100 : c.weight) * 100
+                                    )}%`
+                                )
+                                .join(' · ')}
+                            </div>
+                          )}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
+
               {/* Gespeicherte eigene Vorlagen */}
               {userSettings.customWeightingTemplates.length > 0 && (
                 <div className="space-y-2">
@@ -3556,29 +3733,64 @@ export const App: React.FC = () => {
 
                 {/* Preset Buttons */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                  {Object.entries(GRADING_CURVE_PRESETS).map(([key, preset]) => (
-                    <button
-                      key={key}
-                      onClick={() => applyCurveCutoffs(preset.cutoffs, key)}
-                      className={`p-3 rounded-xl border text-left transition ${
-                        curvePresetKey === key ? 'ring-2 ring-teal-500 font-bold' : 'opacity-85 hover:opacity-100'
-                      }`}
-                      style={{
-                        backgroundColor:
-                          curvePresetKey === key ? 'var(--primary-soft)' : 'var(--bg-subtle)',
-                        borderColor: 'var(--border-subtle)',
-                        color: 'var(--text-primary)',
-                      }}
-                    >
-                      <div className="text-xs font-bold">{preset.name}</div>
-                      <div
-                        className="text-[10px] mt-1 font-normal"
-                        style={{ color: 'var(--text-secondary)' }}
-                      >
-                        {preset.description}
-                      </div>
-                    </button>
-                  ))}
+                  {globalTemplates.filter((t) => t.template_type === 'curve').length > 0
+                    ? globalTemplates
+                        .filter((t) => t.template_type === 'curve')
+                        .map((tpl) => (
+                          <button
+                            key={tpl.id}
+                            type="button"
+                            onClick={() => applyGlobalCurveTemplate(tpl)}
+                            className={`p-3 rounded-xl border text-left transition ${
+                              curvePresetKey === tpl.title
+                                ? 'ring-2 ring-teal-500 font-bold'
+                                : 'opacity-85 hover:opacity-100'
+                            }`}
+                            style={{
+                              backgroundColor:
+                                curvePresetKey === tpl.title ? 'var(--primary-soft)' : 'var(--bg-subtle)',
+                              borderColor: 'var(--border-subtle)',
+                              color: 'var(--text-primary)',
+                            }}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold">{tpl.title}</span>
+                              <span className="text-[9px] px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded font-semibold ml-1 shrink-0">
+                                Global
+                              </span>
+                            </div>
+                            <div
+                              className="text-[10px] mt-1 font-normal line-clamp-2"
+                              style={{ color: 'var(--text-secondary)' }}
+                            >
+                              {tpl.description}
+                            </div>
+                          </button>
+                        ))
+                    : Object.entries(GRADING_CURVE_PRESETS).map(([key, preset]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => applyCurveCutoffs(preset.cutoffs, key)}
+                          className={`p-3 rounded-xl border text-left transition ${
+                            curvePresetKey === key ? 'ring-2 ring-teal-500 font-bold' : 'opacity-85 hover:opacity-100'
+                          }`}
+                          style={{
+                            backgroundColor:
+                              curvePresetKey === key ? 'var(--primary-soft)' : 'var(--bg-subtle)',
+                            borderColor: 'var(--border-subtle)',
+                            color: 'var(--text-primary)',
+                          }}
+                        >
+                          <div className="text-xs font-bold">{preset.name}</div>
+                          <div
+                            className="text-[10px] mt-1 font-normal"
+                            style={{ color: 'var(--text-secondary)' }}
+                          >
+                            {preset.description}
+                          </div>
+                        </button>
+                      ))}
                 </div>
 
                 {/* Sliders + Exact Number Inputs for Note 1..5 */}
@@ -3782,32 +3994,47 @@ export const App: React.FC = () => {
 
                 {/* Differentiation Presets */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                  {[
-                    {
-                      title: 'Gemeinschaftsschule Standard',
-                      desc: 'G-Niveau: -5% Hürde · M: 0% · E-Niveau: +3% Anspruch',
-                      offsets: { G: -5, M: 0, E: 3 },
-                      enable: true,
-                    },
-                    {
-                      title: 'Starke Differenzierung',
-                      desc: 'G-Niveau: -10% Hürde · M: 0% · E-Niveau: +5% Anspruch',
-                      offsets: { G: -10, M: 0, E: 5 },
-                      enable: true,
-                    },
-                    {
-                      title: 'Fokus G-Förderung',
-                      desc: 'G-Niveau: -8% Hürde · M & E regulärer Maßstab (0%)',
-                      offsets: { G: -8, M: 0, E: 0 },
-                      enable: true,
-                    },
-                    {
-                      title: 'Gleicher Maßstab für alle',
-                      desc: 'G / M / E nur zur Dokumentation (0% Verschiebung)',
-                      offsets: { G: 0, M: 0, E: 0 },
-                      enable: false,
-                    },
-                  ].map((preset) => {
+                  {(globalTemplates.filter((t) => t.template_type === 'levels').length > 0
+                    ? globalTemplates
+                        .filter((t) => t.template_type === 'levels')
+                        .map((tpl) => ({
+                          title: tpl.title,
+                          desc: tpl.description || tpl.payload?.desc,
+                          offsets: tpl.payload?.offsets || { G: -5, M: 0, E: 3 },
+                          enable: tpl.payload?.enable ?? true,
+                          isGlobal: true,
+                        }))
+                    : [
+                        {
+                          title: 'Gemeinschaftsschule Standard',
+                          desc: 'G-Niveau: -5% Hürde · M: 0% · E-Niveau: +3% Anspruch',
+                          offsets: { G: -5, M: 0, E: 3 },
+                          enable: true,
+                          isGlobal: false,
+                        },
+                        {
+                          title: 'Starke Differenzierung',
+                          desc: 'G-Niveau: -10% Hürde · M: 0% · E-Niveau: +5% Anspruch',
+                          offsets: { G: -10, M: 0, E: 5 },
+                          enable: true,
+                          isGlobal: false,
+                        },
+                        {
+                          title: 'Fokus G-Förderung',
+                          desc: 'G-Niveau: -8% Hürde · M & E regulärer Maßstab (0%)',
+                          offsets: { G: -8, M: 0, E: 0 },
+                          enable: true,
+                          isGlobal: false,
+                        },
+                        {
+                          title: 'Gleicher Maßstab für alle',
+                          desc: 'G / M / E nur zur Dokumentation (0% Verschiebung)',
+                          offsets: { G: 0, M: 0, E: 0 },
+                          enable: false,
+                          isGlobal: false,
+                        },
+                      ]
+                  ).map((preset) => {
                     const isCurrent =
                       isDifferentiationEnabled === preset.enable &&
                       currentLevelOffsets.G === preset.offsets.G &&
@@ -3826,9 +4053,16 @@ export const App: React.FC = () => {
                           color: 'var(--text-primary)',
                         }}
                       >
-                        <div className="text-xs font-bold">{preset.title}</div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold">{preset.title}</span>
+                          {preset.isGlobal && (
+                            <span className="text-[9px] px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded font-semibold ml-1 shrink-0">
+                              Global
+                            </span>
+                          )}
+                        </div>
                         <div
-                          className="text-[10px] mt-1 font-normal"
+                          className="text-[10px] mt-1 font-normal line-clamp-2"
                           style={{ color: 'var(--text-secondary)' }}
                         >
                           {preset.desc}
@@ -4203,6 +4437,7 @@ export const App: React.FC = () => {
       {/* MODAL 1: CLASS SETUP & NATIVE .XLSX DRAG-AND-DROP IMPORTER */}
       {showClassWizard && (
         <ClassSetupAndExcelWizard
+          globalTemplates={globalTemplates}
           onClose={() => setShowClassWizard(false)}
           onCreateClass={(newDataset) => {
             setDatasets((prev) => [...prev, newDataset]);

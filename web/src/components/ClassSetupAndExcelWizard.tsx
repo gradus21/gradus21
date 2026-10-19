@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   AssessmentConfig,
   CategoryConfig,
@@ -8,10 +8,12 @@ import {
   StudentProfile,
 } from '../data/demoClasses';
 import { FileSpreadsheet, FolderPlus, Sparkles, Upload, X, Check } from 'lucide-react';
+import { GlobalTemplateRecord } from './admin/CentralTemplatesTab';
 
 interface ClassSetupAndExcelWizardProps {
   onClose: () => void;
   onCreateClass: (newClass: ClassroomSubjectDataset) => void;
+  globalTemplates?: GlobalTemplateRecord[];
 }
 
 interface DetectedExcelColumn {
@@ -25,6 +27,7 @@ interface DetectedExcelColumn {
 export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> = ({
   onClose,
   onCreateClass,
+  globalTemplates = [],
 }) => {
   const [activeTab, setActiveTab] = useState<'excel' | 'wizard'>('excel');
 
@@ -34,7 +37,62 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
   const [className, setClassName] = useState('Klasse 6');
   const [subjectName, setSubjectName] = useState('Englisch');
   const [scaleId, setScaleId] = useState<GradingScaleId>('de_classic_1_to_6');
-  const [templatePreset, setTemplatePreset] = useState<'three_pillars' | 'main_50_50' | 'oberstufe'>('three_pillars');
+
+  const availableTemplates = useMemo(() => {
+    const globals = (globalTemplates || []).filter((t) => t.template_type === 'weighting');
+    if (globals.length > 0) {
+      return globals.map((t) => ({
+        id: t.id,
+        title: t.title,
+        desc: t.description || t.payload?.desc,
+        categories: t.payload?.categories,
+        weights: t.payload?.weights,
+        scale_id: t.payload?.scale_id as GradingScaleId | undefined,
+        isGlobal: true,
+      }));
+    }
+    return [
+      {
+        id: 'three_pillars',
+        title: '3-Säulen (LNW / Mündl / Tests)',
+        desc: '50% LNW · 30% Mündlich · 20% Tests + Niveau G/M/E',
+        categories: [
+          { id: 'cat_lnw', name: 'Große LNW (Klassenarbeiten)', short_code: 'LNW', weight: 0.5, drop_lowest_count: 0 },
+          { id: 'cat_muendl', name: 'Mündliche Leistung', short_code: 'Mündl', weight: 0.3, drop_lowest_count: 0 },
+          { id: 'cat_tests', name: 'Tests & Vokabeln', short_code: 'Tests', weight: 0.2, drop_lowest_count: 0 },
+        ],
+        weights: [0.5, 0.3, 0.2],
+        scale_id: undefined,
+        isGlobal: false,
+      },
+      {
+        id: 'main_50_50',
+        title: 'Klassisch 50 / 50',
+        desc: '50% Klassenarbeiten · 50% Sonstige Mitarbeit',
+        categories: [
+          { id: 'cat_ka', name: 'Schriftlich (Klassenarbeiten)', short_code: 'KA', weight: 0.5, drop_lowest_count: 0 },
+          { id: 'cat_somi', name: 'Sonstige Mitarbeit', short_code: 'SoMi', weight: 0.5, drop_lowest_count: 0 },
+        ],
+        weights: [0.5, 0.5],
+        scale_id: undefined,
+        isGlobal: false,
+      },
+      {
+        id: 'oberstufe',
+        title: 'Oberstufe (0–15 MSS-Punkte)',
+        desc: '50% Klausuren · 50% Praxis / GFS',
+        categories: [
+          { id: 'cat_kl', name: 'Klausuren (Oberstufe)', short_code: 'Klausur', weight: 0.5, drop_lowest_count: 0 },
+          { id: 'cat_gfs', name: 'Mündlich & GFS', short_code: 'Mündl', weight: 0.5, drop_lowest_count: 0 },
+        ],
+        weights: [0.5, 0.5],
+        scale_id: 'de_oberstufe_0_to_15' as GradingScaleId,
+        isGlobal: false,
+      },
+    ];
+  }, [globalTemplates]);
+
+  const [templatePreset, setTemplatePreset] = useState<string>(() => availableTemplates[0]?.id || 'three_pillars');
 
   // Manual wizard student list text
   const [studentListText, setStudentListText] = useState(
@@ -236,22 +294,22 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
 
   const handleConfirmManualWizard = (e: React.FormEvent) => {
     e.preventDefault();
-    const categories: CategoryConfig[] =
-      templatePreset === 'three_pillars'
-        ? [
-            { id: 'cat_lnw', name: 'Große LNW (Klassenarbeiten)', short_code: 'LNW', weight: 0.5, drop_lowest_count: 0 },
-            { id: 'cat_muendl', name: 'Mündliche Leistung', short_code: 'Mündl', weight: 0.3, drop_lowest_count: 0 },
-            { id: 'cat_tests', name: 'Tests & Vokabeln', short_code: 'Tests', weight: 0.2, drop_lowest_count: 0 },
-          ]
-        : templatePreset === 'main_50_50'
-        ? [
-            { id: 'cat_ka', name: 'Schriftlich (Klassenarbeiten)', short_code: 'KA', weight: 0.5, drop_lowest_count: 0 },
-            { id: 'cat_somi', name: 'Sonstige Mitarbeit', short_code: 'SoMi', weight: 0.5, drop_lowest_count: 0 },
-          ]
-        : [
-            { id: 'cat_kl', name: 'Klausuren (Oberstufe)', short_code: 'Klausur', weight: 0.5, drop_lowest_count: 0 },
-            { id: 'cat_gfs', name: 'Mündlich & GFS', short_code: 'Mündl', weight: 0.5, drop_lowest_count: 0 },
-          ];
+    const chosenTpl =
+      availableTemplates.find((t) => t.id === templatePreset) || availableTemplates[0];
+
+    const categories: CategoryConfig[] = chosenTpl.categories
+      ? chosenTpl.categories.map((c: any, idx: number) => ({
+          id: c.id || `cat_wiz_${idx}_${Date.now()}`,
+          name: c.name || `Kategorie ${idx + 1}`,
+          short_code: c.short_code || `K${idx + 1}`,
+          weight: typeof c.weight === 'number' ? (c.weight > 1 ? c.weight / 100 : c.weight) : 0.5,
+          drop_lowest_count: c.drop_lowest_count || 0,
+        }))
+      : [
+          { id: 'cat_lnw', name: 'Große LNW (Klassenarbeiten)', short_code: 'LNW', weight: 0.5, drop_lowest_count: 0 },
+          { id: 'cat_muendl', name: 'Mündliche Leistung', short_code: 'Mündl', weight: 0.3, drop_lowest_count: 0 },
+          { id: 'cat_tests', name: 'Tests & Vokabeln', short_code: 'Tests', weight: 0.2, drop_lowest_count: 0 },
+        ];
 
     const assessments: AssessmentConfig[] = categories.map((c, idx) => ({
       id: `init_assess_${idx}_${Date.now()}`,
@@ -279,6 +337,8 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
         };
       });
 
+    const isOberstufe = chosenTpl.scale_id === 'de_oberstufe_0_to_15';
+
     const newDataset: ClassroomSubjectDataset = {
       id: `class_wiz_${Date.now()}`,
       schoolName,
@@ -288,10 +348,10 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
       shortName: `${subjectName.slice(0, 2).toUpperCase()}`,
       description: `Neu angelegt über Setup-Wizard (${categories.map((c) => c.short_code).join(' / ')})`,
       config: {
-        scale_id: templatePreset === 'oberstufe' ? 'de_oberstufe_0_to_15' : scaleId,
+        scale_id: chosenTpl.scale_id || scaleId,
         weighting_mode: 'category_buckets',
         scale_empty_categories: true,
-        enable_student_levels: templatePreset !== 'oberstufe',
+        enable_student_levels: !isOberstufe,
         level_threshold_offsets: { G: -5, M: 0, E: 3 },
         custom_thresholds: null,
       },
@@ -534,40 +594,31 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
               <label className="block font-bold mb-1.5" style={{ color: 'var(--text-secondary)' }}>
                 Fach-Vorlage (Template) wählen:
               </label>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
-                {[
-                  {
-                    id: 'three_pillars',
-                    title: '3-Säulen (LNW / Mündl / Tests)',
-                    desc: '50% LNW · 30% Mündlich · 20% Tests + Niveau G/M/E',
-                  },
-                  {
-                    id: 'main_50_50',
-                    title: 'Klassisch 50 / 50',
-                    desc: '50% Klassenarbeiten · 50% Sonstige Mitarbeit',
-                  },
-                  {
-                    id: 'oberstufe',
-                    title: 'Oberstufe (0–15 MSS-Punkte)',
-                    desc: '50% Klausuren · 50% Praxis / GFS',
-                  },
-                ].map((tpl) => (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 max-h-52 overflow-y-auto p-0.5">
+                {availableTemplates.map((tpl) => (
                   <button
                     type="button"
                     key={tpl.id}
-                    onClick={() => setTemplatePreset(tpl.id as typeof templatePreset)}
-                    className={`p-3 rounded-xl border text-left ${
-                      templatePreset === tpl.id ? 'ring-2 ring-teal-500' : ''
+                    onClick={() => setTemplatePreset(tpl.id)}
+                    className={`p-3 rounded-xl border text-left transition ${
+                      templatePreset === tpl.id ? 'ring-2 ring-teal-500 font-bold' : 'opacity-85 hover:opacity-100'
                     }`}
                     style={{
                       backgroundColor: templatePreset === tpl.id ? 'var(--primary-soft)' : 'var(--bg-subtle)',
                       borderColor: 'var(--border-subtle)',
                     }}
                   >
-                    <div className="font-bold" style={{ color: 'var(--text-primary)' }}>
-                      {tpl.title}
+                    <div className="flex items-center justify-between">
+                      <div className="font-bold text-xs" style={{ color: 'var(--text-primary)' }}>
+                        {tpl.title}
+                      </div>
+                      {tpl.isGlobal && (
+                        <span className="text-[9px] px-1 bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded font-semibold ml-1 shrink-0">
+                          Global
+                        </span>
+                      )}
                     </div>
-                    <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                    <div className="text-[11px] mt-0.5 line-clamp-2" style={{ color: 'var(--text-secondary)' }}>
                       {tpl.desc}
                     </div>
                   </button>

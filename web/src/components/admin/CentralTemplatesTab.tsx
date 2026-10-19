@@ -2,11 +2,13 @@ import React, { useEffect, useState } from 'react';
 import {
   BookOpen,
   Check,
+  Code,
   Edit2,
   FileSpreadsheet,
   Layers,
   Plus,
   RefreshCw,
+  Search,
   Sliders,
   Trash2,
 } from 'lucide-react';
@@ -193,9 +195,26 @@ export const CentralTemplatesTab: React.FC<CentralTemplatesTabProps> = ({ token 
     }
   };
 
-  const filteredTemplates = templates.filter((t) =>
-    filterType === 'all' ? true : t.template_type === filterType
-  );
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [showRawJsonMap, setShowRawJsonMap] = useState<Record<string, boolean>>({});
+
+  const toggleRawJson = (id: string) => {
+    setShowRawJsonMap((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const filteredTemplates = templates.filter((t) => {
+    const matchesType = filterType === 'all' ? true : t.template_type === filterType;
+    const q = searchQuery.toLowerCase().trim();
+    const matchesSearch =
+      !q ||
+      t.title.toLowerCase().includes(q) ||
+      (t.description && t.description.toLowerCase().includes(q));
+    return matchesType && matchesSearch;
+  });
+
+  const curveCount = templates.filter((t) => t.template_type === 'curve').length;
+  const weightingCount = templates.filter((t) => t.template_type === 'weighting').length;
+  const levelsCount = templates.filter((t) => t.template_type === 'levels').length;
 
   const getTypeBadge = (type: string) => {
     switch (type) {
@@ -223,6 +242,86 @@ export const CentralTemplatesTab: React.FC<CentralTemplatesTabProps> = ({ token 
       default:
         return null;
     }
+  };
+
+  const renderPayloadPreview = (tpl: GlobalTemplateRecord) => {
+    if (tpl.template_type === 'curve' && tpl.payload?.cutoffs) {
+      const c = tpl.payload.cutoffs;
+      if (c.n1 !== undefined) {
+        return (
+          <div className="flex flex-wrap gap-1.5 text-[11px] font-mono">
+            <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-semibold">1: ≥{c.n1}%</span>
+            <span className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-semibold">2: ≥{c.n2}%</span>
+            <span className="px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-semibold">3: ≥{c.n3}%</span>
+            <span className="px-2 py-0.5 rounded bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-300 font-semibold">4: ≥{c.n4}%</span>
+            <span className="px-2 py-0.5 rounded bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 font-semibold">5: ≥{c.n5}%</span>
+          </div>
+        );
+      }
+      if (c['15'] !== undefined) {
+        return (
+          <div className="flex flex-wrap gap-1 text-[10px] font-mono">
+            <span className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-semibold">15P: ≥{c['15']}%</span>
+            <span className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-semibold">10P: ≥{c['10']}%</span>
+            <span className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-semibold">5P: ≥{c['5']}%</span>
+            <span className="px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 font-semibold">1P: ≥{c['1']}%</span>
+          </div>
+        );
+      }
+    }
+
+    if (tpl.template_type === 'weighting') {
+      if (tpl.payload?.categories && Array.isArray(tpl.payload.categories)) {
+        return (
+          <div className="flex flex-wrap gap-1.5 text-[11px]">
+            {tpl.payload.categories.map((cat: any, i: number) => {
+              const pct = typeof cat.weight === 'number' ? Math.round((cat.weight > 1 ? cat.weight / 100 : cat.weight) * 100) : '?';
+              return (
+                <span
+                  key={i}
+                  className="px-2 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-medium"
+                >
+                  <strong className="font-bold">{cat.short_code || cat.name}:</strong> {pct}%
+                </span>
+              );
+            })}
+          </div>
+        );
+      }
+      if (tpl.payload?.weights && Array.isArray(tpl.payload.weights)) {
+        return (
+          <div className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400 font-semibold">
+            Gewichte: {tpl.payload.weights.join(' : ')}
+          </div>
+        );
+      }
+    }
+
+    if (tpl.template_type === 'levels') {
+      const offsets = tpl.payload?.offsets;
+      if (offsets) {
+        return (
+          <div className="flex flex-wrap gap-1.5 text-[11px]">
+            <span className="px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-semibold">
+              G: {offsets.G > 0 ? `+${offsets.G}` : offsets.G}%
+            </span>
+            <span className="px-2 py-0.5 rounded bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-semibold">
+              M: {offsets.M > 0 ? `+${offsets.M}` : offsets.M}%
+            </span>
+            <span className="px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-semibold">
+              E: {offsets.E > 0 ? `+${offsets.E}` : offsets.E}%
+            </span>
+            {tpl.payload.enable === false && (
+              <span className="px-1.5 py-0.5 text-[10px] text-slate-400 italic">
+                (Nur optisches Badge)
+              </span>
+            )}
+          </div>
+        );
+      }
+    }
+
+    return null;
   };
 
   return (
@@ -270,48 +369,61 @@ export const CentralTemplatesTab: React.FC<CentralTemplatesTabProps> = ({ token 
         </div>
       )}
 
-      {/* Filter Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2 text-xs">
-        <button
-          onClick={() => setFilterType('all')}
-          className={`px-3 py-1.5 rounded-lg font-semibold transition ${
-            filterType === 'all'
-              ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900'
-              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-          }`}
-        >
-          Alle ({templates.length})
-        </button>
-        <button
-          onClick={() => setFilterType('curve')}
-          className={`px-3 py-1.5 rounded-lg font-semibold transition ${
-            filterType === 'curve'
-              ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900'
-              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-          }`}
-        >
-          Notenschlüssel
-        </button>
-        <button
-          onClick={() => setFilterType('weighting')}
-          className={`px-3 py-1.5 rounded-lg font-semibold transition ${
-            filterType === 'weighting'
-              ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900'
-              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-          }`}
-        >
-          Gewichtungen
-        </button>
-        <button
-          onClick={() => setFilterType('levels')}
-          className={`px-3 py-1.5 rounded-lg font-semibold transition ${
-            filterType === 'levels'
-              ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900'
-              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-          }`}
-        >
-          Binnendifferenzierung
-        </button>
+      {/* Filter Tabs & Search */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3 text-xs">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            onClick={() => setFilterType('all')}
+            className={`px-3 py-1.5 rounded-lg font-semibold transition ${
+              filterType === 'all'
+                ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            Alle ({templates.length})
+          </button>
+          <button
+            onClick={() => setFilterType('curve')}
+            className={`px-3 py-1.5 rounded-lg font-semibold transition ${
+              filterType === 'curve'
+                ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            Notenschlüssel ({curveCount})
+          </button>
+          <button
+            onClick={() => setFilterType('weighting')}
+            className={`px-3 py-1.5 rounded-lg font-semibold transition ${
+              filterType === 'weighting'
+                ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            Gewichtungen ({weightingCount})
+          </button>
+          <button
+            onClick={() => setFilterType('levels')}
+            className={`px-3 py-1.5 rounded-lg font-semibold transition ${
+              filterType === 'levels'
+                ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            Binnendifferenzierung ({levelsCount})
+          </button>
+        </div>
+
+        <div className="relative w-full sm:w-64">
+          <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Vorlage suchen..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl"
+          />
+        </div>
       </div>
 
       {/* Templates Grid */}
@@ -322,7 +434,7 @@ export const CentralTemplatesTab: React.FC<CentralTemplatesTabProps> = ({ token 
           </div>
         ) : filteredTemplates.length === 0 ? (
           <div className="col-span-2 py-12 text-center text-slate-400 text-xs border border-dashed rounded-2xl">
-            Keine globalen Vorlagen in dieser Kategorie vorhanden.
+            Keine globalen Vorlagen gefunden.
           </div>
         ) : (
           filteredTemplates.map((tpl) => (
@@ -330,7 +442,7 @@ export const CentralTemplatesTab: React.FC<CentralTemplatesTabProps> = ({ token 
               key={tpl.id}
               className="p-4 border border-slate-200 dark:border-slate-800 rounded-2xl bg-white dark:bg-slate-900 shadow-sm space-y-3 flex flex-col justify-between"
             >
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     {getTypeBadge(tpl.template_type)}
@@ -339,6 +451,17 @@ export const CentralTemplatesTab: React.FC<CentralTemplatesTabProps> = ({ token 
                     </span>
                   </div>
                   <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => toggleRawJson(tpl.id)}
+                      className={`p-1 rounded-lg border text-xs ${
+                        showRawJsonMap[tpl.id]
+                          ? 'bg-slate-200 dark:bg-slate-700 text-slate-900 dark:text-white'
+                          : 'border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500'
+                      }`}
+                      title="JSON anzeigen/ausblenden"
+                    >
+                      <Code className="w-3.5 h-3.5" />
+                    </button>
                     <button
                       onClick={() => openEditModal(tpl)}
                       className="p-1 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
@@ -356,20 +479,29 @@ export const CentralTemplatesTab: React.FC<CentralTemplatesTabProps> = ({ token 
                   </div>
                 </div>
 
-                <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                  {tpl.title}
-                </h4>
-                {tpl.description && (
-                  <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">
-                    {tpl.description}
-                  </p>
-                )}
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                    {tpl.title}
+                  </h4>
+                  {tpl.description && (
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">
+                      {tpl.description}
+                    </p>
+                  )}
+                </div>
+
+                {/* Readable Visual Summary */}
+                <div className="pt-1">
+                  {renderPayloadPreview(tpl)}
+                </div>
               </div>
 
-              {/* JSON Payload preview */}
-              <div className="p-2.5 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-800 font-mono text-[11px] text-slate-600 dark:text-slate-400 max-h-24 overflow-y-auto">
-                <pre>{JSON.stringify(tpl.payload, null, 2)}</pre>
-              </div>
+              {/* Collapsible JSON Payload */}
+              {showRawJsonMap[tpl.id] && (
+                <div className="p-2.5 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-800 font-mono text-[10px] text-slate-600 dark:text-slate-400 max-h-36 overflow-y-auto mt-2">
+                  <pre>{JSON.stringify(tpl.payload, null, 2)}</pre>
+                </div>
+              )}
             </div>
           ))
         )}

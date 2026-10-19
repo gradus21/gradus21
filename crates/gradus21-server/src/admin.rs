@@ -738,12 +738,328 @@ pub struct UpsertGlobalTemplateRequest {
     pub payload: serde_json::Value,
 }
 
+pub fn default_global_templates() -> Vec<GlobalTemplateRecord> {
+    let now = DateTime::from_timestamp(1704067200, 0).unwrap_or_else(Utc::now);
+    vec![
+        // 1. Notenschlüssel (Curves)
+        GlobalTemplateRecord {
+            id: Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"gradus21-curve-sek1-standard"),
+            template_type: "curve".into(),
+            title: "Sek-I Standard (Linear)".into(),
+            description: "Offizieller linearer Sek-I Notenschlüssel (1 ab 90%, 2 ab 75%, 3 ab 58%, 4 ab 42%, 5 ab 20%).".into(),
+            payload: serde_json::json!({
+                "key": "standard",
+                "name": "Sek-I Standard (Linear)",
+                "description": "Note 1 ab 90%, Note 2 ab 75%, Note 3 ab 58%, Note 4 ab 42%, Note 5 ab 20%",
+                "cutoffs": { "n1": 90, "n2": 75, "n3": 58, "n4": 42, "n5": 20 },
+                "linear": true
+            }),
+            created_at: now,
+            updated_at: now,
+        },
+        GlobalTemplateRecord {
+            id: Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"gradus21-curve-ihk-standard"),
+            template_type: "curve".into(),
+            title: "IHK / Berufsschul-Schlüssel (50%-Hürde)".into(),
+            description: "Standard 50%-Bestehensgrenze (1 ab 92%, 2 ab 81%, 3 ab 67%, 4 ab 50%, 5 ab 30%).".into(),
+            payload: serde_json::json!({
+                "key": "ihk",
+                "name": "IHK / Berufsschul-Schlüssel (50%-Hürde)",
+                "description": "Note 1 ab 92%, Note 2 ab 81%, Note 3 ab 67%, Note 4 ab 50%, Note 5 ab 30%",
+                "cutoffs": { "n1": 92, "n2": 81, "n3": 67, "n4": 50, "n5": 30 },
+                "linear": true
+            }),
+            created_at: now,
+            updated_at: now,
+        },
+        GlobalTemplateRecord {
+            id: Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"gradus21-curve-pedagogic-mild"),
+            template_type: "curve".into(),
+            title: "Pädagogisch Mild / Differenzierend".into(),
+            description: "Fehlerfreundlicher Notenschlüssel für Lerngruppen mit Förderbedarf (1 ab 86%, 2 ab 70%, 3 ab 54%, 4 ab 38%, 5 ab 18%).".into(),
+            payload: serde_json::json!({
+                "key": "mild",
+                "name": "Pädagogisch Mild / Differenzierend",
+                "description": "Note 1 ab 86%, Note 2 ab 70%, Note 3 ab 54%, Note 4 bereits ab 38%, Note 5 ab 18%",
+                "cutoffs": { "n1": 86, "n2": 70, "n3": 54, "n4": 38, "n5": 18 },
+                "linear": true
+            }),
+            created_at: now,
+            updated_at: now,
+        },
+        GlobalTemplateRecord {
+            id: Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"gradus21-curve-strict-gymnasium"),
+            template_type: "curve".into(),
+            title: "Strenger Gymnasial-Schlüssel".into(),
+            description: "Anspruchsvoller Maßstab: 1 ab 93%, 2 ab 80%, 3 ab 65%, 4 ab 50%, 5 ab 25%.".into(),
+            payload: serde_json::json!({
+                "key": "strict",
+                "name": "Strenger Gymnasial-Schlüssel",
+                "description": "Note 1 ab 93%, Note 2 ab 80%, Note 3 ab 65%, Note 4 ab 50%, Note 5 ab 25%",
+                "cutoffs": { "n1": 93, "n2": 80, "n3": 65, "n4": 50, "n5": 25 },
+                "linear": true
+            }),
+            created_at: now,
+            updated_at: now,
+        },
+        GlobalTemplateRecord {
+            id: Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"gradus21-curve-oberstufe-points"),
+            template_type: "curve".into(),
+            title: "Gymnasiale Oberstufe (0–15 MSS-Punkte)".into(),
+            description: "KMK-Punkteraster der Sekundarstufe II: 15 Punkte (1+) bis 0 Punkte (6).".into(),
+            payload: serde_json::json!({
+                "key": "oberstufe",
+                "name": "Gymnasiale Oberstufe (0–15 MSS-Punkte)",
+                "description": "KMK-Oberstufenraster mit 15 Notenpunkten",
+                "scale_id": "de_oberstufe_0_to_15",
+                "cutoffs": {
+                    "15": 95, "14": 90, "13": 85, "12": 80, "11": 75, "10": 70,
+                    "9": 65, "8": 60, "7": 55, "6": 50, "5": 45, "4": 40,
+                    "3": 33, "2": 27, "1": 20, "0": 0
+                }
+            }),
+            created_at: now,
+            updated_at: now,
+        },
+
+        // 2. Gewichtungen & Fächer-Vorlagen (Weightings)
+        GlobalTemplateRecord {
+            id: Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"gradus21-weighting-3-pillars"),
+            template_type: "weighting".into(),
+            title: "3-Säulen-Modell (50 / 30 / 20)".into(),
+            description: "50% Große LNW (Klassenarbeiten), 30% Mündliche Leistung, 20% Tests & Vokabeln.".into(),
+            payload: serde_json::json!({
+                "id": "50_30_20",
+                "label": "50 / 30 / 20",
+                "desc": "50% LNW · 30% Mündl · 20% Tests",
+                "weights": [0.5, 0.3, 0.2],
+                "categories": [
+                    { "id": "cat_lnw", "name": "Große LNW (Klassenarbeiten)", "short_code": "LNW", "weight": 0.5, "drop_lowest_count": 0 },
+                    { "id": "cat_muendl", "name": "Mündliche Leistung", "short_code": "Mündl", "weight": 0.3, "drop_lowest_count": 0 },
+                    { "id": "cat_tests", "name": "Tests & Vokabeln", "short_code": "Tests", "weight": 0.2, "drop_lowest_count": 0 }
+                ]
+            }),
+            created_at: now,
+            updated_at: now,
+        },
+        GlobalTemplateRecord {
+            id: Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"gradus21-weighting-50-50"),
+            template_type: "weighting".into(),
+            title: "Klassisch 50 / 50 (Schriftlich & Mündlich)".into(),
+            description: "50% Klassenarbeiten (Schriftlich) und 50% Sonstige Mitarbeit (Mündlich).".into(),
+            payload: serde_json::json!({
+                "id": "50_50",
+                "label": "50 / 50",
+                "desc": "50% Klassenarbeiten · 50% Sonstige Mitarbeit",
+                "weights": [0.5, 0.5],
+                "categories": [
+                    { "id": "cat_ka", "name": "Schriftlich (Klassenarbeiten)", "short_code": "KA", "weight": 0.5, "drop_lowest_count": 0 },
+                    { "id": "cat_somi", "name": "Sonstige Mitarbeit", "short_code": "SoMi", "weight": 0.5, "drop_lowest_count": 0 }
+                ]
+            }),
+            created_at: now,
+            updated_at: now,
+        },
+        GlobalTemplateRecord {
+            id: Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"gradus21-weighting-60-40"),
+            template_type: "weighting".into(),
+            title: "Gewichtung 60 / 40 (Schriftlich betont)".into(),
+            description: "60% Schriftlich (Klassenarbeiten) und 40% Mündliche Mitarbeit.".into(),
+            payload: serde_json::json!({
+                "id": "60_40",
+                "label": "60 / 40",
+                "desc": "60% Schriftlich · 40% Mündlich",
+                "weights": [0.6, 0.4],
+                "categories": [
+                    { "id": "cat_schr", "name": "Schriftliche Arbeiten", "short_code": "Schr", "weight": 0.6, "drop_lowest_count": 0 },
+                    { "id": "cat_muendl", "name": "Mündliche Mitarbeit", "short_code": "Mündl", "weight": 0.4, "drop_lowest_count": 0 }
+                ]
+            }),
+            created_at: now,
+            updated_at: now,
+        },
+        GlobalTemplateRecord {
+            id: Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"gradus21-weighting-40-60"),
+            template_type: "weighting".into(),
+            title: "Gewichtung 40 / 60 (Mitarbeit & Praxis)".into(),
+            description: "40% Schriftlich und 60% Mitarbeit / Fachpraxis (z.B. Sport, Kunst, Musik, Technik).".into(),
+            payload: serde_json::json!({
+                "id": "40_60",
+                "label": "40 / 60",
+                "desc": "40% Schriftlich · 60% Mitarbeit/Praxis",
+                "weights": [0.4, 0.6],
+                "categories": [
+                    { "id": "cat_schr", "name": "Schriftliche Arbeiten", "short_code": "Schr", "weight": 0.4, "drop_lowest_count": 0 },
+                    { "id": "cat_praxis", "name": "Mitarbeit / Fachpraxis", "short_code": "Praxis", "weight": 0.6, "drop_lowest_count": 0 }
+                ]
+            }),
+            created_at: now,
+            updated_at: now,
+        },
+        GlobalTemplateRecord {
+            id: Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"gradus21-weighting-70-30"),
+            template_type: "weighting".into(),
+            title: "Gewichtung 70 / 30 (Klausur-Schwerpunkt)".into(),
+            description: "70% Klausuren / Klassenarbeiten und 30% Sonstige Mitarbeit.".into(),
+            payload: serde_json::json!({
+                "id": "70_30",
+                "label": "70 / 30",
+                "desc": "70% Klausuren · 30% Sonstige Mitarbeit",
+                "weights": [0.7, 0.3],
+                "categories": [
+                    { "id": "cat_kl", "name": "Klausuren / Arbeiten", "short_code": "Klausur", "weight": 0.7, "drop_lowest_count": 0 },
+                    { "id": "cat_somi", "name": "Sonstige Mitarbeit", "short_code": "SoMi", "weight": 0.3, "drop_lowest_count": 0 }
+                ]
+            }),
+            created_at: now,
+            updated_at: now,
+        },
+        GlobalTemplateRecord {
+            id: Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"gradus21-weighting-oberstufe"),
+            template_type: "weighting".into(),
+            title: "Oberstufe 50 / 50 (Klausuren & GFS)".into(),
+            description: "50% Klausuren (Oberstufe) und 50% Mündlich & GFS / Referate.".into(),
+            payload: serde_json::json!({
+                "id": "oberstufe_50_50",
+                "label": "50 / 50 Oberstufe",
+                "desc": "50% Klausuren · 50% Praxis / GFS",
+                "weights": [0.5, 0.5],
+                "scale_id": "de_oberstufe_0_to_15",
+                "categories": [
+                    { "id": "cat_kl", "name": "Klausuren (Oberstufe)", "short_code": "Klausur", "weight": 0.5, "drop_lowest_count": 0 },
+                    { "id": "cat_gfs", "name": "Mündlich & GFS", "short_code": "Mündl", "weight": 0.5, "drop_lowest_count": 0 }
+                ]
+            }),
+            created_at: now,
+            updated_at: now,
+        },
+        GlobalTemplateRecord {
+            id: Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"gradus21-weighting-2-1-1"),
+            template_type: "weighting".into(),
+            title: "Hauptfach 2 : 1 : 1 (Doppelte Klassenarbeiten)".into(),
+            description: "Hauptfach doppelt gewichtet: 50% Klassenarbeiten, 25% Mündlich, 25% Tests.".into(),
+            payload: serde_json::json!({
+                "id": "2_1_1",
+                "label": "2 : 1 : 1",
+                "desc": "Hauptfach doppelt gewichtet (50/25/25)",
+                "weights": [2.0, 1.0, 1.0],
+                "categories": [
+                    { "id": "cat_ka", "name": "Klassenarbeiten", "short_code": "KA", "weight": 2.0, "drop_lowest_count": 0 },
+                    { "id": "cat_muendl", "name": "Mündliche Mitarbeit", "short_code": "Mündl", "weight": 1.0, "drop_lowest_count": 0 },
+                    { "id": "cat_tests", "name": "Tests & Hausaufgaben", "short_code": "Tests", "weight": 1.0, "drop_lowest_count": 0 }
+                ]
+            }),
+            created_at: now,
+            updated_at: now,
+        },
+        GlobalTemplateRecord {
+            id: Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"gradus21-weighting-1-1-1"),
+            template_type: "weighting".into(),
+            title: "Gleichwertig 1 : 1 : 1 (Drittelung)".into(),
+            description: "Alle drei Kategorien exakt gleichwertig zu 33,3% berechnet.".into(),
+            payload: serde_json::json!({
+                "id": "1_1_1",
+                "label": "1 : 1 : 1",
+                "desc": "Alle Kategorien gleichwertig (33/33/33)",
+                "weights": [1.0, 1.0, 1.0],
+                "categories": [
+                    { "id": "cat_1", "name": "Schriftliche Arbeiten", "short_code": "Schr", "weight": 1.0, "drop_lowest_count": 0 },
+                    { "id": "cat_2", "name": "Mündliche Mitarbeit", "short_code": "Mündl", "weight": 1.0, "drop_lowest_count": 0 },
+                    { "id": "cat_3", "name": "Tests / Kurzprüfungen", "short_code": "Tests", "weight": 1.0, "drop_lowest_count": 0 }
+                ]
+            }),
+            created_at: now,
+            updated_at: now,
+        },
+
+        // 3. Binnendifferenzierung (Levels)
+        GlobalTemplateRecord {
+            id: Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"gradus21-levels-gems-standard"),
+            template_type: "levels".into(),
+            title: "Gemeinschaftsschule Standard (G -5% / M 0% / E +3%)".into(),
+            description: "G-Niveau: -5% Hürde, M-Niveau: 0% Referenzmaßstab, E-Niveau: +3% Anspruch.".into(),
+            payload: serde_json::json!({
+                "name": "Gemeinschaftsschule Standard",
+                "desc": "G-Niveau: -5% Hürde · M: 0% · E-Niveau: +3% Anspruch",
+                "enable": true,
+                "offsets": { "G": -5, "M": 0, "E": 3 },
+                "levels": [
+                    { "id": "G", "label": "G-Niveau (Grundlegend)", "offset": -5 },
+                    { "id": "M", "label": "M-Niveau (Mittleres Niveau)", "offset": 0 },
+                    { "id": "E", "label": "E-Niveau (Erweitert)", "offset": 3 }
+                ]
+            }),
+            created_at: now,
+            updated_at: now,
+        },
+        GlobalTemplateRecord {
+            id: Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"gradus21-levels-strong-diff"),
+            template_type: "levels".into(),
+            title: "Starke Differenzierung (G -10% / M 0% / E +5%)".into(),
+            description: "G-Niveau: -10% Entlastung, M: 0%, E-Niveau: +5% gymnasialer Anspruch.".into(),
+            payload: serde_json::json!({
+                "name": "Starke Differenzierung",
+                "desc": "G-Niveau: -10% Hürde · M: 0% · E-Niveau: +5% Anspruch",
+                "enable": true,
+                "offsets": { "G": -10, "M": 0, "E": 5 },
+                "levels": [
+                    { "id": "G", "label": "G-Niveau (Grundlegend)", "offset": -10 },
+                    { "id": "M", "label": "M-Niveau (Mittleres Niveau)", "offset": 0 },
+                    { "id": "E", "label": "E-Niveau (Erweitert)", "offset": 5 }
+                ]
+            }),
+            created_at: now,
+            updated_at: now,
+        },
+        GlobalTemplateRecord {
+            id: Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"gradus21-levels-focus-g"),
+            template_type: "levels".into(),
+            title: "Fokus G-Förderung (G -8% / M 0% / E 0%)".into(),
+            description: "G-Niveau: -8% Erleichterung, M & E regulärer Maßstab (0%).".into(),
+            payload: serde_json::json!({
+                "name": "Fokus G-Förderung",
+                "desc": "G-Niveau: -8% Hürde · M & E regulärer Maßstab (0%)",
+                "enable": true,
+                "offsets": { "G": -8, "M": 0, "E": 0 },
+                "levels": [
+                    { "id": "G", "label": "G-Niveau (Grundlegend)", "offset": -8 },
+                    { "id": "M", "label": "M-Niveau (Mittleres Niveau)", "offset": 0 },
+                    { "id": "E", "label": "E-Niveau (Erweitert)", "offset": 0 }
+                ]
+            }),
+            created_at: now,
+            updated_at: now,
+        },
+        GlobalTemplateRecord {
+            id: Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"gradus21-levels-equal-all"),
+            template_type: "levels".into(),
+            title: "Gleicher Maßstab für alle (0% Verschiebung)".into(),
+            description: "G / M / E Einstufung dient rein der Dokumentation ohne prozentuale Schwellenverschiebung.".into(),
+            payload: serde_json::json!({
+                "name": "Gleicher Maßstab für alle",
+                "desc": "G / M / E nur zur Dokumentation (0% Verschiebung)",
+                "enable": false,
+                "offsets": { "G": 0, "M": 0, "E": 0 },
+                "levels": [
+                    { "id": "G", "label": "G-Niveau (Grundlegend)", "offset": 0 },
+                    { "id": "M", "label": "M-Niveau (Mittleres Niveau)", "offset": 0 },
+                    { "id": "E", "label": "E-Niveau (Erweitert)", "offset": 0 }
+                ]
+            }),
+            created_at: now,
+            updated_at: now,
+        },
+    ]
+}
+
 pub async fn list_global_templates(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<GlobalTemplateRecord>>, (StatusCode, String)> {
-    // Both normal authenticated teachers and admins can view global templates!
-    let _ = authenticate_request(&state, &headers)?;
+    // Both normal authenticated teachers and unauthenticated visitors can view global templates!
+    if headers.contains_key("authorization") {
+        let _ = authenticate_request(&state, &headers)?;
+    }
     let tpls = state.mem_global_templates.read().unwrap();
     let mut list: Vec<GlobalTemplateRecord> = tpls.values().cloned().collect();
     list.sort_by(|a, b| a.title.cmp(&b.title));
