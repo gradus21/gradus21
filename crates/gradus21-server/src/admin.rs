@@ -628,7 +628,7 @@ pub async fn restore_backup(
             if let Some(pool) = &state.db {
                 let _ = sqlx::query("DELETE FROM grading_templates WHERE owner_user_id IS NULL").execute(pool).await;
                 for tpl in templates.values() {
-                    let payload_str = serde_json::to_string(&tpl.payload).unwrap_or_default();
+                    let payload_str = serde_json::to_string(tpl).unwrap_or_default();
                     let _ = sqlx::query(
                         r#"INSERT INTO grading_templates (id, owner_user_id, is_encrypted, payload, created_at, updated_at)
                         VALUES ($1, NULL, FALSE, $2, $3, $4)
@@ -746,10 +746,52 @@ pub async fn create_global_template(
     }
 
     if let Some(pool) = &state.db {
-        let payload_str = serde_json::to_string(&record.payload).unwrap_or_default();
+        let payload_str = serde_json::to_string(&record).unwrap_or_default();
         let _ = sqlx::query(
             r#"INSERT INTO grading_templates (id, owner_user_id, is_encrypted, payload, created_at, updated_at)
-            VALUES ($1, NULL, FALSE, $2, $3, $4)"#,
+            VALUES ($1, NULL, FALSE, $2, $3, $4)
+            ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at"#,
+        )
+        .bind(record.id)
+        .bind(payload_str)
+        .bind(record.created_at)
+        .bind(record.updated_at)
+        .execute(pool)
+        .await;
+    }
+
+    persist_to_disk(&state);
+    Ok(Json(record))
+}
+
+pub async fn update_global_template(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpsertGlobalTemplateRequest>,
+) -> Result<Json<GlobalTemplateRecord>, (StatusCode, String)> {
+    require_admin(&state, &headers)?;
+
+    let record = {
+        let mut map = state.mem_global_templates.write().unwrap();
+        let existing = map.get_mut(&id).ok_or((
+            StatusCode::NOT_FOUND,
+            "Globale Vorlage nicht gefunden.".into(),
+        ))?;
+        existing.template_type = payload.template_type;
+        existing.title = payload.title;
+        existing.description = payload.description;
+        existing.payload = payload.payload;
+        existing.updated_at = Utc::now();
+        existing.clone()
+    };
+
+    if let Some(pool) = &state.db {
+        let payload_str = serde_json::to_string(&record).unwrap_or_default();
+        let _ = sqlx::query(
+            r#"INSERT INTO grading_templates (id, owner_user_id, is_encrypted, payload, created_at, updated_at)
+            VALUES ($1, NULL, FALSE, $2, $3, $4)
+            ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at"#,
         )
         .bind(record.id)
         .bind(payload_str)
@@ -790,14 +832,28 @@ pub async fn delete_global_template(
 // 4. SMTP & E-Mail Configuration
 // =============================================================================
 
+fn default_smtp_security() -> String {
+    "starttls".into()
+}
+
+fn default_smtp_port() -> u16 {
+    587
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SmtpConfig {
     pub host: String,
+    #[serde(default = "default_smtp_port")]
     pub port: u16,
+    #[serde(default = "default_smtp_security")]
     pub security: String, // "starttls", "tls", "none"
+    #[serde(default)]
     pub username: String,
+    #[serde(default)]
     pub password: String,
+    #[serde(default)]
     pub from_email: String,
+    #[serde(default)]
     pub from_name: String,
 }
 
@@ -840,8 +896,12 @@ pub async fn update_smtp_config(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     require_admin(&state, &headers)?;
 
-    // If password is masked, retain old password
-    if payload.password == "********" {
+    if payload.port == 0 {
+        payload.port = 587;
+    }
+
+    // If password is masked or empty, retain old password
+    if payload.password == "********" || payload.password.is_empty() {
         if let Some(existing) = get_smtp_config_internal(&state) {
             payload.password = existing.password;
         }
@@ -963,9 +1023,11 @@ pub async fn test_smtp(
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MailTemplateRecord {
     pub id: String,
+    #[serde(alias = "name")]
     pub title: String,
     pub subject: String,
     pub body_text: String,
+    #[serde(default, alias = "variables")]
     pub available_placeholders: Vec<String>,
 }
 
@@ -1034,6 +1096,22 @@ pub async fn update_mail_template(
     }
 
     let val = serde_json::to_value(&list).unwrap();
+    {
+        let mut settings = state.mem_settings.write().unwrap();
+        settings.insert("mail_templates".into(), val.clone());
+    }
+    save_setting_to_pg(&state, "mail_templates", &val).await;
+    persist_to_disk(&state);
+    Ok(Json(payload))
+}
+
+pub async fn save_all_mail_templates(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<Vec<MailTemplateRecord>>,
+) -> Result<Json<Vec<MailTemplateRecord>>, (StatusCode, String)> {
+    require_admin(&state, &headers)?;
+    let val = serde_json::to_value(&payload).unwrap();
     {
         let mut settings = state.mem_settings.write().unwrap();
         settings.insert("mail_templates".into(), val.clone());

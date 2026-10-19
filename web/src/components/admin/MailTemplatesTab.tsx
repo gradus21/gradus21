@@ -12,10 +12,12 @@ import {
 
 interface MailTemplate {
   id: string;
-  name: string;
+  title: string;
+  name?: string;
   subject: string;
   body_text: string;
-  variables: string[];
+  available_placeholders: string[];
+  variables?: string[];
 }
 
 interface MailTemplatesTabProps {
@@ -37,9 +39,30 @@ export const MailTemplatesTab: React.FC<MailTemplatesTabProps> = ({ token }) => 
       const res = await fetch('/api/admin/mail-templates', {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || `Status ${res.status} (${res.statusText || 'Fehler'})`);
+      }
       const data = await res.json();
-      setTemplates(data);
+      const list = Array.isArray(data) ? data : [];
+      const normalized: MailTemplate[] = list.map((t: any) => ({
+        id: String(t.id || ''),
+        title: String(t.title || t.name || t.id || 'E-Mail Vorlage'),
+        name: String(t.title || t.name || t.id || 'E-Mail Vorlage'),
+        subject: String(t.subject || ''),
+        body_text: String(t.body_text || ''),
+        available_placeholders: Array.isArray(t.available_placeholders)
+          ? t.available_placeholders
+          : Array.isArray(t.variables)
+          ? t.variables
+          : [],
+        variables: Array.isArray(t.available_placeholders)
+          ? t.available_placeholders
+          : Array.isArray(t.variables)
+          ? t.variables
+          : [],
+      }));
+      setTemplates(normalized);
     } catch (err: any) {
       setErrorMsg('Fehler beim Laden der Vorlagen: ' + (err.message || String(err)));
     } finally {
@@ -62,7 +85,8 @@ export const MailTemplatesTab: React.FC<MailTemplatesTabProps> = ({ token }) => 
 
   const handleInsertVariable = (varName: string) => {
     if (!currentTpl) return;
-    const placeholder = `{{${varName}}}`;
+    const clean = varName.replace(/^\{\{|\}\}$/g, '');
+    const placeholder = `{{${clean}}}`;
     handleUpdateCurrent('body_text', currentTpl.body_text + ' ' + placeholder);
   };
 
@@ -77,9 +101,20 @@ export const MailTemplatesTab: React.FC<MailTemplatesTabProps> = ({ token }) => 
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(templates),
+        body: JSON.stringify(
+          templates.map((t) => ({
+            id: t.id,
+            title: t.title || t.name,
+            subject: t.subject,
+            body_text: t.body_text,
+            available_placeholders: t.available_placeholders || t.variables || [],
+          }))
+        ),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || `Status ${res.status} (${res.statusText || 'Fehler'})`);
+      }
       setSuccessMsg('Alle E-Mail-Vorlagen wurden erfolgreich gespeichert.');
     } catch (err: any) {
       setErrorMsg('Speichern fehlgeschlagen: ' + (err.message || String(err)));
@@ -91,11 +126,14 @@ export const MailTemplatesTab: React.FC<MailTemplatesTabProps> = ({ token }) => 
   // Mock preview rendering
   const renderPreviewText = (text: string) => {
     return text
-      .replace(/{{user_email}}/g, 'anna.lehrerin@schule.de')
-      .replace(/{{invite_url}}/g, `${window.location.origin}/#invite=g21_inv_demo12345`)
-      .replace(/{{school_name}}/g, 'Gradus21 Campus')
-      .replace(/{{days_inactive}}/g, '180')
-      .replace(/{{deletion_date}}/g, '15.11.2026');
+      .replace(/\{\{user_email\}\}/g, 'anna.lehrerin@schule.de')
+      .replace(/\{\{invite_url\}\}/g, `${window.location.origin}/#invite=g21_inv_demo12345`)
+      .replace(/\{\{school_name\}\}/g, 'Gradus21 Campus')
+      .replace(/\{\{days_inactive\}\}/g, '180')
+      .replace(/\{\{deletion_date\}\}/g, '15.11.2026')
+      .replace(/\{\{app_url\}\}/g, window.location.origin)
+      .replace(/\{\{last_login\}\}/g, '01.04.2026')
+      .replace(/\{\{timestamp\}\}/g, new Date().toLocaleString('de-DE'));
   };
 
   return (
@@ -146,7 +184,7 @@ export const MailTemplatesTab: React.FC<MailTemplatesTabProps> = ({ token }) => 
                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
           >
-            {tpl.name}
+            {tpl.title || tpl.name || tpl.id}
           </button>
         ))}
       </div>
@@ -158,7 +196,7 @@ export const MailTemplatesTab: React.FC<MailTemplatesTabProps> = ({ token }) => 
           <div className="space-y-4 p-5 border border-slate-200 dark:border-slate-800 rounded-2xl bg-white dark:bg-slate-900 shadow-sm">
             <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider flex items-center gap-2">
               <FileText className="w-4 h-4 text-indigo-500" />
-              <span>Vorlage bearbeiten: {currentTpl.name}</span>
+              <span>Vorlage bearbeiten: {currentTpl.title || currentTpl.name}</span>
             </h4>
 
             <div className="space-y-1">
@@ -179,16 +217,19 @@ export const MailTemplatesTab: React.FC<MailTemplatesTabProps> = ({ token }) => 
                 Verfügbare Variablen (Klicken zum Einfügen):
               </label>
               <div className="flex flex-wrap gap-1.5">
-                {currentTpl.variables.map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => handleInsertVariable(v)}
-                    className="px-2 py-1 rounded-md text-[11px] font-mono bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition"
-                  >
-                    {`{{${v}}}`}
-                  </button>
-                ))}
+                {(currentTpl.available_placeholders || currentTpl.variables || []).map((v) => {
+                  const cleanVar = v.replace(/^\{\{|\}\}$/g, '');
+                  return (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => handleInsertVariable(cleanVar)}
+                      className="px-2 py-1 rounded-md text-[11px] font-mono bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition"
+                    >
+                      {`{{${cleanVar}}}`}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 

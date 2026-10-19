@@ -405,22 +405,27 @@ async fn ensure_pg_schema_and_load(
         for row in rows {
             let id: Uuid = row.get("id");
             let payload_str: String = row.get("payload");
-            let parsed: serde_json::Value = serde_json::from_str(&payload_str).unwrap_or_default();
-            let title = parsed.get("title").and_then(|v| v.as_str()).unwrap_or("Globale Vorlage").to_string();
-            let desc = parsed.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let template_type = parsed.get("template_type").and_then(|v| v.as_str()).unwrap_or("curve").to_string();
-            templates_map.insert(
-                id,
-                admin::GlobalTemplateRecord {
+            if let Ok(rec) = serde_json::from_str::<admin::GlobalTemplateRecord>(&payload_str) {
+                templates_map.insert(id, rec);
+            } else {
+                let parsed: serde_json::Value = serde_json::from_str(&payload_str).unwrap_or_default();
+                let title = parsed.get("title").and_then(|v| v.as_str()).unwrap_or("Globale Vorlage").to_string();
+                let desc = parsed.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let template_type = parsed.get("template_type").and_then(|v| v.as_str()).unwrap_or("curve").to_string();
+                let inner_payload = parsed.get("payload").cloned().unwrap_or(parsed);
+                templates_map.insert(
                     id,
-                    template_type,
-                    title,
-                    description: desc,
-                    payload: parsed,
-                    created_at: row.get("created_at"),
-                    updated_at: row.get("updated_at"),
-                },
-            );
+                    admin::GlobalTemplateRecord {
+                        id,
+                        template_type,
+                        title,
+                        description: desc,
+                        payload: inner_payload,
+                        created_at: row.get("created_at"),
+                        updated_at: row.get("updated_at"),
+                    },
+                );
+            }
         }
     }
 }
@@ -672,6 +677,10 @@ async fn main() {
             "/api/admin/users/:id",
             delete(admin::delete_user).patch(admin::update_user_status),
         )
+        .route(
+            "/api/admin/users/:id/status",
+            post(admin::update_user_status).patch(admin::update_user_status),
+        )
         .route("/api/admin/backups", get(admin::list_backups))
         .route("/api/admin/backups/create", post(admin::create_backup_snapshot))
         .route("/api/admin/backups/snapshot", post(admin::create_backup_snapshot))
@@ -692,19 +701,26 @@ async fn main() {
                 .put(admin::update_backup_config)
                 .post(admin::update_backup_config),
         )
-        .route("/api/admin/templates", post(admin::create_global_template))
+        .route(
+            "/api/admin/templates",
+            get(admin::list_global_templates).post(admin::create_global_template),
+        )
         .route(
             "/api/admin/templates/:id",
-            delete(admin::delete_global_template),
+            put(admin::update_global_template).delete(admin::delete_global_template),
         )
         .route(
             "/api/admin/smtp",
-            get(admin::get_smtp_config).put(admin::update_smtp_config),
+            get(admin::get_smtp_config)
+                .put(admin::update_smtp_config)
+                .post(admin::update_smtp_config),
         )
         .route("/api/admin/smtp/test", post(admin::test_smtp))
         .route(
             "/api/admin/mail-templates",
-            get(admin::list_mail_templates),
+            get(admin::list_mail_templates)
+                .post(admin::save_all_mail_templates)
+                .put(admin::save_all_mail_templates),
         )
         .route(
             "/api/admin/mail-templates/:id",
@@ -2335,6 +2351,30 @@ mod tests {
             .expect("public tpls");
         assert_eq!(public_tpls.len(), 1);
         assert_eq!(public_tpls[0].title, "Standard IHK Schlüssel");
+
+        // 9. Admin updates global template
+        let update_req = admin::UpsertGlobalTemplateRequest {
+            template_type: "curve".into(),
+            title: "Standard IHK Schlüssel v2".into(),
+            description: "Aktualisierte globale Vorlage".into(),
+            payload: serde_json::json!({ "linear": true, "pass_percentage": 50 }),
+        };
+        let Json(updated_tpl) = admin::update_global_template(
+            State(state.clone()),
+            admin_headers.clone(),
+            Path(created_tpl.id),
+            Json(update_req),
+        )
+        .await
+        .expect("update global template");
+        assert_eq!(updated_tpl.title, "Standard IHK Schlüssel v2");
+
+        // 10. Teacher can list updated templates
+        let Json(updated_public_tpls) = admin::list_global_templates(State(state.clone()), teacher_headers.clone())
+            .await
+            .expect("public tpls");
+        assert_eq!(updated_public_tpls.len(), 1);
+        assert_eq!(updated_public_tpls[0].title, "Standard IHK Schlüssel v2");
 
         let _ = fs::remove_file(&state.disk_store_path);
     }

@@ -50,7 +50,10 @@ export const SmtpConfigTab: React.FC<SmtpConfigTabProps> = ({ token }) => {
       const res = await fetch('/api/admin/smtp', {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || `Status ${res.status} (${res.statusText || 'Fehler'})`);
+      }
       const data = await res.json();
       setConfig(data);
     } catch (err: any) {
@@ -76,9 +79,19 @@ export const SmtpConfigTab: React.FC<SmtpConfigTabProps> = ({ token }) => {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(config),
+        body: JSON.stringify({
+          ...config,
+          password: config.password || '',
+        }),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || `Status ${res.status} (${res.statusText || 'Fehler'})`);
+      }
+      const savedData = await res.json();
+      if (savedData && typeof savedData === 'object') {
+        setConfig((prev) => ({ ...prev, ...savedData }));
+      }
       setSuccessMsg('SMTP-Server-Einstellungen wurden erfolgreich gespeichert.');
     } catch (err: any) {
       setErrorMsg('Speichern fehlgeschlagen: ' + (err.message || String(err)));
@@ -102,7 +115,10 @@ export const SmtpConfigTab: React.FC<SmtpConfigTabProps> = ({ token }) => {
         },
         body: JSON.stringify({ to_email: testEmail.trim() }),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || `Status ${res.status} (${res.statusText || 'Fehler'})`);
+      }
       setSuccessMsg(`Test-E-Mail wurde erfolgreich an ${testEmail} gesendet!`);
     } catch (err: any) {
       setErrorMsg('Test-E-Mail fehlgeschlagen: ' + (err.message || String(err)));

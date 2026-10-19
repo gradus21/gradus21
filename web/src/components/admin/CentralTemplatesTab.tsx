@@ -48,7 +48,10 @@ export const CentralTemplatesTab: React.FC<CentralTemplatesTabProps> = ({ token 
       const res = await fetch('/api/admin/templates', {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || `Status ${res.status} (${res.statusText || 'Fehler'})`);
+      }
       const data = await res.json();
       setTemplates(data);
     } catch (err: any) {
@@ -155,7 +158,10 @@ export const CentralTemplatesTab: React.FC<CentralTemplatesTabProps> = ({ token 
         }),
       });
 
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || `Status ${res.status} (${res.statusText || 'Fehler'})`);
+      }
       setSuccessMsg(`Globale Vorlage "${tplTitle}" erfolgreich gespeichert!`);
       setShowEditor(false);
       fetchTemplates();
@@ -176,7 +182,10 @@ export const CentralTemplatesTab: React.FC<CentralTemplatesTabProps> = ({ token 
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || `Status ${res.status} (${res.statusText || 'Fehler'})`);
+      }
       setSuccessMsg(`Globale Vorlage "${tpl.title}" gelöscht.`);
       fetchTemplates();
     } catch (err: any) {
