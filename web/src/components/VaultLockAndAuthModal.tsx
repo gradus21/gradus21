@@ -1261,7 +1261,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       }
 
       // Erzeuge neuen 24-stelligen Recovery-Schlüssel & verschlüssele DEK via WASM
-      const recBundle = wasm_wrap_dek_with_recovery(dek, '');
+      const recBundleRaw = wasm_wrap_dek_with_recovery(dek, '');
+      const recBundle =
+        typeof recBundleRaw === 'string' ? JSON.parse(recBundleRaw) : recBundleRaw;
       const formattedKey: string = recBundle.recovery_key_formatted;
       const recEncryptedDek: string = recBundle.recovery_encrypted_dek;
       const recAuthKeyB64: string = recBundle.recovery_auth_key_b64;
