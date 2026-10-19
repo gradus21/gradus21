@@ -1828,7 +1828,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 </label>
                 <input
                   id="recover-new-password"
-                  name="new-password"
+                  name="password"
                   type="password"
                   autoComplete="new-password"
                   value={newPasswordInput}
@@ -1848,7 +1848,14 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             </form>
           ) : authTab === 'register' ? (
             /* SCHRITT 0 DER REGISTRIERUNG: KONTO-DATEN EINGEBEN */
-            <form onSubmit={handleStartRegistration} className="space-y-3.5 text-xs">
+            <form
+              id="register-form"
+              name="register"
+              action="#"
+              method="post"
+              onSubmit={handleStartRegistration}
+              className="space-y-3.5 text-xs"
+            >
               <div>
                 <label
                   htmlFor="register-email"
@@ -1863,6 +1870,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                   type="email"
                   autoComplete="username"
                   required
+                  placeholder="name@beispiel.de"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-xl border bg-transparent"
@@ -1879,11 +1887,12 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 </label>
                 <input
                   id="register-password"
-                  name="new-password"
+                  name="password"
                   type="password"
                   autoComplete="new-password"
                   required
                   minLength={8}
+                  placeholder="Master-Passwort (mind. 8 Zeichen)"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-xl border bg-transparent"
@@ -1900,11 +1909,12 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 </label>
                 <input
                   id="register-password-confirm"
-                  name="confirm-password"
+                  name="confirm_password"
                   type="password"
                   autoComplete="new-password"
                   required
                   minLength={8}
+                  placeholder="Master-Passwort wiederholen"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-xl border bg-transparent"
