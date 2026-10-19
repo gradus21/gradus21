@@ -47,8 +47,8 @@ const DEFAULT_LEGAL_CONFIG: LegalConfigData = {
   representative: null,
   register: null,
   vat_id: null,
-  hosting_provider: 'Hetzner Online GmbH (Deutschland)',
-  hosting_location: 'Falkenstein / Nürnberg, Deutschland (EU)',
+  hosting_provider: 'Alfahosting GmbH',
+  hosting_location: 'Leipzig (Deutschland)',
   dpo_contact: null,
 };
 
@@ -399,10 +399,23 @@ export const LegalModal: React.FC<LegalModalProps> = ({
           {/* TAB 3: SCHUL-DATENSCHUTZ & LEITFADEN */}
           {activeTab === 'school_guide' && (
             <div className="space-y-6 animate-in fade-in duration-100">
+              <div className="p-4 rounded-2xl bg-teal-500/10 border border-teal-500/20 text-xs text-teal-900 dark:text-teal-200">
+                <p className="font-bold flex items-center gap-1.5 mb-1 text-sm">
+                  <ShieldCheck className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+                  Neu: Standardmäßig 100 % lokaler Betrieb &amp; Schullaufwerk-Backup
+                </p>
+                <p>
+                  Gradus21 setzt das Prinzip <strong>„Privacy by Default“</strong> konsequent um:
+                  Die Cloud-Synchronisation ist <strong>standardmäßig deaktiviert (Opt-In)</strong>.
+                  Alle Noten- und Schülerdaten verbleiben ausschließlich im lokalen Speicher Ihres Browsers.
+                  Es fließen keinerlei schülerbezogene Daten an Server von Gradus21, solange Sie Cloud-Sync nicht aktiv einschalten.
+                </p>
+              </div>
+
               <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-900 dark:text-amber-200">
                 <p className="font-bold flex items-center gap-1.5 mb-1">
                   <GraduationCap className="w-4 h-4 text-amber-600" />
-                  Wichtiger rechtlicher Hinweis für Lehrkräfte in Deutschland
+                  Rechtlicher Rahmen für Lehrkräfte in Deutschland
                 </p>
                 <p>
                   Schüler- und Notendaten unterliegen den <strong>Schulgesetzen und Schuldatenschutzverordnungen der
@@ -411,25 +424,77 @@ export const LegalModal: React.FC<LegalModalProps> = ({
                 </p>
               </div>
 
-              <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 space-y-2">
+                  <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                    Modus 1 (Standard)
+                  </span>
+                  <h4 className="font-bold text-slate-900 dark:text-white text-sm">
+                    100 % Lokaler Betrieb (Kein AVV nötig)
+                  </h4>
+                  <p className="text-slate-600 dark:text-slate-300">
+                    Wenn Sie Gradus21 auf Ihrem Dienstgerät lokal nutzen, werden Noten ausschließlich in der Browser-IndexedDB
+                    gespeichert.
+                  </p>
+                  <ul className="list-disc pl-4 space-y-1 text-slate-600 dark:text-slate-400">
+                    <li>Vollständig offline nutzbar als Progressive Web App (PWA).</li>
+                    <li>
+                      <strong>Schullaufwerk-Spiegelung:</strong> Wählen Sie in den Einstellungen einen lokalen Schulordner
+                      (z. B. auf einem gemounteten SMB/Windows-Dienstlaufwerk). Gradus21 sichert bei jeder Notenänderung
+                      automatisch verschlüsselte Sicherungsdateien.
+                    </li>
+                    <li>
+                      <strong>Rechtsfolge:</strong> Da keine Daten extern verarbeitet werden, ist <em>kein AVV mit Gradus21
+                      erforderlich</em>.
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-teal-50 dark:bg-teal-950/20 border border-teal-200 dark:border-teal-900/40 space-y-2">
+                  <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-teal-200 text-teal-800 dark:bg-teal-900 dark:text-teal-200">
+                    Modus 2 (Optional)
+                  </span>
+                  <h4 className="font-bold text-teal-950 dark:text-teal-200 text-sm">
+                    Cloud-Synchronisation (Opt-In &amp; AVV)
+                  </h4>
+                  <p className="text-slate-600 dark:text-slate-300">
+                    Möchten Sie Noten Ende-zu-Ende verschlüsselt zwischen Dienstlaptop und Heimarbeitsplatz synchronisieren?
+                  </p>
+                  <ul className="list-disc pl-4 space-y-1 text-slate-600 dark:text-slate-400">
+                    <li>
+                      <strong>Zero-Knowledge E2EE:</strong> Daten verlassen Ihr Gerät nur als mit AES-256-GCM verschlüsselte
+                      Pakete.
+                    </li>
+                    <li>
+                      <strong>Schul-AVV:</strong> Schließen Sie vor Aktivierung den vorbereiteten AVV gem. Art. 28 DSGVO
+                      (nächster Reiter) mit Ihrer Schulleitung / dem bDSB ab.
+                    </li>
+                    <li>
+                      <strong>1-Klick-Löschung:</strong> Sie können jederzeit alle verschlüsselten Server-Daten mit einem Klick
+                      wieder rückstandslos vom Server löschen.
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800">
                 <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  Drei Schritte für einen rechtssicheren Einsatz an Ihrer Schule
+                  Drei Schritte für die Schulleitung &amp; den Datenschutzbeauftragten (bDSB)
                 </h3>
                 <ol className="list-decimal pl-5 space-y-2 text-xs text-slate-600 dark:text-slate-300">
                   <li>
-                    <strong>1. Genehmigung der Schulleitung einholen:</strong> Vor der Eingabe von realen Schülerdaten
-                    in die synchronisierte Version muss die Schulleitung unter Beteiligung des behördlichen
-                    Datenschutzbeauftragten (bDSB) der Schule die Nutzung genehmigen.
+                    <strong>1. Information der Schulleitung:</strong> Informieren Sie Ihre Schulleitung über den geplanten
+                    Einsatz und wählen Sie, ob Sie Gradus21 rein lokal oder mit synchronisiertem Cloud-Sync betreiben möchten.
                   </li>
                   <li>
-                    <strong>2. Auftragsverarbeitungsvertrag (AVV) abschließen:</strong> Die Schule (als
-                    „Verantwortlicher“ gem. Art. 4 Nr. 7 DSGVO) schließt mit dem Betreiber von Gradus21 den
-                    vorgefertigten AVV gem. Art. 28 DSGVO (siehe Reiter „AVV-Mustervertrag“) ab.
+                    <strong>2. AVV-Mustervertrag generieren (bei Cloud-Sync):</strong> Wechseln Sie in den Reiter
+                    <em>„AVV-Mustervertrag (Art. 28)“</em>, tragen Sie die Daten Ihrer Schule ein und drucken Sie das Dokument aus
+                    oder speichern Sie es als PDF. Der Vertrag ist durch den Betreiber bereits vorab elektronisch nach
+                    Art. 28 Abs. 9 DSGVO signiert.
                   </li>
                   <li>
-                    <strong>3. Oder: Lokaler Offline-Modus nutzen:</strong> Wenn an Ihrer Schule noch kein AVV vorliegt,
-                    können Sie Gradus21 rein lokal ohne Server-Synchronisation nutzen (Notenlisten per Excel importieren
-                    und exportieren, ohne Speicherung auf dem Server).
+                    <strong>3. Opt-In in den Einstellungen aktivieren:</strong> Nach Genehmigung aktivieren Sie in Gradus21
+                    unter Einstellungen die Option <em>„Cloud-Synchronisation aktivieren (Opt-In)“</em>.
                   </li>
                 </ol>
               </div>
@@ -438,11 +503,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({
                 <h3 className="text-base font-bold text-slate-900 dark:text-white">
                   Warum Zero-Knowledge E2EE das ideale Argument für Ihren DSB ist
                 </h3>
-                <p className="text-xs text-slate-600 dark:text-slate-300">
-                  Herkömmliche Schulverwaltungssoftware speichert Noten oft in unverschlüsselten Datenbanken beim
-                  Anbieter. Gradus21 geht den umgekehrten Weg:
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                   <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
                     <p className="font-bold text-teal-600 mb-1">100 % Rust/WASM im Browser</p>
                     <p className="text-slate-500 dark:text-slate-400">
@@ -457,6 +518,13 @@ export const LegalModal: React.FC<LegalModalProps> = ({
                       oder Noten lesen.
                     </p>
                   </div>
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+                    <p className="font-bold text-teal-600 mb-1">Deutscher Serverstandort Leipzig</p>
+                    <p className="text-slate-500 dark:text-slate-400">
+                      Hosting ausschließlich im ISO-27001 zertifizierten Rechenzentrum Leipzig (Alfahosting GmbH). Keine
+                      US-Hyperscaler, kein CLOUD-Act-Risiko.
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -468,10 +536,10 @@ export const LegalModal: React.FC<LegalModalProps> = ({
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-teal-500/10 border border-teal-500/20 text-xs">
                 <div>
                   <p className="font-bold text-teal-900 dark:text-teal-200">
-                    Vertrag zur Auftragsverarbeitung gem. Art. 28 DSGVO (AVV)
+                    Auftragsverarbeitungsvertrag (AVV) gem. Art. 28 DSGVO
                   </p>
                   <p className="text-teal-800/80 dark:text-teal-300/80">
-                    Mustervertrag für Schulen, Schulträger und Lehrerkollegien zur Vorlage beim Datenschutzbeauftragten.
+                    Interaktives Vertragsformular zur Vorlage bei der Schulleitung und dem behördlichen Datenschutzbeauftragten (bDSB).
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -480,14 +548,14 @@ export const LegalModal: React.FC<LegalModalProps> = ({
                     className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-semibold flex items-center gap-1.5 hover:bg-slate-50 transition shadow-sm"
                   >
                     {copiedAvv ? <Check className="w-3.5 h-3.5 text-teal-600" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedAvv ? 'Kopiert!' : 'Kopieren'}</span>
+                    <span>{copiedAvv ? 'Kopiert!' : 'Vertrag kopieren'}</span>
                   </button>
                   <button
                     onClick={handlePrint}
                     className="px-3 py-1.5 rounded-xl bg-teal-600 text-white font-semibold flex items-center gap-1.5 hover:bg-teal-700 transition shadow-sm"
                   >
                     <Printer className="w-3.5 h-3.5" />
-                    <span>Drucken / PDF</span>
+                    <span>Drucken / Als PDF speichern</span>
                   </button>
                 </div>
               </div>
@@ -495,25 +563,25 @@ export const LegalModal: React.FC<LegalModalProps> = ({
               {/* Printable Document Box */}
               <div
                 id="gradus21-avv-document"
-                className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-800 dark:text-slate-200 space-y-4 font-mono leading-relaxed"
+                className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-800 dark:text-slate-200 space-y-5 font-mono leading-relaxed"
               >
                 <div className="text-center font-bold text-sm border-b border-slate-200 dark:border-slate-800 pb-3">
                   VEREINBARUNG ZUR AUFTRAGSVERARBEITUNG (AVV)<br />
-                  gemäß Art. 28 Datenschutz-Grundverordnung (DSGVO)
+                  <span className="text-xs font-normal text-slate-500">gemäß Art. 28 der Datenschutz-Grundverordnung (DSGVO)</span>
                 </div>
 
                 <div className="space-y-3">
                   <p>
                     <strong>Zwischen:</strong>
                   </p>
-                  <div className="pl-4 border-l-2 border-teal-500 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-r-xl border border-slate-200 dark:border-slate-700 space-y-2">
+                  <div className="pl-4 border-l-2 border-teal-500 bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-r-xl border border-slate-200 dark:border-slate-700 space-y-2">
                     <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                       <span className="text-[11px] text-slate-500 w-28 shrink-0">Schule / Träger:</span>
                       <input
                         type="text"
                         value={schoolName}
                         onChange={(e) => setSchoolName(e.target.value)}
-                        placeholder="z. B. Friedrich-Schiller-Gymnasium"
+                        placeholder="Name der Schule / des Schulträgers eintragen..."
                         className="w-full px-2.5 py-1 text-xs border border-teal-300 dark:border-teal-700 rounded-lg bg-white dark:bg-slate-900 font-mono text-slate-900 dark:text-white"
                       />
                     </div>
@@ -523,7 +591,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({
                         type="text"
                         value={schoolStreet}
                         onChange={(e) => setSchoolStreet(e.target.value)}
-                        placeholder="z. B. Schillerstraße 15"
+                        placeholder="Straße und Hausnummer..."
                         className="w-full px-2.5 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 font-mono text-slate-900 dark:text-white"
                       />
                     </div>
@@ -538,76 +606,152 @@ export const LegalModal: React.FC<LegalModalProps> = ({
                             setSchoolSigDate(`${e.target.value}, den ${new Date().toLocaleDateString('de-DE')}`);
                           }
                         }}
-                        placeholder="z. B. 70173 Stuttgart"
+                        placeholder="Postleitzahl und Ort..."
                         className="w-full px-2.5 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 font-mono text-slate-900 dark:text-white"
                       />
                     </div>
                     <div className="text-[10px] text-slate-500 pt-1">
-                      – nachfolgend <em>„Auftraggeber“</em> oder <em>„Schule“</em> genannt –
+                      – nachfolgend <strong>„Auftraggeber“</strong> oder <strong>„Schule“</strong> genannt –
                     </div>
                   </div>
 
                   <p>
                     <strong>und:</strong>
                   </p>
-                  <div className="pl-4 border-l-2 border-slate-400 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-r-xl border border-slate-200 dark:border-slate-700 text-xs">
+                  <div className="pl-4 border-l-2 border-slate-400 bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-r-xl border border-slate-200 dark:border-slate-700 text-xs">
                     <p className="font-bold text-slate-900 dark:text-white">
                       {config.company ? `${config.company}, ` : ''}{config.name} (Gradus21)
                     </p>
                     <p>{config.address}</p>
                     <p>E-Mail: {config.email}</p>
                     <div className="text-[10px] text-slate-500 pt-1">
-                      – nachfolgend <em>„Auftragnehmer“</em> genannt –
+                      – nachfolgend <strong>„Auftragnehmer“</strong> genannt –
                     </div>
                   </div>
                   <p className="text-[10px] text-slate-500">– gemeinsam nachfolgend „die Parteien“ genannt –</p>
                 </div>
 
-                <p>
-                  <strong>§ 1 Gegenstand und Dauer des Auftrags</strong><br />
-                  (1) Gegenstand: Bereitstellung der Zero-Knowledge Ende-zu-Ende-verschlüsselten Notenverwaltungs- und
-                  Didaktik-Plattform „Gradus21“ (Web-App und API-Synchronisationsserver).<br />
-                  (2) Dauer: Der Vertrag wird auf unbestimmte Zeit geschlossen und kann von beiden Parteien jederzeit
-                  gekündigt werden.
-                </p>
+                <div className="space-y-1.5 pt-2">
+                  <h4 className="font-bold text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-1">
+                    § 1 Gegenstand und Dauer der Vereinbarung
+                  </h4>
+                  <p>
+                    (1) <strong>Gegenstand des Auftrags:</strong> Der Auftragnehmer stellt dem Auftraggeber die Web-Applikation
+                    und den Synchronisationsserver „Gradus21“ zur pädagogischen Notenberechnung, Leistungsdokumentation
+                    und Datensicherung zur Verfügung.
+                  </p>
+                  <p>
+                    (2) <strong>Dauer:</strong> Die Vereinbarung tritt mit Unterzeichnung bzw. elektronischer Bereitstellung in
+                    Kraft und wird auf unbestimmte Zeit geschlossen. Sie kann von jeder Partei mit einer Frist von einem
+                    Monat zum Monatsende gekündigt werden.
+                  </p>
+                </div>
 
-                <p>
-                  <strong>§ 2 Art und Zweck der Verarbeitung, Art der Daten</strong><br />
-                  (1) Zweck: Sichere Zwischenspeicherung, Synchronisation und Backup von Noten- und Leistungsdaten für
-                  den Unterrichtsbetrieb der beauftragenden Lehrkräfte.<br />
-                  (2) Art der Daten: Chiffrierte Datensätze (AES-256-GCM Chiffretext) von Schüler:innennamen,
-                  Einzelprüfungen, Leistungsnachweisen, Fehlzeiten/Krankheitsvermerken sowie Benutzerkontodaten der
-                  Lehrkraft (E-Mail, Passkey-ID, KDF-Salts).<br />
-                  (3) Kategorien betroffener Personen: Schülerinnen und Schüler sowie Lehrkräfte der Schule.
-                </p>
+                <div className="space-y-1.5 pt-2">
+                  <h4 className="font-bold text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-1">
+                    § 2 Konkretisierung des Auftragsinhalts
+                  </h4>
+                  <p>
+                    (1) <strong>Art und Zweck der Verarbeitung:</strong> Automatisierte Zwischenspeicherung, Synchronisation
+                    und Bereitstellung von Ende-zu-Ende-verschlüsselten Datensätzen zur Notenverwaltung, Binnendifferenzierung
+                    und Vorbereitung von Klassenkonferenzen und Elterngesprächen.
+                  </p>
+                  <p>(2) <strong>Arten der verarbeiteten Daten:</strong></p>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>Benutzerkontodaten der Lehrkraft (E-Mail-Adresse, Passkey-Credentials, Argon2id KDF-Salts, verschlüsselter DEK).</li>
+                    <li>Schülerbezogene Daten: Namen von Schülerinnen und Schülern, Niveaustufenzuordnungen (G/M/E), Prüfungsergebnisse, Zeugnisnoten und Fehlzeiten-/Krankheitsvermerke.</li>
+                  </ul>
+                  <div className="text-[11px] p-2.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                    <strong>Klarstellung zur Zero-Knowledge-Architektur:</strong> Sämtliche schülerbezogene Daten verlassen das Endgerät
+                    der Lehrkraft ausschließlich als mit <code>AES-256-GCM</code> chiffrierte Datenpakete (Envelopes). Der Auftragnehmer
+                    besitzt zu keinem Zeitpunkt Zugriff auf den Entschlüsselungsschlüssel (DEK) oder Klartextdaten.
+                  </div>
+                  <p>
+                    (3) <strong>Kategorien betroffener Personen:</strong> Lehrkräfte sowie Schülerinnen und Schüler des Auftraggebers.
+                  </p>
+                </div>
 
-                <p>
-                  <strong>§ 3 Technische und organisatorische Maßnahmen (TOM gem. Art. 32 DSGVO)</strong><br />
-                  Der Auftragnehmer sichert folgende Maßnahmen zu:<br />
-                  1. <em>Vertraulichkeit / E2EE Envelope Encryption:</em> Alle Schüler- und Notendaten werden vor dem Verlassen
-                  des Lehrkraft-Endgeräts clientseitig mit AES-256-GCM verschlüsselt. Der Auftragnehmer hat keinen Zugriff auf
-                  den Klartext.<br />
-                  2. <em>Server-Standort:</em> Ausschließlich in ISO-27001 zertifizierten Rechenzentren in der Bundesrepublik
-                  Deutschland (EU). Kein Transfer an Drittländer.<br />
-                  3. <em>Transportverschlüsselung:</em> Ausschließlich TLS 1.3 / HTTPS mit Perfect Forward Secrecy.<br />
-                  4. <em>Trennungsgrundsatz:</em> Strikte Mandantentrennung auf Datenbankebene nach Benutzer-ID.
-                </p>
+                <div className="space-y-1.5 pt-2">
+                  <h4 className="font-bold text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-1">
+                    § 3 Technische und organisatorische Maßnahmen (TOM gem. Art. 32 DSGVO)
+                  </h4>
+                  <p>
+                    (1) Der Auftragnehmer gewährleistet die Einhaltung modernster Sicherheitsstandards (State of the Art) gem. Art. 32 DSGVO:
+                  </p>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>
+                      <strong>Vertraulichkeit &amp; Client-Side E2EE:</strong> Alle Berechnungen laufen lokal in WebAssembly im Browser.
+                      Verschlüsselung der Nutzdaten via AES-256-GCM mit Argon2id Master-Key-Ableitung (19 MiB RAM, OWASP-Standard).
+                    </li>
+                    <li>
+                      <strong>Integrität &amp; Authentizität:</strong> Authenticated Encryption (AEAD) schützt jeden Datensatz kryptografisch
+                      gegen unbemerkte Manipulation.
+                    </li>
+                    <li>
+                      <strong>Server-Standort &amp; Rechenzentrum:</strong> Das Hosting erfolgt ausschließlich in Deutschland im
+                      ISO-27001 zertifizierten Rechenzentrum Leipzig ({config.hosting_provider}) mit redundanter Notstromversorgung,
+                      Brandschutz mit Sauerstoffreduktion und DE-CIX-Anbindung. Kein Einsatz von US-Hyperscalern (kein CLOUD-Act-Risiko).
+                    </li>
+                    <li>
+                      <strong>Transportverschlüsselung:</strong> Durchgängiges TLS 1.3 / HTTPS mit Perfect Forward Secrecy und HSTS.
+                    </li>
+                    <li>
+                      <strong>Verfügbarkeit &amp; Belastbarkeit:</strong> Automatisierte Snapshot-Backups auf getrennten Storage-Volumes mit
+                      einstellbarer Aufbewahrungsfrist (Retention).
+                    </li>
+                  </ul>
+                </div>
 
-                <p>
-                  <strong>§ 4 Unterauftragsverhältnisse</strong><br />
-                  Als Unterauftragnehmer für Server-Hosting ist die {config.hosting_provider} ({config.hosting_location})
-                  eingebunden.
-                </p>
+                <div className="space-y-1.5 pt-2">
+                  <h4 className="font-bold text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-1">
+                    § 4 Unterauftragsverhältnisse (Subunternehmer)
+                  </h4>
+                  <p>(1) Der Auftraggeber stimmt der Einbindung folgenden Unterauftragnehmers zu:</p>
+                  <div className="p-2.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                    <strong>{config.hosting_provider}</strong><br />
+                    Ankerstraße 3b, 06108 Halle (Saale), Deutschland<br />
+                    Rechenzentrumsstandort: <strong>{config.hosting_location}</strong><br />
+                    Dienstleistung: Bereitstellung von Server-Infrastruktur, Colocation &amp; Netzwerkanbindung.
+                  </div>
+                  <p>
+                    (2) Eine Übermittlung von Daten an Drittländer außerhalb der Europäischen Union (EU) bzw. des Europäischen
+                    Wirtschaftsraums (EWR) findet nicht statt.
+                  </p>
+                </div>
 
-                <p>
-                  <strong>§ 5 Rechte und Pflichten des Auftraggebers</strong><br />
-                  Der Auftraggeber bleibt im Sinne der DSGVO alleiniger Verantwortlicher für die Rechtmäßigkeit der
-                  Verarbeitung der Schülerdaten.
-                </p>
+                <div className="space-y-1.5 pt-2">
+                  <h4 className="font-bold text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-1">
+                    § 5 Rechte und Pflichten des Auftraggebers
+                  </h4>
+                  <p>
+                    (1) Der Auftraggeber ist im Sinne der DSGVO alleiniger Verantwortlicher für die Rechtmäßigkeit der Verarbeitung
+                    der Schülerdaten nach den geltenden Schulgesetzen.
+                  </p>
+                  <p>
+                    (2) Der Auftraggeber hat das Recht, sich vor Beginn der Verarbeitung und sodann regelmäßig von der Einhaltung
+                    der technischen und organisatorischen Maßnahmen zu überzeugen.
+                  </p>
+                </div>
 
+                <div className="space-y-1.5 pt-2">
+                  <h4 className="font-bold text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-1">
+                    § 6 Löschung und Rückgabe von Daten
+                  </h4>
+                  <p>
+                    (1) Nach Beendigung des Auftragsverhältnisses oder auf Aufforderung des Auftraggebers löscht der Auftragnehmer
+                    sämtliche verschlüsselten Datensätze unwiderruflich, sofern keine gesetzlichen Aufbewahrungspflichten entgegenstehen.
+                  </p>
+                  <p>
+                    (2) Der Auftraggeber bzw. die autorisierte Lehrkraft kann die Löschung sämtlicher serverseitig gespeicherten
+                    Chiffre-Pakete (Envelopes) zudem jederzeit selbstständig über die Applikation mittels 1-Klick-Löschfunktion
+                    anstoßen. Die Datensätze werden dabei unmittelbar und unwiderruflich aus der Server-Datenbank entfernt.
+                  </p>
+                </div>
+
+                {/* Signature Block */}
                 <div className="pt-6 grid grid-cols-1 sm:grid-cols-2 gap-6 border-t border-slate-200 dark:border-slate-800 text-xs">
-                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-2">
-                    <p className="font-bold text-slate-900 dark:text-white">Für die Schule (Auftraggeber):</p>
+                  <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-2">
+                    <p className="font-bold text-slate-900 dark:text-white">Für den Auftraggeber (Schule / Schulträger):</p>
                     <div className="space-y-1.5">
                       <input
                         type="text"
@@ -620,15 +764,15 @@ export const LegalModal: React.FC<LegalModalProps> = ({
                         type="text"
                         value={schoolSigPerson}
                         onChange={(e) => setSchoolSigPerson(e.target.value)}
-                        placeholder="Name &amp; Amtsbezeichnung (Schulleitung)..."
+                        placeholder="Name &amp; Amtsbezeichnung (z. B. Schulleiter/in)..."
                         className="w-full px-2 py-0.5 text-xs border border-slate-200 dark:border-slate-700 rounded bg-white dark:bg-slate-900 font-mono"
                       />
                     </div>
-                    <div className="border-b border-slate-400 pt-6"></div>
+                    <div className="border-b border-slate-400 pt-8"></div>
                     <p className="text-[10px] text-slate-500 text-center">Unterschrift &amp; Schulstempel</p>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-teal-500/10 border border-teal-500/20 space-y-2">
+                  <div className="p-3.5 rounded-xl bg-teal-500/10 border border-teal-500/20 space-y-2">
                     <div className="flex items-center justify-between">
                       <p className="font-bold text-slate-900 dark:text-white">Für den Auftragnehmer (Gradus21):</p>
                       <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-teal-200/60 text-teal-900 dark:bg-teal-900/60 dark:text-teal-200">
@@ -640,14 +784,24 @@ export const LegalModal: React.FC<LegalModalProps> = ({
                       <p>Name: {config.name}</p>
                       <p>Funktion: Inhaber &amp; Dienstanbieter Gradus21</p>
                     </div>
-                    <div className="pt-2 border-b border-teal-600/40 pb-1 flex items-center justify-between">
+                    <div className="pt-3 border-b border-teal-600/40 pb-1 flex items-center justify-between">
                       <span className="font-bold text-xs text-slate-900 dark:text-white">gez. {config.name}</span>
                       <span className="text-[10px] text-teal-700 dark:text-teal-300 font-semibold">✓ Elektronisch gezeichnet</span>
                     </div>
                     <p className="text-[9px] text-slate-500 leading-tight">
-                      Rechtsgültig in elektronischer Form gem. Art. 28 Abs. 9 DSGVO ohne handschriftliche Schriftform.
+                      Rechtsgültig in elektronischer Form gemäß Art. 28 Abs. 9 DSGVO ohne Erfordernis einer handschriftlichen Schriftform.
                     </p>
                   </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 leading-relaxed">
+                  <strong>Hinweis für die Schulverwaltung:</strong> Falls Ihre Schulleitung oder Ihr Schulträger ein beidseitig
+                  handschriftlich unterzeichnetes Exemplar mit Firmenstempel oder qualifizierter elektronischer Signatur (QES)
+                  wünscht, senden Sie das ausgefüllte Formular bitte kurz an{' '}
+                  <a href="mailto:kontakt@gradus21.de" className="text-teal-600 dark:text-teal-400 underline font-semibold">
+                    kontakt@gradus21.de
+                  </a>
+                  . Sie erhalten die Gegenzeichnung umgehend zurück.
                 </div>
               </div>
             </div>

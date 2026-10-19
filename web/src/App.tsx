@@ -39,11 +39,20 @@ export const App: React.FC = () => {
     setVaultSession,
     sampleEnvelope,
     globalTemplates,
+    isPersistentStorage,
+    connectedBackupDirName,
+    lastLocalBackupTime,
     handleLockVault,
     handleUnlockVault,
     updateSubjectConfig,
     handleDeleteClass,
     handleRestoreSnapshot,
+    handleToggleCloudSync,
+    handlePurgeCloudData,
+    handleExportEncryptedBackup,
+    handleImportEncryptedBackup,
+    handleConnectBackupDirectory,
+    handleDisconnectBackupDirectory,
   } = useVaultWorkspaceSync();
 
   // Navigation & Workspace State
@@ -74,6 +83,17 @@ export const App: React.FC = () => {
   const [showLegalModal, setShowLegalModal] = useState<boolean>(false);
   const [legalTab, setLegalTab] = useState<LegalTab>('impressum');
 
+  const handleLoadDemoDataset = () => {
+    const demoClass = INITIAL_CLASS_DATASETS[0];
+    setDatasets((prev) => {
+      const idx = prev.findIndex((d) => d.id === demoClass.id);
+      if (idx >= 0) return prev;
+      return [demoClass, ...prev];
+    });
+    setActiveClassId(demoClass.id);
+    setShowClassWizard(false);
+  };
+
   // Interactive Demo & Guide Hook
   const {
     isGuideOpen,
@@ -98,6 +118,7 @@ export const App: React.FC = () => {
     setShowVaultInspector,
     setShowOnDemandSimulator,
     setShowOnDemandCurveEditor,
+    onLoadDemoDataset: handleLoadDemoDataset,
   });
 
   // Domain Calculations & Handlers
@@ -169,6 +190,9 @@ export const App: React.FC = () => {
         sampleEnvelope={sampleEnvelope}
         onUnlockSuccess={handleUnlockVault}
         onLockVault={handleLockVault}
+        cloudSyncEnabled={userSettings.cloudSyncEnabled ?? false}
+        onToggleCloudSync={handleToggleCloudSync}
+        onPurgeCloudData={handlePurgeCloudData}
       />
     );
   }
@@ -409,6 +433,7 @@ export const App: React.FC = () => {
         <ClassSetupAndExcelWizard
           globalTemplates={globalTemplates}
           onClose={() => setShowClassWizard(false)}
+          onLoadDemoClass={handleLoadDemoDataset}
           onCreateClass={(newDataset) => {
             setDatasets((prev) => [...prev, newDataset]);
             setActiveClassId(newDataset.id);
@@ -435,6 +460,19 @@ export const App: React.FC = () => {
             setShowSettingsModal(false);
             setIsChapterSelectOpen(true);
           }}
+          onOpenSchoolGuide={() => {
+            setLegalTab('school_guide');
+            setShowLegalModal(true);
+          }}
+          onToggleCloudSync={handleToggleCloudSync}
+          onPurgeCloudData={handlePurgeCloudData}
+          onExportEncryptedBackup={handleExportEncryptedBackup}
+          onImportEncryptedBackup={handleImportEncryptedBackup}
+          connectedBackupDirName={connectedBackupDirName}
+          lastLocalBackupTime={lastLocalBackupTime}
+          onConnectBackupDirectory={handleConnectBackupDirectory}
+          onDisconnectBackupDirectory={handleDisconnectBackupDirectory}
+          isPersistentStorage={isPersistentStorage}
         />
       )}
 
@@ -446,6 +484,9 @@ export const App: React.FC = () => {
           onUnlockSuccess={(updatedSession) => setVaultSession(updatedSession)}
           onLockVault={handleLockVault}
           onCloseInspector={() => setShowVaultInspector(false)}
+          cloudSyncEnabled={userSettings.cloudSyncEnabled ?? false}
+          onToggleCloudSync={handleToggleCloudSync}
+          onPurgeCloudData={handlePurgeCloudData}
         />
       )}
 

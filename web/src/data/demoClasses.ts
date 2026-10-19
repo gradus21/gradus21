@@ -77,6 +77,7 @@ export interface UserSyncSettings {
   showWhatIfSimulator: boolean;
   showCurveEditorInSpeedGrading: boolean;
   showGuideButtonInHeader?: boolean;
+  cloudSyncEnabled?: boolean;
   customWeightingTemplates: CustomWeightingTemplate[];
 }
 
@@ -119,6 +120,7 @@ export const DEFAULT_USER_SYNC_SETTINGS: UserSyncSettings = {
   showWhatIfSimulator: true,
   showCurveEditorInSpeedGrading: true,
   showGuideButtonInHeader: false,
+  cloudSyncEnabled: false,
   customWeightingTemplates: [
     {
       id: 'tpl_hauptfach_60_40',

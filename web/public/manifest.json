@@ -1,0 +1,24 @@
+{
+  "name": "Gradus21 — Sichere Notenverwaltung & Didaktik",
+  "short_name": "Gradus21",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0d9488",
+  "orientation": "any",
+  "description": "Zero-Knowledge Ende-zu-Ende verschlüsselte Notenverwaltung und didaktische Kursführung für Lehrkräfte.",
+  "icons": [
+    {
+      "src": "/gradus21-app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/gradus21-app-icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

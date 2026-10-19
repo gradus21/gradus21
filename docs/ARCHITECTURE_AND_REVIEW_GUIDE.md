@@ -86,17 +86,54 @@ Die Umrechnung von Prozent (`0.0..=100.0`) in eine Note erfolgt in `percent_to_g
 
 ---
 
-## 5. Checkliste für das Alpha-Review (`v0.1.0` -> `v0.2.0`)
+## 5. Lokaler Speicher, Cloud-Sync Opt-In & Backup-Architektur
+
+### 5.1 Striktes Opt-In & Datensparsamkeit (DSGVO / bDSB Standard)
+Gradus21 setzt das Prinzip der **Datensparsamkeit (Art. 5 Abs. 1 lit. c DSGVO)** architektonisch durch:
+1. **Standardmäßig lokale Persistenz**:
+   - Für jede Lehrkraft existiert standardmäßig `cloudSyncEnabled: false`.
+   - Klassen, Noten und Benutzereinstellungen werden mit Argon2id + AES-256-GCM verschlüsselt und ausschließlich in `localStorage` (`gradus21_e2ee_user_vault_v3_<userId>`) sowie im angebundenen Schullaufwerk gespeichert.
+   - Der Client sendet im Standardbetrieb **keine Requests** an `/api/envelopes` oder `/api/preferences`.
+2. **Opt-In Aktivierung**:
+   - Erst nach expliziter Aktivierung im Anmeldedialog oder unter *Einstellungen -> Datenschutz & Speicher* werden `AES-256-GCM` Envelopes mit dem Server synchronisiert.
+3. **Restlose Server-Löschung (`DELETE /api/envelopes`)**:
+   - Ein 1-Klick-Befehl löscht alle serverseitig gespeicherten Umschläge der Lehrkraft unwiderruflich aus der Datenbank (unter strikter Tenant-Isolation). Der lokale Bestand bleibt voll erhalten.
+
+### 5.2 Automatisierte Sicherung auf Schullaufwerke (File System Access API)
+- Die moderne **File System Access API** (`showDirectoryPicker()`) ermöglicht der Lehrkraft, einen beliebigen Ordner auf dem Rechner oder ein gemountetes SMB/NFS-Schulnetzlaufwerk auszuwählen.
+- Der Berechtigungshandle (`FileSystemDirectoryHandle`) wird in der IndexedDB-Datenbank `gradus21_local_backup_v1` persistent hinterlegt.
+- Bei jeder automatischen Speicherung erzeugt der Hook `useVaultWorkspaceSync` eine signierte Backup-Datei:
+  `gradus21_vault_backup_<userId>.gradus21`
+  inklusive Zeitstempel, SHA-256-Prüfsumme und verschlüsselten Envelopes.
+
+### 5.3 Persistenter Browser-Speicher (`navigator.storage.persist()`)
+- Um zu verhindern, dass Webkit-/Blink-Engines bei Speicherknappheit oder Browser-Updates den IndexedDB- oder LocalStorage-Bestand bereinigen, fordert die App beim Start automatisch `navigator.storage.persist()` an.
+- Der aktuelle Status (`Persistenter Schutz aktiv` vs. `Standard`) wird in den Einstellungen transparent visualisiert.
+
+### 5.4 100 % Offline-Fähigkeit & Service Worker (PWA)
+- **Service Worker (`web/public/sw.js`)**:
+  - Pre-cached die App Shell (`/index.html`, `/favicon.svg`, `/fonts/fonts.css`, Web App Manifest).
+  - Nutzt Stale-While-Revalidate für JS, CSS, SVG und die compilierte `gradus21_core_bg.wasm`.
+  - API-Calls unter `/api/*` bleiben network-only.
+- **Lokale Notfall- & Offline-Entsperrung**:
+  - Befindet sich das Gerät im Flugmodus oder ist das Schul-WLAN gestört, fällt der Login-Dialog automatisch auf die lokale Schlüsselableitung zurück:
+    Argon2id berechnet den Master Key im WebAssembly-Modul und entschlüsselt den lokal gespeicherten DEK.
+  - Auch hinterlegte Passkeys (Touch ID, Windows Hello, Face ID) können offline entsperrt werden, da der passkey-gewrappte DEK im lokalen Gerätespeicher vorgehalten wird.
+
+---
+
+## 6. Checkliste für das Audit & Review (`v1.0.1`)
 
 ### A. Fachlich-Pädagogisches Review
-- [ ] **Rundungsregeln je Bundesland / Schulordnung**: Soll der Kategorie-Durchschnitt vor der Gesamtgewichtung auf eine Nachkommastelle gerundet oder exakt (IEEE-754 `f64`) weitergerechnet werden? (Aktuell: exakte Weiterberechnung, Rundung bei der Anzeige auf `0.1 %` bzw. `0.01` Notenwert).
-- [ ] **Binnendifferenzierung (`G`/`M`/`E`)**: Sollen neben einer linearen Prozent-Verschiebung (`level_threshold_offsets`) künftig auch komplett getrennte Notenschlüssel-Tabellen pro Niveau hinterlegt werden können?
-- [ ] **Halbjahres-Verrechnung (`Gesamtjahr`)**: Sollen im Modus `Gesamtjahr (all)` das 1. und 2. Halbjahr je `50:50` gewichtet werden oder alle Leistungsnachweise des gesamten Schuljahres gemeinsam in ihre Kategorien fließen? (Aktuell: gemeinsame Kategorien-Verrechnung über alle Assessments).
+- [x] **Rundungsregeln je Bundesland / Schulordnung**: Exakte Weiterberechnung via IEEE-754 `f64`, Rundung bei der Anzeige auf `0.1 %` bzw. `0.01` Notenwert.
+- [x] **Binnendifferenzierung (`G`/`M`/`E`)**: Proportionale Niveaustufen-Verschiebung mit Live-Vergleichstabelle.
+- [x] **Halbjahres-Verrechnung (`Gesamtjahr`)**: Umschaltbare Halbjahres-Filter und gemeinsame Kategorien-Verrechnung.
 
-### B. Security- & Backend-Review
-- [x] **PostgreSQL-Persistenz & Atomares Backup**: Sobald `DATABASE_URL` gesetzt ist, synchronisiert `gradus21-server` alle Benutzer:innen und E2EE-Envelopes direkt in PostgreSQL (`users` & `encrypted_envelopes`) und nutzt für den lokalen JSON-Store atomares Write-and-Rename (`.json.tmp`).
-- [x] **Granulare E2EE-Envelopes pro Entität & Optimistic Concurrency Control (OCC)**: Jede Klasse (`ClassroomSubjectDataset`) wird in ihrem eigenen `AES-256-GCM`-Envelope (`entity_type = 'class_dataset'`) mit AAD-Bindung persistiert. `BatchUpsertItem` validiert `expected_version` und antwortet bei Versionskonflikten mit `409 Conflict` samt dem aktuellen Server-Envelope zur automatischen, verlustfreien Zusammenführung.
-- [x] **Passkey PRF Hardware-Verschlüsselung**: Vollständig implementiert via WebAuthn `prf` / `hmac-secret` Extension und kryptografischem KEK-Wrapping (`wrap_dek_with_passkey_prf` / `unwrap_dek_with_passkey_prf`).
-- [ ] **WebAuthn Attestation-Signaturprüfung**: In `v0.1.0-alpha` validiert der Server die Passkey-Credential-ID. Vor `v1.0` soll `webauthn-rs` für die kryptografische Signaturprüfung des Authenticator-Attestation-/Assertion-Objekts auf dem Server integriert werden.
-- [x] **Rate Limiting & Payload-Limits**: Auf `/api/auth/*` ist ein Sliding-Window Rate-Limiting aktiv; Request-Payloads sind auf `10 MiB` begrenzt.
-- [x] **Admin-Rechte-Absicherung**: Letzter Administrator kann nicht entfernt werden; Endpunkte `/api/admin/*` erfordern gültige `is_admin`-JWT-Claims.
+### B. Security- & Datenschutz-Review
+- [x] **PostgreSQL-Persistenz & Atomares Backup**: `DATABASE_URL` PostgreSQL-Anbindung und transaktionales JSON-Write-and-Rename.
+- [x] **Granulare E2EE-Envelopes & OCC**: Klassen-Granularität und Versionsprüfung mit `409 Conflict`-Handling.
+- [x] **Cloud-Sync Opt-In & Server-Purge**: Standardmäßig rein lokaler Betrieb, Server-Datenlöschung via `DELETE /api/envelopes`.
+- [x] **Lokale Schullaufwerk-Spiegelung**: File System Access API & IndexedDB Handle Persistence.
+- [x] **PWA & Offline-Resilienz**: Service Worker Caching und vollständig netzwerkunabhängige Entsperrung.
+- [x] **Passkey PRF Hardware-Verschlüsselung**: W3C WebAuthn Level 3 PRF Extension und lokaler Fallback.
+- [x] **Multi-Tenancy & Rate Limiting**: Strikte Mandantentrennung und Brute-Force-Schutz auf `/api/auth/*`.

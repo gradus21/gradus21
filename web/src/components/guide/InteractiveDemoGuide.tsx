@@ -376,14 +376,14 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
       top: `${top}px`,
       left: `${left}px`,
       width: `${cardWidth}px`,
-      zIndex: 60,
+      zIndex: 70,
     };
   }
 
   const stepProgress = Math.round(((stepIndex + 1) / totalSteps) * 100);
 
   return (
-    <div className="fixed inset-0 z-50 pointer-events-auto">
+    <div className="fixed inset-0 z-[60] pointer-events-none">
       {/* SVG SPOTLIGHT MASK OVERLAY */}
       <svg className="absolute inset-0 w-full h-full pointer-events-none transition-all duration-300 ease-out">
         <defs>
@@ -432,7 +432,7 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
       {/* FLOATING INTERACTIVE CARD */}
       <div
         ref={popoverRef}
-        className="w-full max-w-[480px] rounded-3xl border shadow-2xl overflow-hidden transition-all duration-300 ease-out animate-scale-up"
+        className="w-full max-w-[480px] rounded-3xl border shadow-2xl overflow-hidden transition-all duration-300 ease-out animate-scale-up pointer-events-auto"
         style={{
           ...popoverStyle,
           backgroundColor: 'var(--bg-surface)',

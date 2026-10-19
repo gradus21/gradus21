@@ -12,6 +12,16 @@ import {
   UserSyncSettings,
   ensureValidUuid,
 } from '../data/demoClasses';
+import {
+  exportVaultToFileDownload,
+  getDirectoryHandle,
+  isFileSystemAccessSupported,
+  pickBackupDirectory,
+  readVaultFromFile,
+  removeDirectoryHandle,
+  requestStoragePersistence,
+  writeVaultToDirectory,
+} from '../utils/localBackupStorage';
 
 const DEMO_OWNER_USER_ID = '7f9c2a10-58e4-4c9b-9b1a-123456789abc';
 export const ACTIVE_USER_ID_STORAGE_KEY = 'gradus21_active_user_id_v3';
@@ -128,12 +138,30 @@ export function useVaultWorkspaceSync() {
         localStorage.getItem(LEGACY_VAULT_LOCKED_STORAGE_KEY)) === 'true'
     );
   });
-  const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline_local'>('synced');
+  const [syncStatus, setSyncStatus] = useState<
+    'synced' | 'syncing' | 'offline_local' | 'local_only'
+  >('local_only');
   const [syncConflictNotice, setSyncConflictNotice] = useState<string | null>(null);
   const clearConflictNotice = () => setSyncConflictNotice(null);
   const envelopeVersionsRef = useRef<Map<string, number>>(new Map());
   const lastSerializedPerClassRef = useRef<Map<string, string>>(new Map());
   const lastSerializedSettingsRef = useRef<string>('');
+
+  // Local persistent storage & automated backup directory
+  const [isPersistentStorage, setIsPersistentStorage] = useState<boolean>(false);
+  const [connectedBackupDirName, setConnectedBackupDirName] = useState<string | null>(null);
+  const [lastLocalBackupTime, setLastLocalBackupTime] = useState<string | null>(null);
+  const connectedDirHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
+
+  useEffect(() => {
+    requestStoragePersistence().then((persisted) => setIsPersistentStorage(persisted));
+    getDirectoryHandle().then((handle) => {
+      if (handle) {
+        connectedDirHandleRef.current = handle;
+        setConnectedBackupDirName(handle.name);
+      }
+    });
+  }, []);
 
   const [vaultSession, setVaultSession] = useState<ActiveVaultSession | null>(null);
   const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
@@ -146,7 +174,14 @@ export function useVaultWorkspaceSync() {
   } | null>(null);
 
   // Global School Templates from Server (Zentral bereitgestellt)
-  const [globalTemplates, setGlobalTemplates] = useState<GlobalTemplateRecord[]>([]);
+  const [globalTemplates, setGlobalTemplates] = useState<GlobalTemplateRecord[]>(() => {
+    try {
+      const cached = localStorage.getItem('gradus21_cached_global_templates');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -161,6 +196,11 @@ export function useVaultWorkspaceSync() {
           const list = await res.json();
           if (isMounted && Array.isArray(list)) {
             setGlobalTemplates(list);
+            try {
+              localStorage.setItem('gradus21_cached_global_templates', JSON.stringify(list));
+            } catch {
+              // ignore quota
+            }
           }
         }
       } catch {
@@ -240,16 +280,20 @@ export function useVaultWorkspaceSync() {
                   parsed.encryptedSettingsEnvelope
                 );
                 lastSerializedSettingsRef.current = decSettings;
+                const parsedSettings = JSON.parse(decSettings);
                 setUserSettings({
                   ...DEFAULT_USER_SYNC_SETTINGS,
-                  ...JSON.parse(decSettings),
+                  ...parsedSettings,
                 });
+                setLoadedUserId(userId);
+                setSyncStatus(parsedSettings?.cloudSyncEnabled ? 'synced' : 'local_only');
+                return;
               } catch {
                 // Keep default settings if corrupted
               }
             }
             setLoadedUserId(userId);
-            setSyncStatus('synced');
+            setSyncStatus(userSettings.cloudSyncEnabled ? 'synced' : 'local_only');
             return;
           } else if (parsed.encryptedDatasetsEnvelope) {
             // Legacy monolithic cache
@@ -280,16 +324,20 @@ export function useVaultWorkspaceSync() {
                   parsed.encryptedSettingsEnvelope
                 );
                 lastSerializedSettingsRef.current = decSettings;
+                const parsedSettings = JSON.parse(decSettings);
                 setUserSettings({
                   ...DEFAULT_USER_SYNC_SETTINGS,
-                  ...JSON.parse(decSettings),
+                  ...parsedSettings,
                 });
+                setLoadedUserId(userId);
+                setSyncStatus(parsedSettings?.cloudSyncEnabled ? 'synced' : 'local_only');
+                return;
               } catch {
                 // Keep default settings if corrupted
               }
             }
             setLoadedUserId(userId);
-            setSyncStatus('synced');
+            setSyncStatus(userSettings.cloudSyncEnabled ? 'synced' : 'local_only');
             return;
           }
         } catch (e) {
@@ -298,8 +346,8 @@ export function useVaultWorkspaceSync() {
       }
     }
 
-    // Falls kein lokaler Cache existiert oder forceServerFetch aktiv ist -> Server abfragen
-    if (token) {
+    // Falls kein lokaler Cache existiert oder forceServerFetch aktiv ist -> Server abfragen (sofern Opt-In aktiv oder erzwungen)
+    if (token && (forceServerFetch || userSettings.cloudSyncEnabled)) {
       try {
         setSyncStatus('syncing');
         const res = await fetch('/api/envelopes/sync', {
@@ -432,7 +480,7 @@ export function useVaultWorkspaceSync() {
     setActiveClassId(freshOffline[0].id);
     setUserSettings(DEFAULT_USER_SYNC_SETTINGS);
     setLoadedUserId(userId);
-    setSyncStatus('synced');
+    setSyncStatus(userSettings.cloudSyncEnabled ? 'synced' : 'local_only');
   };
 
   const handleLockVault = () => {
@@ -737,6 +785,33 @@ export function useVaultWorkspaceSync() {
         };
         localStorage.setItem(userCacheKey, JSON.stringify(userCacheBundle));
 
+        // Auto-save to connected local backup directory (File System Access API) if configured
+        if (connectedDirHandleRef.current) {
+          try {
+            await writeVaultToDirectory(
+              connectedDirHandleRef.current,
+              JSON.stringify(userCacheBundle, null, 2)
+            );
+            setLastLocalBackupTime(
+              new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            );
+          } catch (fsErr) {
+            console.warn('Fehler beim automatischen Schreiben in den Backup-Ordner:', fsErr);
+          }
+        }
+
+        // If Cloud-Sync is NOT opted in (Standard: Datensparsamkeit gem. DSGVO)
+        if (!userSettings.cloudSyncEnabled) {
+          for (const ds of datasets) {
+            lastSerializedPerClassRef.current.set(ds.id, JSON.stringify(ds));
+          }
+          if (settingsEnvelopeItem) {
+            lastSerializedSettingsRef.current = serializedSettings;
+          }
+          setSyncStatus('local_only');
+          return;
+        }
+
         // If no envelopes are dirty and no token, we are synced
         if (dirtyEnvelopes.length === 0 && !settingsEnvelopeItem) {
           setSyncStatus('synced');
@@ -888,8 +963,8 @@ export function useVaultWorkspaceSync() {
       }
     }
 
-    // Call DELETE /api/envelopes/:id on the server
-    if (vaultSession?.token) {
+    // Call DELETE /api/envelopes/:id on the server (nur wenn Cloud-Sync aktiv ist)
+    if (userSettings.cloudSyncEnabled && vaultSession?.token) {
       try {
         await fetch(`/api/envelopes/${canonicalId}`, {
           method: 'DELETE',
@@ -901,6 +976,114 @@ export function useVaultWorkspaceSync() {
         console.warn(`Fehler beim Löschen des Envelopes ${canonicalId} auf dem Server:`, err);
       }
     }
+  };
+
+  const handleToggleCloudSync = (enabled: boolean) => {
+    setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: enabled }));
+    if (!enabled) {
+      setSyncStatus('local_only');
+    } else {
+      // Mark dirty so debounced save uploads envelopes immediately
+      lastSerializedPerClassRef.current.clear();
+      lastSerializedSettingsRef.current = '';
+      setSyncStatus('syncing');
+    }
+  };
+
+  const handlePurgeCloudData = async () => {
+    if (!vaultSession?.token) {
+      setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: false }));
+      setSyncStatus('local_only');
+      alert('Cloud-Sync wurde deaktiviert. Alle Daten bleiben rein lokal gespeichert.');
+      return;
+    }
+    const confirmed = window.confirm(
+      'Möchtest du wirklich alle verschlüsselten Datensätze vom Server löschen? Deine lokalen Daten im Browser bleiben vollständig erhalten. Gradus21 arbeitet danach zu 100% lokal offline.'
+    );
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch('/api/envelopes', {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${vaultSession.token}`,
+        },
+      });
+      if (res.ok || res.status === 204) {
+        envelopeVersionsRef.current.clear();
+        setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: false }));
+        setSyncStatus('local_only');
+        alert('Alle Server-Kopien wurden unwiderruflich gelöscht. Gradus21 arbeitet nun rein lokal.');
+      } else {
+        alert('Serverfehler beim Löschen der Cloud-Kopien.');
+      }
+    } catch (e) {
+      console.error('Fehler beim Löschen der Server-Daten:', e);
+      alert('Der Server konnte nicht erreicht werden.');
+    }
+  };
+
+  const handleExportEncryptedBackup = () => {
+    if (!vaultSession?.userId) return;
+    const userCacheKey = getUserEncryptedCacheKey(vaultSession.userId);
+    const cachedRaw = localStorage.getItem(userCacheKey);
+    if (!cachedRaw) {
+      alert('Kein lokaler Datensatz zum Sichern gefunden.');
+      return;
+    }
+    try {
+      const parsed = JSON.parse(cachedRaw);
+      exportVaultToFileDownload(parsed);
+    } catch (e) {
+      console.error('Fehler beim Exportieren des Backups:', e);
+    }
+  };
+
+  const handleImportEncryptedBackup = async (file: File) => {
+    try {
+      const parsed = await readVaultFromFile(file);
+      if (!parsed.userId) {
+        alert('Die Datei enthält keine gültige Benutzer-ID.');
+        return;
+      }
+      const targetKey = getUserEncryptedCacheKey(parsed.userId);
+      localStorage.setItem(targetKey, JSON.stringify(parsed));
+      localStorage.setItem(ACTIVE_USER_ID_STORAGE_KEY, parsed.userId);
+      alert('Das Tresor-Backup wurde erfolgreich in den Browser importiert! Bitte entsperre den Tresor mit deinem Master-Passwort.');
+      handleLockVault();
+    } catch (err: any) {
+      alert(err.message || 'Fehler beim Einlesen der Backup-Datei.');
+    }
+  };
+
+  const handleConnectBackupDirectory = async () => {
+    try {
+      const handle = await pickBackupDirectory();
+      if (handle) {
+        connectedDirHandleRef.current = handle;
+        setConnectedBackupDirName(handle.name);
+        // Sofort ein aktuelles Backup schreiben
+        if (vaultSession?.userId) {
+          const userCacheKey = getUserEncryptedCacheKey(vaultSession.userId);
+          const cachedRaw = localStorage.getItem(userCacheKey);
+          if (cachedRaw) {
+            await writeVaultToDirectory(handle, cachedRaw);
+            setLastLocalBackupTime(
+              new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            );
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn('Backup-Ordner konnte nicht verknüpft werden:', err);
+    }
+  };
+
+  const handleDisconnectBackupDirectory = async () => {
+    await removeDirectoryHandle();
+    connectedDirHandleRef.current = null;
+    setConnectedBackupDirName(null);
+    setLastLocalBackupTime(null);
   };
 
   const handleRestoreSnapshot = async () => {
@@ -969,11 +1152,20 @@ export function useVaultWorkspaceSync() {
     sampleEnvelope,
     globalTemplates,
     setGlobalTemplates,
+    isPersistentStorage,
+    connectedBackupDirName,
+    lastLocalBackupTime,
     loadIsolatedUserWorkspace,
     handleLockVault,
     handleUnlockVault,
     updateSubjectConfig,
     handleDeleteClass,
     handleRestoreSnapshot,
+    handleToggleCloudSync,
+    handlePurgeCloudData,
+    handleExportEncryptedBackup,
+    handleImportEncryptedBackup,
+    handleConnectBackupDirectory,
+    handleDisconnectBackupDirectory,
   };
 }

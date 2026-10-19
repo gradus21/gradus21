@@ -36,7 +36,7 @@ export interface AppHeaderProps {
   onOpenInteractiveGuide: () => void;
   showGuideButtonInHeader?: boolean;
   isAdmin?: boolean;
-  syncStatus: 'syncing' | 'synced' | 'offline_local';
+  syncStatus: 'syncing' | 'synced' | 'offline_local' | 'local_only';
   privacyBlur: boolean;
   setPrivacyBlur: React.Dispatch<React.SetStateAction<boolean>>;
   onLockVault: () => void;
@@ -195,9 +195,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             </button>
           )}
 
-          <div
+          <button
+            onClick={onOpenSettings}
             data-tour="header-sync-status"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer hover:opacity-90"
             style={{
               backgroundColor: 'var(--bg-subtle)',
               borderColor: 'var(--border-subtle)',
@@ -206,24 +207,39 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   ? 'var(--primary-text)'
                   : syncStatus === 'synced'
                   ? '#059669'
-                  : 'var(--text-muted)',
+                  : syncStatus === 'local_only'
+                  ? 'var(--primary-text)'
+                  : '#d97706',
             }}
+            title={
+              syncStatus === 'syncing'
+                ? 'Daten werden synchronisiert...'
+                : syncStatus === 'synced'
+                ? 'E2EE Cloud-Synchronisation aktiv (Auf Server gesichert)'
+                : syncStatus === 'local_only'
+                ? 'Ausschließlich lokal im Browser verschlüsselt gespeichert (Cloud-Sync ist opt-in und aus). Klicke für Einstellungen.'
+                : 'Offline: Änderungen sind lokal verschlüsselt gespeichert'
+            }
           >
             {syncStatus === 'syncing' ? (
               <RefreshCw className="w-3.5 h-3.5 animate-spin" style={{ color: 'var(--primary-500)' }} />
             ) : syncStatus === 'synced' ? (
               <Cloud className="w-3.5 h-3.5 text-emerald-600" />
+            ) : syncStatus === 'local_only' ? (
+              <Shield className="w-3.5 h-3.5" style={{ color: 'var(--primary-500)' }} />
             ) : (
-              <CloudOff className="w-3.5 h-3.5 opacity-60" />
+              <CloudOff className="w-3.5 h-3.5 text-amber-600" />
             )}
             <span className="hidden sm:inline">
               {syncStatus === 'syncing'
                 ? 'Speichern...'
                 : syncStatus === 'synced'
-                ? 'Gespeichert'
-                : 'Lokal'}
+                ? 'Cloud-Sync'
+                : syncStatus === 'local_only'
+                ? 'Lokal (Kein Cloud-Sync)'
+                : 'Offline (Lokal)'}
             </span>
-          </div>
+          </button>
 
           <button
             onClick={onOpenSettings}

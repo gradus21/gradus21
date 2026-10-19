@@ -15,6 +15,7 @@ interface ClassSetupAndExcelWizardProps {
   onClose: () => void;
   onCreateClass: (newClass: ClassroomSubjectDataset) => void;
   globalTemplates?: GlobalTemplateRecord[];
+  onLoadDemoClass?: () => void;
 }
 
 interface DetectedExcelColumn {
@@ -29,6 +30,7 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
   onClose,
   onCreateClass,
   globalTemplates = [],
+  onLoadDemoClass,
 }) => {
   const [activeTab, setActiveTab] = useState<'excel' | 'wizard'>('excel');
 
@@ -394,6 +396,34 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        {onLoadDemoClass && (
+          <div
+            className="p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+            style={{ backgroundColor: 'var(--primary-soft)', borderColor: 'var(--primary-500)' }}
+          >
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+              <div>
+                <span className="font-bold text-slate-900 dark:text-white">
+                  Schnellstart für Demo &amp; Rundgang:
+                </span>{' '}
+                <span className="text-slate-600 dark:text-slate-300">
+                  Lade direkt eine vollständige Klasse (Englisch 6 mit 12 Schüler:innen &amp; Noten).
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onLoadDemoClass}
+              className="px-3.5 py-1.5 rounded-lg text-xs font-bold text-white shadow-sm flex items-center justify-center gap-1.5 shrink-0 transition hover:opacity-95"
+              style={{ backgroundColor: 'var(--primary-500)' }}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Demoklasse laden</span>
+            </button>
+          </div>
+        )}
 
         {/* Mode Tabs */}
         <div className="flex gap-2 p-1 rounded-xl border" style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}>

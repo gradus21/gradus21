@@ -45,13 +45,29 @@ Viele Lehrkräfte verwalten ihre Klassenlisten, Punktetabellen, Gewichtungen (`5
 - **Bestehende Klassen flexibel bearbeiten**: Schüler:innen unterjährig hinzufügen, **archivieren** (z. B. bei Schulwechsel ohne Datenverlust) oder löschen; Anzahl der Leistungsnachweise/Tests je Kategorie per `+/-` anpassen.
 - **Konferenz- & Elterngesprächs-Exporte**: Mehrblättriger `.xlsx`-Export sowie druckfertige A4-Berichte (Klassenkonferenz-Bogen & Einzel-Elternsprechtagsbogen).
 
-### 3. Zero-Knowledge E2EE Security & Multi-User-Isolation
+### 3. Zero-Knowledge E2EE Security, Datensparsamkeit & Offline-Fokus
+- **Striktes Cloud-Sync Opt-In (Standard: AUS)**:
+  - Bei Neuinstallation und Registrierung ist die Cloud-Synchronisation standardmäßig **deaktiviert**. Alle Schüler:innendaten und Noten verbleiben zu 100 % lokal auf dem Gerät der Lehrkraft.
+  - Das System kann vollständig ohne Server-Konto als reiner Offline-Tresor betrieben werden.
+  - Erst nach expliziter Aktivierung (Opt-In) im Einstellungsmenü oder bei der Registrierung werden Ende-zu-Ende verschlüsselte Umschläge (`AES-256-GCM`) für den Multi-Geräte-Sync an den Server übertragen.
+  - **Server-Datenlöschung per 1-Klick (`DELETE /api/envelopes`)**: Lehrkräfte können jederzeit alle verschlüsselten Cloud-Kopien restlos vom Server löschen, ohne den lokalen Datenbestand zu gefährden.
+- **Automatisierte lokale Backups & Schullaufwerk-Anbindung**:
+  - Unterstützung der modernen **File System Access API** (`showDirectoryPicker()`): Lehrkräfte können einen beliebigen lokalen Ordner oder ein freigegebenes SMB-Schulnetzlaufwerk anbinden.
+  - Bei jeder Notenänderung wird der verschlüsselte Tresor mit Zeitstempel automatisch in den verbundenen Ordner gespiegelt (`gradus21_vault_backup_<userId>.gradus21`).
+  - Der Zugriffsberechtigungshandle wird sicher in IndexedDB persistiert.
+- **Manueller Backup-Export & -Import (`.gradus21`)**:
+  - Unabhängig vom Browser können verschlüsselte Noten-Tresore als signierte `.gradus21`-Dateien heruntergeladen und auf anderen Rechnern wiederhergestellt werden.
+- **Persistenter Browser-Speicher**:
+  - Automatische Anforderung von `navigator.storage.persist()`, um zu verhindern, dass Browser bei geringem Speicherplatz oder Updates lokale Notenbestände verwerfen.
+- **100 % Offline-Fähigkeit & PWA (Service Worker)**:
+  - Eingebauter Service Worker (`sw.js`) und Web App Manifest (`manifest.json`): Gradus21 startet und funktioniert auch bei vollständigem Ausfall des Schul-WLANs oder ohne Internetverbindung.
+  - Lokale Entsperrung per Argon2id-WASM oder Passkey ohne Server-Abfrage.
 - **Argon2id + HKDF-SHA256 + AES-256-GCM Envelope Encryption**:
-  - Das Passwort der Lehrkraft leitet lokal im Browser den *Master Key* ab (`Argon2id` mit `19 MiB`, 2 Runden, OWASP Minimum).
-  - Der *Data Encryption Key (DEK)* wird lokal gewrappt (`encrypted_dek`); der Server speichert ausschließlich verschlüsselte Envelopes.
+  - Das Master-Passwort der Lehrkraft leitet lokal im Browser den *Master Key* ab (`Argon2id` mit `19 MiB`, 2 Runden, OWASP Minimum).
+  - Der *Data Encryption Key (DEK)* wird lokal gewrappt (`encrypted_dek`); der Server sieht zu keinem Zeitpunkt Klartext oder Master-Keys.
 - **Strikte Mandantentrennung (Multi-Tenancy)**:
   - Jedes Lehrkraft-Konto besitzt eine eigene `user_id`, eigenen `kdf_salt`, eigenen `DEK` sowie strikt nach `owner_user_id` getrennte Server-Envelopes und isolierten Browser-Cache.
-- **Passkey (WebAuthn / FIDO2)** mit PRF-Hardware-Entschlüsselungsunterstützung, **TOTP 2FA (RFC 6238 QR-Code + Manuelles Base32-Setup)** und **24-stelliger Notfall-Wiederherstellungscode (`Recovery Key`)**.
+- **Passkey (WebAuthn / FIDO2)** mit PRF-Hardware-Entschlüsselung (auch offline), **TOTP 2FA (RFC 6238 QR-Code)** und **24-stelliger Notfall-Wiederherstellungscode (`Recovery Key`)**.
 
 ### 4. Schulweite Administration & Enterprise-Readiness
 - **Benutzer:innenverwaltung & Rollen**: Lehrkräfte einladen, aktivieren/deaktivieren, Admin-Rollen zuweisen (mit Schutz vor Demotion des letzten Admins).

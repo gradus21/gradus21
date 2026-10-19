@@ -10,6 +10,7 @@ interface UseInteractiveGuideProps {
   setShowVaultInspector: (open: boolean) => void;
   setShowOnDemandSimulator: (open: boolean) => void;
   setShowOnDemandCurveEditor: (open: boolean) => void;
+  onLoadDemoDataset?: () => void;
 }
 
 export function useInteractiveGuide({
@@ -20,6 +21,7 @@ export function useInteractiveGuide({
   setShowVaultInspector,
   setShowOnDemandSimulator,
   setShowOnDemandCurveEditor,
+  onLoadDemoDataset,
 }: UseInteractiveGuideProps) {
   const [isGuideOpen, setIsGuideOpen] = useState<boolean>(false);
   const [currentGuideChapterId, setCurrentGuideChapterId] = useState<GuideChapterId>('overview_all');
@@ -96,6 +98,11 @@ export function useInteractiveGuide({
         break;
       case 'show_curve_editor':
         setShowOnDemandCurveEditor(true);
+        break;
+      case 'load_demo_dataset':
+        if (onLoadDemoDataset) {
+          onLoadDemoDataset();
+        }
         break;
       default:
         break;

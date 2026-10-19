@@ -67,6 +67,9 @@ interface VaultLockAndAuthModalProps {
   onUnlockSuccess: (newSession: ActiveVaultSession) => void;
   onLockVault: () => void;
   onCloseInspector?: () => void;
+  cloudSyncEnabled?: boolean;
+  onToggleCloudSync?: (enable: boolean) => Promise<boolean>;
+  onPurgeCloudData?: () => Promise<boolean>;
 }
 
 interface LocalPasskeyStoreEntry {
@@ -76,6 +79,7 @@ interface LocalPasskeyStoreEntry {
   prfSupported?: boolean;
   prfSaltB64?: string;
   passkeySecretB64?: string; // Fallback only for non-PRF authenticators
+  passkeyEncryptedDek?: string; // Local cached passkey wrapped DEK for offline unlock
   createdAt: string;
 }
 
@@ -91,6 +95,56 @@ export interface UserPasskeyItem {
 interface LocalRecoveryMetaEntry {
   email: string;
   recoveryEncryptedDek: string;
+}
+
+export interface LocalCachedVaultMeta {
+  userId: string;
+  email: string;
+  kdfSaltB64: string;
+  encryptedDek: string;
+  recoveryEncryptedDek?: string;
+  totpEnabled?: boolean;
+}
+
+export function findLocalCachedVault(targetEmail?: string): LocalCachedVaultMeta | null {
+  try {
+    const normalized = targetEmail ? targetEmail.trim().toLowerCase() : null;
+    let fallback: LocalCachedVaultMeta | null = null;
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      if (
+        key.startsWith('gradus21_e2ee_user_vault_') ||
+        key.startsWith('bte_notenflow_e2ee_user_vault_')
+      ) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (!raw) continue;
+          const parsed = JSON.parse(raw);
+          const s = parsed.session;
+          if (s && s.userId && s.encryptedDek && s.kdfSaltB64) {
+            const meta: LocalCachedVaultMeta = {
+              userId: s.userId,
+              email: s.email || 'lokal@schule.intern',
+              kdfSaltB64: s.kdfSaltB64,
+              encryptedDek: s.encryptedDek,
+              recoveryEncryptedDek: s.recoveryEncryptedDek,
+              totpEnabled: s.totpEnabled,
+            };
+            if (normalized && s.email && s.email.trim().toLowerCase() === normalized) {
+              return meta;
+            }
+            if (!fallback) fallback = meta;
+          }
+        } catch {
+          // ignore corrupted entry
+        }
+      }
+    }
+    return fallback;
+  } catch {
+    return null;
+  }
 }
 
 const PASSKEY_STORAGE_KEY = 'gradus21_passkey_device_store_v2';
@@ -192,6 +246,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   onUnlockSuccess,
   onLockVault,
   onCloseInspector,
+  cloudSyncEnabled = false,
+  onToggleCloudSync,
+  onPurgeCloudData,
 }) => {
   const [authTab, setAuthTab] = useState<'login' | 'register' | 'recover'>('login');
   const [email, setEmail] = useState(session?.email || '');
@@ -213,6 +270,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   const [editingPasskeyLabel, setEditingPasskeyLabel] = useState<string>('');
   const [legalModalOpen, setLegalModalOpen] = useState(false);
   const [legalTab, setLegalTab] = useState<LegalTab>('impressum');
+  const [optInCloudSync, setOptInCloudSync] = useState(false);
+  const [isTogglingSync, setIsTogglingSync] = useState(false);
+  const [isPurgingCloud, setIsPurgingCloud] = useState(false);
 
   const handleOpenLegal = (tab: LegalTab) => {
     setLegalTab(tab);
@@ -490,32 +550,35 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         ? wasm_derive_recovery_auth_key(activeSession.recoveryKeyFormatted)
         : undefined;
 
-      const res = await fetch('/api/auth/passkey/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${activeSession.token}`,
-        },
-        body: JSON.stringify({
-          credential_id: credentialIdB64,
-          label: deviceLabel,
-          passkey_encrypted_dek: passkeyEncryptedDek,
-          passkey_prf_salt_b64: isPrfEnabled ? prfSaltB64 : undefined,
-          kdf_salt_b64: activeSession.kdfSaltB64,
-          encrypted_dek: activeSession.encryptedDek,
-          recovery_encrypted_dek: activeSession.recoveryEncryptedDek,
-          recovery_auth_key_b64: recoveryAuthKeyB64,
-        }),
-      });
+      let dataToken = activeSession.token;
+      if (activeSession.token) {
+        try {
+          const res = await fetch('/api/auth/passkey/register', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${activeSession.token}`,
+            },
+            body: JSON.stringify({
+              credential_id: credentialIdB64,
+              label: deviceLabel,
+              passkey_encrypted_dek: passkeyEncryptedDek,
+              passkey_prf_salt_b64: isPrfEnabled ? prfSaltB64 : undefined,
+              kdf_salt_b64: activeSession.kdfSaltB64,
+              encrypted_dek: activeSession.encryptedDek,
+              recovery_encrypted_dek: activeSession.recoveryEncryptedDek,
+              recovery_auth_key_b64: recoveryAuthKeyB64,
+            }),
+          });
 
-      if (!res.ok) {
-        const errText = await res.text();
-        setErrorMsg(errText || 'Passkey konnte nicht gespeichert werden.');
-        setStatusMsg(null);
-        return false;
+          if (res.ok) {
+            const data = await res.json();
+            if (data.token) dataToken = data.token;
+          }
+        } catch {
+          // offline: passkey works locally
+        }
       }
-
-      const data = await res.json();
 
       const entry: LocalPasskeyStoreEntry = {
         credentialId: credentialIdB64,
@@ -523,6 +586,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         label: deviceLabel,
         prfSupported: isPrfEnabled,
         prfSaltB64: isPrfEnabled ? prfSaltB64 : undefined,
+        passkeyEncryptedDek: passkeyEncryptedDek,
         // Nur wenn PRF nicht hardwareseitig unterstützt wird, speichern wir den Fallback-Schlüssel
         passkeySecretB64: isPrfEnabled ? undefined : passkeySecretB64,
         createdAt: new Date().toLocaleDateString('de-DE'),
@@ -532,7 +596,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
       const updatedSession: ActiveVaultSession = {
         ...activeSession,
-        token: data.token || activeSession.token,
+        token: dataToken || activeSession.token,
         passkeyCredentialId: credentialIdB64,
         passkeyLabel: deviceLabel,
       };
@@ -772,24 +836,27 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         derivedSecretB64 = localEntry.passkeySecretB64;
       }
 
-      const res = await fetch('/api/auth/passkey/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: localEntry.email,
-          credential_id: localEntry.credentialId,
-        }),
-      });
+      let loginData: any = null;
+      try {
+        const res = await fetch('/api/auth/passkey/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: localEntry.email,
+            credential_id: localEntry.credentialId,
+          }),
+        });
 
-      if (!res.ok) {
-        const errText = await res.text();
-        setStatusMsg(null);
-        setErrorMsg(errText || 'Passkey-Anmeldung nicht möglich.');
-        return;
+        if (res.ok) {
+          loginData = await res.json();
+        }
+      } catch {
+        // Server unreachable / offline
       }
 
-      const loginData = await res.json();
-      if (!loginData.passkey_encrypted_dek) {
+      const passkeyEncryptedDek = loginData?.passkey_encrypted_dek || localEntry.passkeyEncryptedDek;
+
+      if (!passkeyEncryptedDek) {
         setStatusMsg(null);
         setErrorMsg('Für diesen Passkey wurde noch kein Schlüssel hinterlegt.');
         return;
@@ -806,14 +873,16 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       const unwrappedDekB64 = wasm_unwrap_dek_with_passkey(
         derivedSecretB64,
         localEntry.credentialId,
-        loginData.passkey_encrypted_dek
+        passkeyEncryptedDek
       );
 
-      const cachedMeta = loadLocalRecoveryMeta(loginData.email);
+      const localCached = findLocalCachedVault(localEntry.email);
+      const cachedMeta = loadLocalRecoveryMeta(loginData?.email || localEntry.email);
       let recoveryKeyFormatted = session?.recoveryKeyFormatted;
       let recoveryEncryptedDek =
-        loginData.recovery_encrypted_dek ||
+        loginData?.recovery_encrypted_dek ||
         session?.recoveryEncryptedDek ||
+        localCached?.recoveryEncryptedDek ||
         cachedMeta?.recoveryEncryptedDek ||
         '';
 
@@ -825,7 +894,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           recoveryKeyFormatted = wrapped.recovery_key_formatted;
           recoveryEncryptedDek = wrapped.recovery_encrypted_dek;
           saveLocalRecoveryMeta({
-            email: loginData.email,
+            email: loginData?.email || localEntry.email,
             recoveryEncryptedDek,
           });
         } catch {
@@ -833,23 +902,25 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         }
       }
 
+      const effectiveUserId = loginData?.user_id || localCached?.userId || session?.userId || 'user_local';
+
       onUnlockSuccess({
-        token: loginData.token,
-        userId: loginData.user_id,
-        email: loginData.email,
-        isAdmin: loginData.is_admin ?? false,
-        kdfSaltB64: loginData.kdf_salt_b64 || session?.kdfSaltB64 || '',
+        token: loginData?.token || '',
+        userId: effectiveUserId,
+        email: loginData?.email || localEntry.email,
+        isAdmin: loginData?.is_admin ?? false,
+        kdfSaltB64: loginData?.kdf_salt_b64 || localCached?.kdfSaltB64 || session?.kdfSaltB64 || '',
         dekB64: unwrappedDekB64,
         encryptedDek:
-          session?.encryptedDek && loginData.encrypted_dek === loginData.passkey_encrypted_dek
+          session?.encryptedDek && loginData?.encrypted_dek === loginData?.passkey_encrypted_dek
             ? session.encryptedDek
-            : loginData.encrypted_dek || session?.encryptedDek || '',
+            : loginData?.encrypted_dek || localCached?.encryptedDek || session?.encryptedDek || '',
         recoveryEncryptedDek,
         recoveryKeyFormatted,
-        totpEnabled: loginData.totp_enabled,
-        passkeyCredentialId: loginData.passkey_credential_id,
-        passkeyLabel: loginData.passkey_label,
-        serverSyncedCount: session?.serverSyncedCount || 29,
+        totpEnabled: loginData?.totp_enabled ?? false,
+        passkeyCredentialId: loginData?.passkey_credential_id || localEntry.credentialId,
+        passkeyLabel: loginData?.passkey_label || localEntry.label,
+        serverSyncedCount: session?.serverSyncedCount || 0,
       });
       setStatusMsg(null);
     } catch {
@@ -929,6 +1000,55 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     setAuthTab('login');
   };
 
+  const handleCreateLocalOfflineVault = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setErrorMsg(null);
+    setStatusMsg(null);
+
+    const trimmedEmail = (email.trim() || 'lehrer@schule.intern').toLowerCase();
+    if (password.length < 8) {
+      setErrorMsg('Das Master-Passwort muss mindestens 8 Zeichen lang sein.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setErrorMsg('Die Passwörter stimmen nicht überein.');
+      return;
+    }
+
+    setStatusMsg('Lokaler Zero-Knowledge Tresor wird eingerichtet...');
+    try {
+      const bundleJson = wasm_generate_vault(password);
+      const bundle = JSON.parse(bundleJson);
+
+      saveLocalRecoveryMeta({
+        email: trimmedEmail,
+        recoveryEncryptedDek: bundle.recovery_encrypted_dek,
+      });
+
+      const localUserId = `local_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`;
+      const newSession: ActiveVaultSession = {
+        token: '',
+        userId: localUserId,
+        email: trimmedEmail,
+        isAdmin: false,
+        kdfSaltB64: bundle.kdf_salt_b64,
+        dekB64: bundle.dek_b64,
+        encryptedDek: bundle.encrypted_dek,
+        recoveryEncryptedDek: bundle.recovery_encrypted_dek,
+        recoveryKeyFormatted: bundle.recovery_key_formatted,
+        totpEnabled: false,
+        serverSyncedCount: 0,
+      };
+
+      setRegSession(newSession);
+      setRegisterStep('recovery');
+      setStatusMsg(null);
+    } catch (err: any) {
+      setErrorMsg('Fehler beim Initialisieren des lokalen Tresors: ' + String(err));
+      setStatusMsg(null);
+    }
+  };
+
   // Schritt 1 der Registrierung: Formular ausfüllen & Tresor initialisieren
   const handleStartRegistration = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -962,32 +1082,45 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         recoveryEncryptedDek: bundle.recovery_encrypted_dek,
       });
 
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: trimmedEmail,
-          auth_key_b64: bundle.auth_key_b64,
-          kdf_salt_b64: bundle.kdf_salt_b64,
-          kdf_params: bundle.kdf_params,
-          encrypted_dek: bundle.encrypted_dek,
-          recovery_encrypted_dek: bundle.recovery_encrypted_dek,
-          recovery_auth_key_b64: bundle.recovery_auth_key_b64,
-        }),
-      });
+      let data: any = null;
+      try {
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: trimmedEmail,
+            auth_key_b64: bundle.auth_key_b64,
+            kdf_salt_b64: bundle.kdf_salt_b64,
+            kdf_params: bundle.kdf_params,
+            encrypted_dek: bundle.encrypted_dek,
+            recovery_encrypted_dek: bundle.recovery_encrypted_dek,
+            recovery_auth_key_b64: bundle.recovery_auth_key_b64,
+          }),
+        });
 
-      if (!res.ok) {
-        const errText = await res.text();
-        setErrorMsg(errText || 'Registrierung fehlgeschlagen.');
-        setStatusMsg(null);
-        return;
+        if (!res.ok) {
+          const errText = await res.text();
+          setErrorMsg(errText || 'Registrierung fehlgeschlagen.');
+          setStatusMsg(null);
+          return;
+        }
+
+        data = await res.json();
+      } catch {
+        // Server unreachable / offline -> proceed as local offline vault
+        const localUserId = `local_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`;
+        data = {
+          token: '',
+          user_id: localUserId,
+          email: trimmedEmail,
+          is_admin: false,
+        };
       }
 
-      const data = await res.json();
       setStatusMsg(null);
 
       const newSession: ActiveVaultSession = {
-        token: data.token,
+        token: data.token || '',
         userId: data.user_id,
         email: data.email,
         isAdmin: data.is_admin ?? false,
@@ -1094,8 +1227,15 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   };
 
   // Schritt 5 der Registrierung: Registrierung abschließen & Tresor starten
-  const handleFinishRegistration = () => {
+  const handleFinishRegistration = async () => {
     if (!regSession) return;
+    if (optInCloudSync && onToggleCloudSync) {
+      try {
+        await onToggleCloudSync(true);
+      } catch {
+        // ignore sync toggle error
+      }
+    }
     onUnlockSuccess(regSession);
   };
 
@@ -1104,44 +1244,61 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     setErrorMsg(null);
     setStatusMsg('Notenlisten werden geöffnet...');
     try {
-      const saltRes = await fetch('/api/auth/salt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
+      let saltData: any = null;
+      let isServerOffline = !navigator.onLine;
 
-      if (!saltRes.ok) {
-        if (saltRes.status === 404) {
-          setErrorMsg('Kein Gradus21-Konto für diese E-Mail-Adresse gefunden. Bitte prüfe deine Eingabe oder registriere ein neues Konto.');
-          setStatusMsg(null);
-          return;
+      if (!isServerOffline) {
+        try {
+          const saltRes = await fetch('/api/auth/salt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email }),
+          });
+
+          if (saltRes.ok) {
+            saltData = await saltRes.json();
+          } else if (saltRes.status === 404) {
+            const localCached = findLocalCachedVault(email);
+            if (!localCached) {
+              setErrorMsg('Kein Gradus21-Konto für diese E-Mail-Adresse gefunden. Bitte prüfe deine Eingabe oder erstelle einen lokalen Tresor.');
+              setStatusMsg(null);
+              return;
+            }
+          } else {
+            isServerOffline = true;
+          }
+        } catch {
+          isServerOffline = true;
         }
-        throw new Error('Server nicht erreichbar oder Anmeldefehler');
       }
 
-      const saltData = await saltRes.json();
-
-      if (saltData.totp_enabled && !totpCode.trim()) {
+      if (saltData?.totp_enabled && !totpCode.trim()) {
         setLoginRequiresTotp(true);
         setErrorMsg('Bitte gib den 6-stelligen Code aus deiner Authenticator-App ein.');
         setStatusMsg(null);
         return;
       }
 
+      const localCached = findLocalCachedVault(email);
+
       // Versuche zuerst den aktuellen verschlüsselten Schlüssel vom Server, dann den lokalen Cache
       const candidateEncryptedDeks = [
-        saltData.encrypted_dek,
+        saltData?.encrypted_dek,
         session?.encryptedDek,
+        localCached?.encryptedDek,
       ].filter((v): v is string => Boolean(v && v.trim()));
 
       const candidateSalts = [
-        saltData.kdf_salt_b64,
+        saltData?.kdf_salt_b64,
         session?.kdfSaltB64,
+        localCached?.kdfSaltB64,
       ].filter((v): v is string => Boolean(v && v.trim()));
 
       let unlocked: { dek_b64: string; auth_key_b64: string } | null = null;
       let usedEncryptedDek = '';
       let usedSalt = '';
+
+      const kdfParams = saltData?.kdf_params || { m_cost: 65536, t_cost: 3, p_cost: 1 };
 
       for (const s of candidateSalts) {
         for (const encDek of candidateEncryptedDeks) {
@@ -1149,7 +1306,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             const unlockedJson = wasm_unlock_vault(
               password,
               s,
-              JSON.stringify(saltData.kdf_params),
+              JSON.stringify(kdfParams),
               encDek
             );
             unlocked = JSON.parse(unlockedJson);
@@ -1169,48 +1326,61 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         return;
       }
 
-      const loginRes = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email,
-          auth_key_b64: unlocked.auth_key_b64,
-          totp_code: totpCode || null,
-        }),
-      });
+      let loginData: any = null;
+      if (!isServerOffline && saltData) {
+        try {
+          const loginRes = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email,
+              auth_key_b64: unlocked.auth_key_b64,
+              totp_code: totpCode || null,
+            }),
+          });
 
-      if (!loginRes.ok) {
-        const t = await loginRes.text();
-        if (t === '2FA_REQUIRED') {
-          setLoginRequiresTotp(true);
-          setErrorMsg('Bitte gib noch den 6-stelligen Zahlencode aus deiner Handy-App ein.');
-        } else {
-          setErrorMsg(t || 'Anmeldung fehlgeschlagen');
+          if (!loginRes.ok) {
+            const t = await loginRes.text();
+            if (t === '2FA_REQUIRED') {
+              setLoginRequiresTotp(true);
+              setErrorMsg('Bitte gib noch den 6-stelligen Zahlencode aus deiner Handy-App ein.');
+              setStatusMsg(null);
+              return;
+            } else {
+              setErrorMsg(t || 'Anmeldung fehlgeschlagen');
+              setStatusMsg(null);
+              return;
+            }
+          }
+          loginData = await loginRes.json();
+        } catch {
+          // proceeding offline
+          loginData = null;
         }
-        setStatusMsg(null);
-        return;
       }
 
-      const loginData = await loginRes.json();
-      const cachedMeta = loadLocalRecoveryMeta(loginData.email);
+      const cachedMeta = loadLocalRecoveryMeta(email);
+      const effectiveUserId = loginData?.user_id || session?.userId || localCached?.userId || 'user_local';
+
       onUnlockSuccess({
-        token: loginData.token,
-        userId: loginData.user_id,
-        email: loginData.email,
-        isAdmin: loginData.is_admin ?? false,
-        kdfSaltB64: usedSalt || loginData.kdf_salt_b64,
+        token: loginData?.token || '',
+        userId: effectiveUserId,
+        email: loginData?.email || email,
+        isAdmin: loginData?.is_admin ?? false,
+        kdfSaltB64: usedSalt || loginData?.kdf_salt_b64 || session?.kdfSaltB64 || '',
         dekB64: unlocked.dek_b64,
-        encryptedDek: usedEncryptedDek || loginData.encrypted_dek,
+        encryptedDek: usedEncryptedDek || loginData?.encrypted_dek || session?.encryptedDek || '',
         recoveryEncryptedDek:
-          loginData.recovery_encrypted_dek ||
+          loginData?.recovery_encrypted_dek ||
           session?.recoveryEncryptedDek ||
+          localCached?.recoveryEncryptedDek ||
           cachedMeta?.recoveryEncryptedDek ||
           '',
         recoveryKeyFormatted: session?.recoveryKeyFormatted,
-        totpEnabled: loginData.totp_enabled,
-        passkeyCredentialId: loginData.passkey_credential_id,
-        passkeyLabel: loginData.passkey_label,
-        serverSyncedCount: session?.serverSyncedCount || 29,
+        totpEnabled: loginData?.totp_enabled ?? localCached?.totpEnabled ?? false,
+        passkeyCredentialId: loginData?.passkey_credential_id,
+        passkeyLabel: loginData?.passkey_label,
+        serverSyncedCount: session?.serverSyncedCount || 0,
       });
       setStatusMsg(null);
     } catch {
@@ -2301,6 +2471,47 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 />
               </div>
 
+              <div
+                className="p-3 rounded-xl border flex items-start gap-2.5 transition"
+                style={{
+                  backgroundColor: optInCloudSync ? 'var(--primary-soft)' : 'var(--bg-subtle)',
+                  borderColor: optInCloudSync ? 'var(--primary-500)' : 'var(--border-subtle)',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  id="opt-in-cloud-sync"
+                  checked={optInCloudSync}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setOptInCloudSync(checked);
+                    if (checked) {
+                      handleOpenLegal('school_guide');
+                    }
+                  }}
+                  className="mt-0.5 rounded cursor-pointer accent-teal-600"
+                />
+                <label htmlFor="opt-in-cloud-sync" className="cursor-pointer text-[11px] leading-snug flex-1">
+                  <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                    E2EE Cloud-Synchronisation aktivieren (Opt-In)
+                  </span>
+                  <p className="text-[10px] mt-0.5 opacity-80 leading-normal" style={{ color: 'var(--text-secondary)' }}>
+                    Standardmäßig <strong>deaktiviert</strong>: Alle Schüler- und Notendaten bleiben zu 100% lokal auf diesem Gerät (bzw. auf deinem Schullaufwerk). Aktiviere dies nur, wenn du mehrere Geräte synchronisieren möchtest.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={(ev) => {
+                      ev.preventDefault();
+                      ev.stopPropagation();
+                      handleOpenLegal('school_guide');
+                    }}
+                    className="text-[10px] text-teal-600 dark:text-teal-400 font-semibold underline hover:opacity-80 block mt-1"
+                  >
+                    Schul-Datenschutz Leitfaden &amp; AVV anzeigen
+                  </button>
+                </label>
+              </div>
+
               <div className="p-2.5 rounded-xl border text-[11px] flex items-start gap-2 text-teal-800 dark:text-teal-300 bg-teal-500/10 border-teal-500/20">
                 <Shield className="w-4 h-4 shrink-0 mt-0.5 text-teal-600 dark:text-teal-400" />
                 <span className="leading-snug opacity-90">
@@ -2317,10 +2528,30 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 <KeyRound className="w-4 h-4" />
                 <span>Konto anlegen & Sicherheit einrichten</span>
               </button>
+
+              <button
+                type="button"
+                onClick={handleCreateLocalOfflineVault}
+                className="w-full py-2 rounded-xl text-[11px] font-semibold border flex items-center justify-center gap-1.5 transition hover:opacity-90"
+                style={{
+                  backgroundColor: 'transparent',
+                  borderColor: 'var(--border-subtle)',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                <Shield className="w-3.5 h-3.5 text-teal-600" />
+                <span>Rein lokalen Offline-Tresor nutzen (ohne Server)</span>
+              </button>
             </form>
           ) : (
             /* ANMELDEN */
             <form onSubmit={handleLoginVault} className="space-y-3.5 text-xs">
+              {!navigator.onLine && (
+                <div className="p-2.5 rounded-xl border text-[11px] flex items-center gap-2 text-amber-700 dark:text-amber-400 bg-amber-500/10 border-amber-500/20">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>Offline-Modus: Du kannst deinen Tresor wie gewohnt lokal auf diesem Gerät entsperren.</span>
+                </div>
+              )}
               <div>
                 <label
                   htmlFor="login-email"
@@ -2906,6 +3137,115 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               </div>
             )}
           </div>
+        </div>
+
+        {/* Karte 4: NEU — Cloud-Synchronisation & Datensparsamkeit (Opt-In) */}
+        <div
+          className="p-5 rounded-2xl border space-y-3.5"
+          style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-1 flex-1">
+              <div className="flex items-center gap-2">
+                <Shield className="w-4 h-4" style={{ color: 'var(--primary-500)' }} />
+                <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                  4. Cloud-Synchronisation & Datensparsamkeit (Opt-In)
+                </span>
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                    cloudSyncEnabled
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-zinc-200 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200'
+                  }`}
+                >
+                  {cloudSyncEnabled ? 'Aktiviert (E2EE Cloud-Sync)' : 'Deaktiviert (Rein lokaler Tresor)'}
+                </span>
+              </div>
+              <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                {cloudSyncEnabled
+                  ? 'Deine Notenlisten werden Ende-zu-Ende verschlüsselt auf dem Server gesichert, um mehrere Endgeräte zu synchronisieren. Niemand (auch kein Administrator) kann die Daten im Klartext lesen.'
+                  : 'Gemäß Schuldatenschutzgesetz und DSGVO bleiben deine Noten und Schülerdaten standardmäßig zu 100% lokal auf diesem Gerät (und deinem gewählten Sicherungsordner). Es werden keinerlei Notendaten an den Server übertragen.'}
+              </p>
+            </div>
+
+            {onToggleCloudSync && (
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  disabled={isTogglingSync}
+                  onClick={async () => {
+                    setIsTogglingSync(true);
+                    setErrorMsg(null);
+                    setStatusMsg(null);
+                    try {
+                      const nextState = !cloudSyncEnabled;
+                      await onToggleCloudSync(nextState);
+                      if (nextState) {
+                        handleOpenLegal('school_guide');
+                      }
+                      setStatusMsg(
+                        nextState
+                          ? 'E2EE Cloud-Synchronisation wurde aktiviert.'
+                          : 'Cloud-Synchronisation deaktiviert. Deine Daten verbleiben ausschließlich lokal.'
+                      );
+                    } catch (err: any) {
+                      setErrorMsg('Fehler beim Ändern der Cloud-Einstellung: ' + String(err));
+                    } finally {
+                      setIsTogglingSync(false);
+                    }
+                  }}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm ${
+                    cloudSyncEnabled
+                      ? 'border hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200'
+                      : 'text-white'
+                  }`}
+                  style={{
+                    backgroundColor: cloudSyncEnabled ? 'var(--bg-surface)' : 'var(--primary-500)',
+                    borderColor: 'var(--border-subtle)',
+                  }}
+                >
+                  <span>{cloudSyncEnabled ? 'Cloud-Sync deaktivieren' : 'Cloud-Sync aktivieren (Opt-In)'}</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {onPurgeCloudData && (
+            <div className="pt-2 border-t flex flex-wrap items-center justify-between gap-2" style={{ borderColor: 'var(--border-subtle)' }}>
+              <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                Verschlüsselte Server-Kopie sofort restlos und unwiderruflich löschen:
+              </span>
+              <button
+                type="button"
+                disabled={isPurgingCloud}
+                onClick={async () => {
+                  if (
+                    !window.confirm(
+                      'Möchtest du alle verschlüsselten Notenumschläge auf dem Server wirklich unwiderruflich löschen? Deine lokalen Daten auf diesem Rechner bleiben unberührt.'
+                    )
+                  ) {
+                    return;
+                  }
+                  setIsPurgingCloud(true);
+                  setErrorMsg(null);
+                  setStatusMsg(null);
+                  try {
+                    await onPurgeCloudData();
+                    setStatusMsg('Alle Server-Kopien wurden restlos gelöscht. Dein Notenbestand existiert nur noch lokal!');
+                  } catch (err: any) {
+                    setErrorMsg('Fehler beim Löschen der Serverdaten: ' + String(err));
+                  } finally {
+                    setIsPurgingCloud(false);
+                  }
+                }}
+                className="px-3 py-1.5 rounded-lg border text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition flex items-center gap-1.5"
+                style={{ borderColor: 'var(--border-subtle)' }}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{isPurgingCloud ? 'Wird gelöscht...' : 'Server-Kopie jetzt löschen'}</span>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Eingeklapptes Experten-Accordion (nur für Datenschutzbeauftragte / Informatiklehrer) */}

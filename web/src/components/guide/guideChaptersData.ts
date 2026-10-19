@@ -145,13 +145,14 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         content:
           'Wähle den passenden Weg für deinen Klassenstart:\n\n' +
           '- **Weg 1: Excel-Import**: Ziehe deine bisherige .xlsx-Tabelle per Drag & Drop hinein. Namen, Niveaustufen und Tests werden automatisch erkannt.\n' +
-          '- **Weg 2: Manueller Assistent**: Wähle eine fertige Vorlage (z. B. 3-Säulen, 50/50, Oberstufe MSS) und füge deine Schülerliste zeilenweise ein.',
+          '- **Weg 2: Manueller Assistent**: Wähle eine fertige Vorlage (z. B. 3-Säulen, 50/50, Oberstufe MSS) und füge deine Schülerliste zeilenweise ein.\n\n' +
+          '💡 *Interaktiver Guide:* Du kannst den Assistenten jetzt direkt bedienen oder mit einem Klick die Demoklasse laden, um den weiteren Rundgang mit echten Schülerdaten zu erleben.',
         targetId: 'wizard-dialog-card',
         placement: 'top',
         badge: 'Flexibler Import',
         action: {
-          label: 'Klassen-Assistent öffnen',
-          actionType: 'open_class_wizard',
+          label: 'Beispielklasse mit Noten laden',
+          actionType: 'load_demo_dataset',
         },
       },
       {
@@ -387,16 +388,40 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         placement: 'bottom',
         targetMode: 'matrix',
         badge: 'E2EE Envelope Encryption',
+        action: {
+          label: 'Kryptografischen Tresor öffnen',
+          actionType: 'open_vault_inspector',
+        },
       },
       {
         id: 'ps_offline',
-        title: '100 % Offline-Fähig & Ausfallsicher 📶',
+        title: '100 % Offline-Fähig, PWA & Schullaufwerk-Spiegelung 📶',
         content:
-          'Schlechtes Schul-WLAN? Kein Problem! Gradus21 speichert und berechnet alles lokal im Browser. Sobald wieder eine Verbindung besteht, synchronisiert der verschlüsselte Tresor geräuschlos im Hintergrund.',
+          'Schlechtes oder fehlendes Schul-WLAN? Kein Problem!\n\n' +
+          '- **PWA & Offline-First:** Gradus21 ist eine vollwertige Progressive Web App (PWA) und speichert und berechnet alles lokal via WebAssembly in deiner Browser-IndexedDB.\n' +
+          '- **Automatisches Schullaufwerk-Backup:** Du kannst in den Einstellungen einen lokalen Ordner (z. B. auf dem Windows-/SMB-Dienstlaufwerk der Schule oder einem USB-Stick) verknüpfen. Gradus21 spiegelt jede Notenänderung automatisch dorthin.\n' +
+          '- **Persistenter Speicher:** Browser-Updates oder Bereinigungen löschen deine Daten nicht – der Speicher ist durch die StorageManager API als persistent geschützt.',
         targetId: 'header-sync-status',
         placement: 'bottom',
         targetMode: 'matrix',
-        badge: 'Offline-First',
+        badge: 'Offline-First & Local Backup',
+      },
+      {
+        id: 'ps_optin',
+        title: 'Striktes Cloud-Sync Opt-In & Schul-Datenschutz 🛡️',
+        content:
+          'Datenschutz nach dem Grundsatz der Datensparsamkeit (Privacy by Default):\n\n' +
+          '- **Standardmäßig 100 % lokal:** Ohne deine ausdrückliche Zustimmung verlässt kein einziges Datenpaket dein Gerät. Für den rein lokalen Einsatz ist kein AVV mit Gradus21 erforderlich.\n' +
+          '- **Optionaler Cloud-Sync (Opt-In):** Möchtest du zwischen Dienstlaptop und Heimarbeitsplatz synchronisieren, aktivierst du Cloud-Sync in den Einstellungen.\n' +
+          '- **Schul-Datenschutz Leitfaden & AVV:** Beim Einschalten öffnet sich der Leitfaden für Schulleitung und Datenschutzbeauftragte mit einem rechtssicheren, vorausgefüllten AVV-Mustervertrag gem. Art. 28 DSGVO (Hosting im deutschen ISO-27001-Rechenzentrum Leipzig).',
+        targetId: 'header-settings-btn',
+        placement: 'bottom',
+        targetMode: 'matrix',
+        badge: 'Privacy by Default',
+        action: {
+          label: 'Speicher- & Cloud-Einstellungen öffnen',
+          actionType: 'open_settings',
+        },
       },
     ],
   },

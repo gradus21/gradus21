@@ -10,27 +10,48 @@ import {
   resolveIsDarkMode,
 } from '../data/demoClasses';
 import {
+  AlertCircle,
   CheckCircle2,
   Cloud,
+  CloudOff,
   Compass,
+  Download,
   Eye,
+  FileCheck,
+  Folder,
+  GraduationCap,
+  HardDrive,
   HelpCircle,
   Monitor,
   Moon,
   Palette,
+  RefreshCw,
   Settings,
+  Shield,
   Sliders,
   Sparkles,
   Sun,
   Trash2,
+  Upload,
   X,
 } from 'lucide-react';
+import { isFileSystemAccessSupported } from '../utils/localBackupStorage';
 
 interface SettingsModalProps {
   settings: UserSyncSettings;
   onUpdateSettings: (updater: (prev: UserSyncSettings) => UserSyncSettings) => void;
   onClose: () => void;
   onOpenInteractiveGuide?: () => void;
+  onOpenSchoolGuide?: () => void;
+  onToggleCloudSync?: (enabled: boolean) => void;
+  onPurgeCloudData?: () => void;
+  onExportEncryptedBackup?: () => void;
+  onImportEncryptedBackup?: (file: File) => void;
+  connectedBackupDirName?: string | null;
+  lastLocalBackupTime?: string | null;
+  onConnectBackupDirectory?: () => void;
+  onDisconnectBackupDirectory?: () => void;
+  isPersistentStorage?: boolean;
 }
 
 export const WEIGHTING_PRESET_CATALOG: Array<{
@@ -53,10 +74,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onUpdateSettings,
   onClose,
   onOpenInteractiveGuide,
+  onOpenSchoolGuide,
+  onToggleCloudSync,
+  onPurgeCloudData,
+  onExportEncryptedBackup,
+  onImportEncryptedBackup,
+  connectedBackupDirName,
+  lastLocalBackupTime,
+  onConnectBackupDirectory,
+  onDisconnectBackupDirectory,
+  isPersistentStorage,
 }) => {
   const [activeSection, setActiveSection] = useState<
-    'favorites' | 'visibility' | 'appearance' | 'help'
+    'favorites' | 'visibility' | 'appearance' | 'storage' | 'help'
   >('favorites');
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [savedIndicator, setSavedIndicator] = useState(false);
   const [systemIsDark, setSystemIsDark] = useState<boolean>(() => {
     if (typeof window !== 'undefined' && window.matchMedia) {
@@ -122,10 +154,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
                   Einstellungen & persönliche Vorschläge
                 </h3>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/10 text-teal-700 dark:text-teal-300 flex items-center gap-1">
-                  <Cloud className="w-3 h-3" />
-                  <span>App-Sync aktiv</span>
-                </span>
+                {settings.cloudSyncEnabled ? (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
+                    <Cloud className="w-3 h-3" />
+                    <span>Cloud-Sync aktiv</span>
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-300 flex items-center gap-1">
+                    <Shield className="w-3 h-3" />
+                    <span>Nur lokaler Speicher</span>
+                  </span>
+                )}
               </div>
               <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                 Steuere, was dir standardmäßig vorgeschlagen wird, was nur bei Bedarf erscheint, und wähle dein Farbschema.
@@ -192,6 +231,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           >
             <Palette className="w-3.5 h-3.5" />
             <span>Farbwelt</span>
+          </button>
+          <button
+            onClick={() => setActiveSection('storage')}
+            className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 transition ${
+              activeSection === 'storage' ? 'text-white shadow-sm' : ''
+            }`}
+            style={{
+              backgroundColor:
+                activeSection === 'storage' ? 'var(--primary-500)' : 'transparent',
+            }}
+          >
+            <Shield className="w-3.5 h-3.5" />
+            <span>Datenschutz & Speicher</span>
           </button>
           <button
             onClick={() => setActiveSection('help')}
@@ -691,7 +743,257 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           )}
 
           {/* =================================================================
-              SECTION 4: HILFE & INTERAKTIVER GUIDE
+              SECTION 4: DATENSCHUTZ & SPEICHER (CLOUD-SYNC OPT-IN & BACKUPS)
+             ================================================================= */}
+          {activeSection === 'storage' && (
+            <div className="space-y-5">
+              {/* Card 1: Cloud-Synchronisation (Opt-In) */}
+              <div
+                className="p-5 rounded-2xl border space-y-4"
+                style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Cloud className="w-4 h-4" style={{ color: 'var(--primary-500)' }} />
+                      <h4 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
+                        1. E2EE Cloud-Synchronisation (Opt-In)
+                      </h4>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          settings.cloudSyncEnabled
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                            : 'bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+                        }`}
+                      >
+                        {settings.cloudSyncEnabled ? 'Aktiviert' : 'Deaktiviert (Standard)'}
+                      </span>
+                    </div>
+                    <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                      Gemäß DSGVO und Grundsatz der Datensparsamkeit verbleiben alle Noten und Schülerdaten standardmäßig <strong>ausschließlich lokal verschlüsselt im Browser</strong> dieses Geräts. 
+                      Wenn du Cloud-Sync aktivierst, werden deine Datensätze mit modernem <strong>AES-256-GCM Zero-Knowledge</strong> verschlüsselt auf dem Server gesichert, um geräteübergreifendes Arbeiten zu ermöglichen.
+                    </p>
+                    {onOpenSchoolGuide && (
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={onOpenSchoolGuide}
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400 hover:underline"
+                        >
+                          <GraduationCap className="w-3.5 h-3.5" />
+                          <span>Schul-Datenschutz Leitfaden &amp; AVV-Mustervertrag öffnen</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(settings.cloudSyncEnabled)}
+                      onChange={(e) => {
+                        const nextVal = e.target.checked;
+                        if (nextVal && onOpenSchoolGuide) {
+                          onOpenSchoolGuide();
+                        }
+                        if (onToggleCloudSync) {
+                          onToggleCloudSync(nextVal);
+                        } else {
+                          onUpdateSettings((s) => ({ ...s, cloudSyncEnabled: nextVal }));
+                        }
+                        triggerSaved();
+                      }}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+
+                {settings.cloudSyncEnabled && onPurgeCloudData && (
+                  <div className="pt-3 border-t flex items-center justify-between gap-3 text-xs" style={{ borderColor: 'var(--border-subtle)' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>
+                      Möchtest du alle auf dem Server liegenden Envelopes unwiderruflich löschen?
+                    </span>
+                    <button
+                      type="button"
+                      onClick={onPurgeCloudData}
+                      className="px-3 py-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-600 font-bold hover:bg-rose-500/20 transition flex items-center gap-1.5 shrink-0"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Cloud-Kopie jetzt löschen</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Card 2: Lokale verschlüsselte Datei-Sicherung (Schul-Netzlaufwerk / USB) */}
+              <div
+                className="p-5 rounded-2xl border space-y-4"
+                style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <HardDrive className="w-4 h-4" style={{ color: 'var(--primary-500)' }} />
+                    <h4 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
+                      2. Verschlüsseltes Datei-Backup (für Schul-Netzlaufwerk & USB)
+                    </h4>
+                  </div>
+                  <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                    Sichere deinen Noten-Tresor als eigenständige Datei (<code>.gradus21</code>). Da die Datei vollständig mit deinem Master-Passwort per <strong>AES-256-GCM verschlüsselt</strong> ist, kann sie völlig unbedenklich auf dem <strong>gemeinsamen Netzlaufwerk der Schule (SMB/Share)</strong>, der Schul-Nextcloud oder einem Dienst-USB-Stick abgelegt werden – niemand ohne dein Passwort kann mitlesen.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  {onExportEncryptedBackup && (
+                    <button
+                      type="button"
+                      onClick={onExportEncryptedBackup}
+                      className="px-4 py-2.5 rounded-xl text-xs font-bold text-white flex items-center gap-2 transition hover:opacity-95 shadow-sm"
+                      style={{ backgroundColor: 'var(--primary-500)' }}
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Tresor-Backup herunterladen (.gradus21)</span>
+                    </button>
+                  )}
+
+                  {onImportEncryptedBackup && (
+                    <>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".gradus21,.json"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            onImportEncryptedBackup(file);
+                            e.target.value = '';
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="px-4 py-2.5 rounded-xl text-xs font-bold border flex items-center gap-2 transition hover:opacity-90"
+                        style={{
+                          backgroundColor: 'var(--bg-surface)',
+                          borderColor: 'var(--border-subtle)',
+                          color: 'var(--text-primary)',
+                        }}
+                      >
+                        <Upload className="w-4 h-4" />
+                        <span>Backup-Datei wiederherstellen</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Card 3: Automatischer lokaler Backup-Ordner (File System Access API) */}
+              <div
+                className="p-5 rounded-2xl border space-y-4"
+                style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Folder className="w-4 h-4" style={{ color: 'var(--primary-500)' }} />
+                    <h4 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
+                      3. Automatischer lokaler Backup-Ordner (File System API)
+                    </h4>
+                    {connectedBackupDirName && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                        Aktiv verknüpft
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                    Verknüpfe einen Zielordner auf deinem PC oder ein gemountetes Schul-Netzlaufwerk. Gradus21 speichert bei Notenänderungen automatisch im Hintergrund eine rotierende Sicherung dorthin – ganz ohne manuelle Download-Klicks.
+                  </p>
+                </div>
+
+                {isFileSystemAccessSupported() ? (
+                  <div className="p-3.5 rounded-xl border space-y-3" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}>
+                    {connectedBackupDirName ? (
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2 font-bold text-xs" style={{ color: 'var(--text-primary)' }}>
+                            <FileCheck className="w-4 h-4 text-emerald-600" />
+                            <span>Verknüpfter Ordner: {connectedBackupDirName}</span>
+                          </div>
+                          <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                            Letzte Sicherung: {lastLocalBackupTime ? `Heute um ${lastLocalBackupTime} Uhr` : 'Wird beim nächsten Speichern geschrieben'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={onConnectBackupDirectory}
+                            className="px-3 py-1.5 rounded-xl border text-xs font-semibold hover:opacity-80 transition"
+                            style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                          >
+                            Ordner ändern
+                          </button>
+                          <button
+                            type="button"
+                            onClick={onDisconnectBackupDirectory}
+                            className="px-3 py-1.5 rounded-xl border border-rose-500/30 text-rose-600 text-xs font-semibold hover:bg-rose-500/10 transition"
+                          >
+                            Trennen
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                          Noch kein lokaler Backup-Ordner verknüpft.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={onConnectBackupDirectory}
+                          className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 transition hover:opacity-90 shadow-sm"
+                          style={{ backgroundColor: 'var(--primary-500)' }}
+                        >
+                          <Folder className="w-3.5 h-3.5" />
+                          <span>Backup-Ordner auswählen...</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-200 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>Die automatische Ordner-Verknüpfung erfordert einen Chromium-basierten Browser (Google Chrome, Microsoft Edge, Brave). In Firefox oder Safari kannst du Backups manuell als Datei (oben) herunterladen.</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Card 4: Persistenter Browser-Speicher */}
+              <div
+                className="p-4 rounded-2xl border flex items-center justify-between gap-3 text-xs"
+                style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Shield className="w-4 h-4 text-teal-600" />
+                  <div>
+                    <span className="font-bold block" style={{ color: 'var(--text-primary)' }}>
+                      Dauerhafter Browser-Speicher (Storage Persistence)
+                    </span>
+                    <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                      {isPersistentStorage
+                        ? 'Vom Browser garantiert: Gespeicherte Klassen und Noten werden auch bei knappem Festplattenspeicher niemals automatisch bereinigt.'
+                        : 'Standardspeicher aktiv. Browser behält Daten im localStorage.'}
+                    </span>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/10 text-teal-700 dark:text-teal-300">
+                  {isPersistentStorage ? 'Garantiert persistent' : 'Aktiv'}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* =================================================================
+              SECTION 5: HILFE & INTERAKTIVER GUIDE
              ================================================================= */}
           {activeSection === 'help' && (
             <div className="space-y-4">

@@ -77,9 +77,9 @@ impl Default for LegalConfig {
             register: std::env::var("LEGAL_IMPRESSUM_REGISTER").ok().filter(|s| !s.trim().is_empty()),
             vat_id: std::env::var("LEGAL_IMPRESSUM_VAT_ID").ok().filter(|s| !s.trim().is_empty()),
             hosting_provider: std::env::var("LEGAL_HOSTING_PROVIDER")
-                .unwrap_or_else(|_| "Hetzner Online GmbH (Deutschland)".into()),
+                .unwrap_or_else(|_| "Alfahosting GmbH".into()),
             hosting_location: std::env::var("LEGAL_HOSTING_LOCATION")
-                .unwrap_or_else(|_| "Falkenstein / Nürnberg, Deutschland (EU)".into()),
+                .unwrap_or_else(|_| "Leipzig (Deutschland)".into()),
             dpo_contact: std::env::var("LEGAL_DPO_CONTACT").ok().filter(|s| !s.trim().is_empty()),
         }
     }
@@ -676,6 +676,19 @@ async fn delete_envelope_from_pg(state: &AppState, id: Uuid, owner_id: Uuid) {
     }
 }
 
+async fn delete_all_envelopes_from_pg(state: &AppState, owner_id: Uuid) {
+    let Some(pool) = &state.db else {
+        return;
+    };
+    if let Err(e) = sqlx::query("DELETE FROM encrypted_envelopes WHERE owner_user_id = $1")
+        .bind(owner_id)
+        .execute(pool)
+        .await
+    {
+        tracing::error!("Failed to delete all envelopes for user {} from PostgreSQL: {}", owner_id, e);
+    }
+}
+
 pub fn create_webauthn() -> Arc<Webauthn> {
     let rp_id = std::env::var("WEBAUTHN_RP_ID").unwrap_or_else(|_| "localhost".into());
     let rp_name = std::env::var("WEBAUTHN_RP_NAME").unwrap_or_else(|_| "Gradus21".into());
@@ -938,7 +951,12 @@ async fn main() {
         .route("/api/auth/2fa/verify", post(verify_and_enable_2fa))
         .route("/api/auth/2fa/reconfigure", post(reconfigure_2fa))
         .route("/api/auth/2fa/disable", post(disable_2fa))
-        .route("/api/envelopes", get(list_envelopes).post(upsert_envelope))
+        .route(
+            "/api/envelopes",
+            get(list_envelopes)
+                .post(upsert_envelope)
+                .delete(delete_all_user_envelopes),
+        )
         .route("/api/envelopes/sync", get(list_envelopes))
         .route("/api/envelopes/batch", post(batch_sync_envelopes))
         .route("/api/envelopes/:id", delete(delete_envelope))
@@ -2677,6 +2695,23 @@ async fn delete_envelope(
     Err((StatusCode::NOT_FOUND, "Nicht gefunden".into()))
 }
 
+async fn delete_all_user_envelopes(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let claims = authenticate_request(&state, &headers)?;
+    let owner_id = Uuid::parse_str(&claims.sub)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
+
+    {
+        let mut store = state.mem_envelopes.write().unwrap();
+        store.retain(|_, env| env.owner_user_id != owner_id);
+    }
+    delete_all_envelopes_from_pg(&state, owner_id).await;
+    persist_to_disk(&state);
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn update_preferences(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -3878,6 +3913,119 @@ mod tests {
         assert_eq!(envelopes_list.len(), 1);
         assert_eq!(envelopes_list[0].id, class_a_id);
         assert_eq!(envelopes_list[0].version, 3);
+
+        let _ = fs::remove_file(&state.disk_store_path);
+    }
+
+    #[tokio::test]
+    async fn test_delete_all_user_envelopes_removes_only_own_data() {
+        use gradus21_core::crypto::generate_vault_bundle;
+
+        let state = create_test_state();
+        let bundle1 = generate_vault_bundle("PasswordTeacher1!").expect("vault bundle 1");
+        let bundle2 = generate_vault_bundle("PasswordTeacher2!").expect("vault bundle 2");
+
+        let reg1 = register_user(
+            State(state.clone()),
+            Json(RegisterRequest {
+                email: "teacher_alpha@schule.de".into(),
+                auth_key_b64: bundle1.auth_key_b64.clone(),
+                kdf_salt_b64: bundle1.kdf_salt_b64.clone(),
+                kdf_params: bundle1.kdf_params.clone(),
+                encrypted_dek: bundle1.encrypted_dek.clone(),
+                recovery_encrypted_dek: bundle1.recovery_encrypted_dek.clone(),
+                recovery_auth_key_b64: Some(bundle1.recovery_auth_key_b64.clone()),
+            }),
+        )
+        .await
+        .expect("reg1")
+        .0;
+
+        let reg2 = register_user(
+            State(state.clone()),
+            Json(RegisterRequest {
+                email: "teacher_beta@schule.de".into(),
+                auth_key_b64: bundle2.auth_key_b64.clone(),
+                kdf_salt_b64: bundle2.kdf_salt_b64.clone(),
+                kdf_params: bundle2.kdf_params.clone(),
+                encrypted_dek: bundle2.encrypted_dek.clone(),
+                recovery_encrypted_dek: bundle2.recovery_encrypted_dek.clone(),
+                recovery_auth_key_b64: Some(bundle2.recovery_auth_key_b64.clone()),
+            }),
+        )
+        .await
+        .expect("reg2")
+        .0;
+
+        let mut headers1 = HeaderMap::new();
+        headers1.insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Bearer {}", reg1.token)).unwrap(),
+        );
+
+        let mut headers2 = HeaderMap::new();
+        headers2.insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Bearer {}", reg2.token)).unwrap(),
+        );
+
+        let env1_id = Uuid::new_v4();
+        let env2_id = Uuid::new_v4();
+
+        // Teacher 1 saves an envelope
+        let _ = batch_sync_envelopes(
+            State(state.clone()),
+            headers1.clone(),
+            Json(BatchSyncRequest {
+                envelopes: vec![BatchUpsertItem {
+                    id: env1_id,
+                    entity_type: "class_dataset".into(),
+                    parent_id: None,
+                    class_id: Some(env1_id),
+                    encrypted_payload: "t1_secret_envelope".into(),
+                    expected_version: None,
+                }],
+            }),
+        )
+        .await
+        .expect("t1 batch sync");
+
+        // Teacher 2 saves an envelope
+        let _ = batch_sync_envelopes(
+            State(state.clone()),
+            headers2.clone(),
+            Json(BatchSyncRequest {
+                envelopes: vec![BatchUpsertItem {
+                    id: env2_id,
+                    entity_type: "class_dataset".into(),
+                    parent_id: None,
+                    class_id: Some(env2_id),
+                    encrypted_payload: "t2_secret_envelope".into(),
+                    expected_version: None,
+                }],
+            }),
+        )
+        .await
+        .expect("t2 batch sync");
+
+        // Both have 1 envelope
+        let Json(t1_before) = list_envelopes(State(state.clone()), headers1.clone()).await.unwrap();
+        assert_eq!(t1_before.len(), 1);
+        let Json(t2_before) = list_envelopes(State(state.clone()), headers2.clone()).await.unwrap();
+        assert_eq!(t2_before.len(), 1);
+
+        // Teacher 1 deletes all their cloud envelopes (opting out of cloud sync)
+        let status = delete_all_user_envelopes(State(state.clone()), headers1.clone()).await.unwrap();
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        // Teacher 1 now has 0 envelopes
+        let Json(t1_after) = list_envelopes(State(state.clone()), headers1.clone()).await.unwrap();
+        assert_eq!(t1_after.len(), 0);
+
+        // Teacher 2 still has their 1 envelope intact!
+        let Json(t2_after) = list_envelopes(State(state.clone()), headers2.clone()).await.unwrap();
+        assert_eq!(t2_after.len(), 1);
+        assert_eq!(t2_after[0].id, env2_id);
 
         let _ = fs::remove_file(&state.disk_store_path);
     }
