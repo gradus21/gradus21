@@ -202,6 +202,12 @@ struct RecoverPasswordRequest {
 }
 
 #[derive(Deserialize)]
+struct RotateRecoveryKeyRequest {
+    recovery_encrypted_dek: String,
+    recovery_auth_key_b64: String,
+}
+
+#[derive(Deserialize)]
 struct VerifyTotpRequest {
     totp_code: String,
 }
@@ -643,8 +649,10 @@ async fn main() {
         .route("/api/auth/register", post(register_user))
         .route("/api/auth/login", post(login_user))
         .route("/api/auth/recover", post(recover_password))
+        .route("/api/auth/recovery/rotate", post(rotate_recovery_key))
         .route("/api/auth/passkey/register", post(register_passkey))
         .route("/api/auth/passkey/login", post(login_with_passkey))
+        .route("/api/auth/passkey", delete(delete_passkey))
         .route("/api/auth/2fa/setup", get(get_2fa_setup_info))
         .route("/api/auth/2fa/verify", post(verify_and_enable_2fa))
         .route("/api/envelopes", get(list_envelopes).post(upsert_envelope))
@@ -1030,6 +1038,37 @@ async fn recover_password(
     }))
 }
 
+async fn rotate_recovery_key(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<RotateRecoveryKeyRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let claims = authenticate_request(&state, &headers)?;
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
+
+    let rec_hash = hash_client_key(&req.recovery_auth_key_b64)?;
+
+    let updated_record = {
+        let mut users = state.mem_users.write().unwrap();
+        let user = users
+            .get_mut(&user_id)
+            .ok_or((StatusCode::NOT_FOUND, "Benutzer nicht gefunden".into()))?;
+        user.recovery_encrypted_dek = req.recovery_encrypted_dek.clone();
+        user.recovery_auth_key_hash = rec_hash;
+        user.clone()
+    };
+
+    sync_user_to_pg(&state, &updated_record).await;
+    persist_to_disk(&state);
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Notfall-Schlüssel erfolgreich erneuert",
+        "recovery_encrypted_dek": req.recovery_encrypted_dek,
+    })))
+}
+
 async fn register_passkey(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1120,6 +1159,35 @@ async fn register_passkey(
         "passkey_credential_id": req.credential_id,
         "passkey_label": req.label,
         "passkey_prf_salt_b64": req.passkey_prf_salt_b64,
+    })))
+}
+
+async fn delete_passkey(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let claims = authenticate_request(&state, &headers)?;
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
+
+    let updated_record = {
+        let mut users = state.mem_users.write().unwrap();
+        let user = users
+            .get_mut(&user_id)
+            .ok_or((StatusCode::NOT_FOUND, "Benutzer nicht gefunden".into()))?;
+        user.passkey_credential_id = None;
+        user.passkey_label = None;
+        user.passkey_encrypted_dek = None;
+        user.passkey_prf_salt = None;
+        user.clone()
+    };
+
+    sync_user_to_pg(&state, &updated_record).await;
+    persist_to_disk(&state);
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Passkey erfolgreich gelöscht",
     })))
 }
 
@@ -1651,7 +1719,10 @@ fn authenticate_request(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gradus21_core::crypto::{derive_recovery_auth_key, generate_vault_bundle, rewrap_dek_for_new_password};
+    use gradus21_core::crypto::{
+        derive_recovery_auth_key, generate_vault_bundle, rewrap_dek_for_new_password,
+        wrap_dek_with_recovery_key,
+    };
 
     fn create_test_state() -> AppState {
         let tmp_file = std::env::temp_dir().join(format!("gradus21_test_vault_{}.json", Uuid::new_v4()));
@@ -1756,6 +1827,46 @@ mod tests {
         .await
         .expect("valid recovery");
         assert_eq!(good_recover.user_id, reg_resp.user_id);
+
+        // 5. Test rotating recovery key for logged-in user (e.g. if original sheet lost)
+        let mut auth_headers = HeaderMap::new();
+        auth_headers.insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Bearer {}", good_recover.token)).unwrap(),
+        );
+
+        let (new_formatted_rec, new_rec_enc_dek) = wrap_dek_with_recovery_key(&bundle.dek_b64, None).expect("wrap new rec");
+        let new_rec_auth_b64 = derive_recovery_auth_key(&new_formatted_rec).expect("derive new rec auth");
+
+        let Json(rot_resp) = rotate_recovery_key(
+            State(state.clone()),
+            auth_headers,
+            Json(RotateRecoveryKeyRequest {
+                recovery_encrypted_dek: new_rec_enc_dek.clone(),
+                recovery_auth_key_b64: new_rec_auth_b64.clone(),
+            }),
+        )
+        .await
+        .expect("rotate recovery key");
+        assert_eq!(rot_resp["success"], true);
+
+        // Verify that the new recovery key works to recover password again
+        let Json(recover_with_new_key) = recover_password(
+            State(state.clone()),
+            Json(RecoverPasswordRequest {
+                email: "teacher@schule.de".into(),
+                recovery_auth_key_b64: new_rec_auth_b64,
+                new_auth_key_b64: "new_auth_key_2".into(),
+                new_kdf_salt_b64: "new_salt_2".into(),
+                new_kdf_params: KdfParams::default(),
+                new_encrypted_dek: "v1:nonce:new_dek_payload".into(),
+                new_recovery_encrypted_dek: None,
+                new_recovery_auth_key_b64: None,
+            }),
+        )
+        .await
+        .expect("recover with rotated key");
+        assert_eq!(recover_with_new_key.user_id, reg_resp.user_id);
 
         // Clean up temporary vault file
         let _ = fs::remove_file(&state.disk_store_path);
@@ -1911,7 +2022,7 @@ mod tests {
         // 3. Register Passkey with PRF salt
         let Json(passkey_reg_resp) = register_passkey(
             State(state.clone()),
-            headers,
+            headers.clone(),
             Json(PasskeyRegisterRequest {
                 credential_id: cred_id.into(),
                 label: "MacBook Touch ID".into(),
@@ -1958,6 +2069,25 @@ mod tests {
         let unwrapped_dek = unwrap_dek_with_passkey_secret(&prf_secret_b64, cred_id, &login_resp.passkey_encrypted_dek.unwrap())
             .expect("unwrap dek");
         assert_eq!(unwrapped_dek, bundle.dek_b64);
+
+        // 7. Delete Passkey and verify state is cleared
+        let Json(del_resp) = delete_passkey(
+            State(state.clone()),
+            headers,
+        )
+        .await
+        .expect("delete passkey");
+        assert_eq!(del_resp["success"], true);
+
+        let Json(salt_after_del) = get_user_salt(
+            State(state.clone()),
+            Json(SaltQueryRequest {
+                email: "passkey_user@schule.de".into(),
+            }),
+        )
+        .await
+        .expect("get salt after del");
+        assert!(!salt_after_del.has_passkey);
 
         let _ = fs::remove_file(&state.disk_store_path);
     }

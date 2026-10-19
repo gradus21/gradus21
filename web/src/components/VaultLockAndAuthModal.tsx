@@ -25,8 +25,10 @@ import {
   KeyRound,
   Lock,
   Printer,
+  RefreshCw,
   Shield,
   Smartphone,
+  Trash2,
   Unlock,
   X,
 } from 'lucide-react';
@@ -97,6 +99,26 @@ function saveLocalPasskey(entry: LocalPasskeyStoreEntry) {
   store[entry.email.trim().toLowerCase()] = entry;
   store[entry.credentialId] = entry;
   localStorage.setItem(PASSKEY_STORAGE_KEY, JSON.stringify(store));
+}
+
+function removeLocalPasskey(email: string, credentialId?: string) {
+  try {
+    const store = loadLocalPasskeys();
+    const normalizedEmail = email.trim().toLowerCase();
+    delete store[normalizedEmail];
+    if (credentialId) {
+      delete store[credentialId];
+    }
+    for (const [key, value] of Object.entries(store)) {
+      if (value.email?.toLowerCase() === normalizedEmail || (credentialId && value.credentialId === credentialId)) {
+        delete store[key];
+      }
+    }
+    localStorage.setItem(PASSKEY_STORAGE_KEY, JSON.stringify(store));
+    localStorage.removeItem(LEGACY_PASSKEY_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 function loadLocalRecoveryMeta(email: string): LocalRecoveryMetaEntry | null {
@@ -297,12 +319,36 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   // PASSKEY EINRICHTEN (WebAuthn PRF + Zero-Knowledge Schlüssel-Umschlag)
   // ===========================================================================
   const handleSetupPasskey = async (target?: ActiveVaultSession): Promise<boolean> => {
-    const activeSession = target || session;
+    // Falls target kein valides ActiveVaultSession-Objekt ist (z.B. React SyntheticEvent), auf session zurückgreifen
+    const isRegistrationTarget = Boolean(
+      target && typeof target === 'object' && 'userId' in target && typeof (target as any).userId === 'string'
+    );
+    const activeSession = isRegistrationTarget ? target! : session;
     if (!activeSession) return false;
+
+    // DEK aus der Session oder aus dem sessionStorage laden
+    const dek =
+      activeSession.dekB64 ||
+      sessionStorage.getItem(`bte_notenflow_dek_${activeSession.userId}`) ||
+      '';
+    if (!dek) {
+      setErrorMsg('Hauptschlüssel (DEK) nicht im Speicher. Bitte melde dich erneut mit deinem Passwort an.');
+      setStatusMsg(null);
+      return false;
+    }
+
     setErrorMsg(null);
     setStatusMsg('Fingerabdruck / Face ID wird eingerichtet...');
 
     try {
+      if (!window.PublicKeyCredential || !navigator.credentials?.create) {
+        setStatusMsg(null);
+        setErrorMsg(
+          'Dein Browser oder Betriebssystem unterstützt keine Passkeys (WebAuthn). Bitte stelle sicher, dass du eine sichere Verbindung (HTTPS oder localhost) nutzt.'
+        );
+        return false;
+      }
+
       const challenge = crypto.getRandomValues(new Uint8Array(32));
       const userIdBytes = new TextEncoder().encode(activeSession.userId);
       const prfSalt = crypto.getRandomValues(new Uint8Array(32));
@@ -315,71 +361,80 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         ? `Passkey auf diesem Gerät (${navigator.platform})`
         : 'Passkey (Fingerabdruck / Face ID)';
 
-      if (window.PublicKeyCredential && navigator.credentials?.create) {
-        try {
-          const cred = (await navigator.credentials.create({
-            publicKey: {
-              challenge,
-              rp: {
-                name: 'Gradus21',
-                id: window.location.hostname || 'localhost',
-              },
-              user: {
-                id: userIdBytes,
-                name: activeSession.email,
-                displayName: activeSession.email,
-              },
-              pubKeyCredParams: [
-                { type: 'public-key', alg: -7 }, // ES256
-                { type: 'public-key', alg: -257 }, // RS256
-              ],
-              authenticatorSelection: {
-                authenticatorAttachment: 'platform',
-                userVerification: 'preferred',
-                residentKey: 'preferred',
-              },
-              timeout: 60000,
-              extensions: {
-                // WebAuthn PRF Extension (W3C Level 3 standard)
-                prf: {
-                  eval: {
-                    first: prfSalt,
-                  },
-                },
-              } as any,
+      try {
+        const cred = (await navigator.credentials.create({
+          publicKey: {
+            challenge,
+            rp: {
+              name: 'Gradus21',
+              id: window.location.hostname || 'localhost',
             },
-          })) as PublicKeyCredential | null;
+            user: {
+              id: userIdBytes,
+              name: activeSession.email,
+              displayName: activeSession.email,
+            },
+            pubKeyCredParams: [
+              { type: 'public-key', alg: -7 }, // ES256
+              { type: 'public-key', alg: -257 }, // RS256
+            ],
+            authenticatorSelection: {
+              authenticatorAttachment: 'platform',
+              userVerification: 'preferred',
+              residentKey: 'preferred',
+            },
+            timeout: 60000,
+            extensions: {
+              // WebAuthn PRF Extension (W3C Level 3 standard)
+              prf: {
+                eval: {
+                  first: prfSalt,
+                },
+              },
+            } as any,
+          },
+        })) as PublicKeyCredential | null;
 
-          if (cred) {
-            credentialIdB64 = bytesToBase64(new Uint8Array(cred.rawId));
-            const extResults = (cred.getClientExtensionResults() as any)?.prf;
-            const prfFirst = extResults?.results?.first;
-            if (prfFirst) {
-              passkeySecretBytes = new Uint8Array(prfFirst);
-              isPrfEnabled = true;
-            } else if (extResults?.enabled) {
-              isPrfEnabled = true;
-            }
-          }
-        } catch (webauthnErr: any) {
-          // Falls der Nutzer den System-Dialog abgebrochen hat, abbrechen:
-          if (webauthnErr?.name === 'NotAllowedError') {
-            setStatusMsg(null);
-            setErrorMsg('Die Passkey-Einrichtung wurde abgebrochen.');
-            return false;
+        if (cred) {
+          credentialIdB64 = bytesToBase64(new Uint8Array(cred.rawId));
+          const extResults = (cred.getClientExtensionResults() as any)?.prf;
+          const prfFirst = extResults?.results?.first;
+          if (prfFirst) {
+            passkeySecretBytes = new Uint8Array(prfFirst);
+            isPrfEnabled = true;
+          } else if (extResults?.enabled) {
+            isPrfEnabled = true;
           }
         }
+      } catch (webauthnErr: any) {
+        setStatusMsg(null);
+        const errName = webauthnErr?.name || '';
+        const errMsg = String(webauthnErr?.message || '');
+        const isCancelled =
+          errName === 'NotAllowedError' ||
+          errName === 'AbortError' ||
+          errMsg.toLowerCase().includes('cancel') ||
+          errMsg.toLowerCase().includes('abort');
+
+        if (isCancelled) {
+          setErrorMsg('Die Passkey-Einrichtung wurde abgebrochen.');
+        } else {
+          setErrorMsg(`Passkey-Einrichtung fehlgeschlagen: ${errMsg || errName || String(webauthnErr)}`);
+        }
+        return false;
       }
 
       if (!credentialIdB64) {
-        credentialIdB64 = bytesToBase64(crypto.getRandomValues(new Uint8Array(16)));
+        setStatusMsg(null);
+        setErrorMsg('Es wurde kein Passkey vom Sicherheitschip oder Passwort-Manager bereitgestellt.');
+        return false;
       }
 
       const passkeySecretB64 = bytesToBase64(passkeySecretBytes);
 
       // Verschlüssele den persönlichen Hauptschlüssel (DEK) mit dem Passkey-Geheimnis via Rust/WASM
       const passkeyEncryptedDek = wasm_wrap_dek_with_passkey(
-        activeSession.dekB64,
+        dek,
         passkeySecretB64,
         credentialIdB64
       );
@@ -435,7 +490,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         passkeyLabel: deviceLabel,
       };
 
-      if (target) {
+      if (isRegistrationTarget) {
         setRegSession(updatedSession);
         setRegPasskeyDone(true);
       } else {
@@ -452,6 +507,44 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       setErrorMsg('Passkey-Einrichtung fehlgeschlagen: ' + String(err));
       setStatusMsg(null);
       return false;
+    }
+  };
+
+  const handleRemovePasskey = async () => {
+    if (!session) return;
+    setErrorMsg(null);
+    setStatusMsg('Passkey wird entfernt...');
+
+    try {
+      if (session.token) {
+        const res = await fetch('/api/auth/passkey', {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${session.token}`,
+          },
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          setErrorMsg(errText || 'Passkey konnte nicht auf dem Server gelöscht werden.');
+          setStatusMsg(null);
+          return;
+        }
+      }
+
+      removeLocalPasskey(session.email, session.passkeyCredentialId);
+      setLocalPasskeyForEmail(null);
+
+      const updatedSession: ActiveVaultSession = {
+        ...session,
+        passkeyCredentialId: undefined,
+        passkeyLabel: undefined,
+      };
+
+      onUnlockSuccess(updatedSession);
+      setStatusMsg('Der Passkey wurde erfolgreich von diesem Gerät und deinem Konto entfernt.');
+    } catch (err: any) {
+      setErrorMsg('Fehler beim Entfernen des Passkeys: ' + String(err));
+      setStatusMsg(null);
     }
   };
 
@@ -1149,6 +1242,68 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       session.email,
       session.recoveryKeyFormatted || 'XXXX-XXXX-XXXX-XXXX-XXXX-XXXX'
     );
+  };
+
+  const handleRotateRecoveryKey = async () => {
+    if (!session) return;
+    setErrorMsg(null);
+    setStatusMsg('Neuer Notfall-Schlüssel wird kryptografisch generiert...');
+
+    try {
+      const dek =
+        session.dekB64 ||
+        sessionStorage.getItem(`bte_notenflow_dek_${session.userId}`) ||
+        '';
+      if (!dek) {
+        setErrorMsg('Hauptschlüssel (DEK) nicht im Speicher. Bitte melde dich erneut mit deinem Passwort an.');
+        setStatusMsg(null);
+        return;
+      }
+
+      // Erzeuge neuen 24-stelligen Recovery-Schlüssel & verschlüssele DEK via WASM
+      const recBundle = wasm_wrap_dek_with_recovery(dek, '');
+      const formattedKey: string = recBundle.recovery_key_formatted;
+      const recEncryptedDek: string = recBundle.recovery_encrypted_dek;
+      const recAuthKeyB64: string = recBundle.recovery_auth_key_b64;
+
+      if (session.token) {
+        const res = await fetch('/api/auth/recovery/rotate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.token}`,
+          },
+          body: JSON.stringify({
+            recovery_encrypted_dek: recEncryptedDek,
+            recovery_auth_key_b64: recAuthKeyB64,
+          }),
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          setErrorMsg(errText || 'Notfall-Schlüssel konnte auf dem Server nicht aktualisiert werden.');
+          setStatusMsg(null);
+          return;
+        }
+      }
+
+      saveLocalRecoveryMeta({
+        email: session.email,
+        recoveryEncryptedDek: recEncryptedDek,
+      });
+
+      const updatedSession: ActiveVaultSession = {
+        ...session,
+        recoveryKeyFormatted: formattedKey,
+        recoveryEncryptedDek: recEncryptedDek,
+      };
+
+      onUnlockSuccess(updatedSession);
+      setStatusMsg('Neuer Notfall-Schlüssel erfolgreich generiert! Bitte drucke das Notfallblatt jetzt aus und hefte es sicher ab.');
+    } catch (err: any) {
+      setErrorMsg('Fehler beim Erneuern des Notfall-Schlüssels: ' + String(err));
+      setStatusMsg(null);
+    }
   };
 
   // ===========================================================================
@@ -2127,16 +2282,35 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               </p>
             </div>
 
-            <button
-              onClick={handleSetupPasskey}
-              className="px-4 py-2.5 rounded-xl text-xs font-bold text-white flex items-center gap-2 shadow-sm shrink-0 transition hover:opacity-95"
-              style={{ backgroundColor: 'var(--primary-500)' }}
-            >
-              <Fingerprint className="w-4 h-4" />
-              <span>
-                {isPasskeyActive ? 'Passkey erneuern' : 'Passkey jetzt aktivieren'}
-              </span>
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {isPasskeyActive && (
+                <button
+                  type="button"
+                  onClick={handleRemovePasskey}
+                  className="px-3.5 py-2.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition hover:bg-rose-50 hover:text-rose-700"
+                  style={{
+                    backgroundColor: 'var(--bg-surface)',
+                    borderColor: 'var(--border-subtle)',
+                    color: 'var(--text-secondary)',
+                  }}
+                  title="Passkey von diesem Gerät und Benutzerkonto entfernen"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                  <span>Passkey entfernen</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => handleSetupPasskey()}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-white flex items-center gap-2 shadow-sm shrink-0 transition hover:opacity-95"
+                style={{ backgroundColor: 'var(--primary-500)' }}
+              >
+                <Fingerprint className="w-4 h-4" />
+                <span>
+                  {isPasskeyActive ? 'Passkey erneuern' : 'Passkey jetzt aktivieren'}
+                </span>
+              </button>
+            </div>
           </div>
 
           {isPasskeyActive && (
@@ -2174,29 +2348,52 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <div className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
-                2. Dein persönliches Notfallblatt (Wichtig!)
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                  2. Dein persönliches Notfallblatt (Wichtig!)
+                </span>
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                    session.recoveryKeyFormatted
+                      ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                      : 'bg-teal-100 text-teal-800'
+                  }`}
+                >
+                  {session.recoveryKeyFormatted ? 'Neu ausgestellt — bitte jetzt drucken!' : 'Aktiv hinterlegt'}
+                </span>
               </div>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
                 Da deine Noten nur für dich lesbar verschlüsselt sind, kann niemand sonst dein Passwort zurücksetzen.
-                Drucke dir dieses Blatt einmal aus und hefte es zu Hause ab.
+                Falls du dein Notfallblatt verlegt oder verloren hast (z.&nbsp;B. durch Brand, Wasser- oder Umzugsschaden),
+                kannst du hier jederzeit einen <strong>frischen Notfall-Code generieren</strong> und neu ausdrucken.
               </p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
+                onClick={handleRotateRecoveryKey}
+                className="px-3.5 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition hover:opacity-90 shadow-sm"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  borderColor: 'var(--border-subtle)',
+                  color: 'var(--text-primary)',
+                }}
+                title="Erzeugt einen brandneuen 24-stelligen Notfall-Code und ersetzt den alten"
+              >
+                <RefreshCw className="w-3.5 h-3.5" style={{ color: 'var(--primary-500)' }} />
+                <span>{session.recoveryKeyFormatted ? 'Code neu generieren' : 'Notfallblatt neu ausstellen'}</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => {
-                  const code =
-                    session.recoveryKeyFormatted ||
-                    'Bitte zuerst Notfallblatt neu ausstellen';
                   if (session.recoveryKeyFormatted) {
-                    navigator.clipboard?.writeText(code);
+                    navigator.clipboard?.writeText(session.recoveryKeyFormatted);
                     setCopiedRecoveryKey(true);
                     setTimeout(() => setCopiedRecoveryKey(false), 2000);
                   }
                 }}
                 disabled={!session.recoveryKeyFormatted}
-                className="px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 disabled:opacity-50"
+                className="px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 disabled:opacity-40"
                 style={{
                   backgroundColor: 'var(--bg-surface)',
                   borderColor: 'var(--border-subtle)',
@@ -2207,28 +2404,40 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 <span>{copiedRecoveryKey ? 'Kopiert!' : 'Code kopieren'}</span>
               </button>
               <button
+                type="button"
                 onClick={handlePrintRecoverySheet}
                 disabled={!session.recoveryKeyFormatted}
-                className="px-3.5 py-2 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                className="px-3.5 py-2 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 shadow-sm disabled:opacity-40 transition hover:opacity-95"
                 style={{ backgroundColor: 'var(--primary-500)' }}
               >
                 <Printer className="w-4 h-4" />
-                <span>Notfallblatt ausdrucken</span>
+                <span>Notfallblatt drucken</span>
               </button>
             </div>
           </div>
 
           <div
-            className="p-3 rounded-xl border font-mono text-xs font-bold text-center tracking-wider select-all"
+            className={`p-3.5 rounded-xl border font-mono text-xs font-bold text-center tracking-wider select-all ${
+              session.recoveryKeyFormatted ? 'border-dashed border-teal-500' : ''
+            }`}
             style={{
               backgroundColor: 'var(--bg-surface)',
-              borderColor: 'var(--border-subtle)',
-              color: 'var(--primary-500)',
+              borderColor: session.recoveryKeyFormatted ? 'var(--primary-500)' : 'var(--border-subtle)',
+              color: session.recoveryKeyFormatted ? 'var(--primary-500)' : 'var(--text-secondary)',
             }}
           >
-            {session.recoveryKeyFormatted
-              ? `Notfall-Code: ${session.recoveryKeyFormatted}`
-              : 'Aus Datenschutzgründen wird der Klartext-Notfallcode nicht im Browser-Speicher abgelegt (nur bei Kontoerstellung / Erneuerung sichtbar).'}
+            {session.recoveryKeyFormatted ? (
+              <div className="space-y-1">
+                <div className="text-[10px] uppercase font-sans font-semibold tracking-normal text-teal-700">
+                  Dein neuer Notfall-Code (jetzt sichern oder drucken):
+                </div>
+                <div className="text-sm font-extrabold text-teal-800">{session.recoveryKeyFormatted}</div>
+              </div>
+            ) : (
+              <span className="font-sans font-normal text-xs opacity-90">
+                🔒 Aus Zero-Knowledge-Sicherheitsgründen wird der Klartext-Code nicht dauerhaft im Browser gespeichert. Klicke oben auf <strong>„Notfallblatt neu ausstellen“</strong>, wenn du dein Blatt verloren hast und ein neues drucken möchtest.
+              </span>
+            )}
           </div>
         </div>
 
