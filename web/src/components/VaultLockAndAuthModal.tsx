@@ -23,6 +23,7 @@ import {
   ChevronUp,
   Copy,
   Edit2,
+  ExternalLink,
   Fingerprint,
   KeyRound,
   Lock,
@@ -2955,6 +2956,17 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           className="pt-4 mt-2 border-t flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-[11px] font-medium"
           style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-muted)' }}
         >
+          <a
+            href="https://gradus21.de"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:underline transition hover:opacity-100 flex items-center gap-1 text-slate-600 dark:text-slate-300"
+            title="Zur offiziellen Website von Gradus21"
+          >
+            <span>gradus21.de</span>
+            <ExternalLink className="w-3 h-3 opacity-70" />
+          </a>
+          <span>•</span>
           <button
             type="button"
             onClick={() => handleOpenLegal('impressum')}

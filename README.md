@@ -1,8 +1,8 @@
-# Gradus21 (`v1.0.0`)
+# Gradus21 (`v1.0.1`)
 
 > **Gradus21** — Zero-Knowledge E2EE & 100 % Client-Side Rust/WebAssembly Notenverwaltung & pädagogische Didaktik für Lehrkräfte.
 >
-> 🚀 **Status: Version `1.0.0` (Production Release)**  
+> 🚀 **Status: Version `1.0.1` (Production Release)**  
 > Vollständig DSGVO-konform, Zero-Knowledge verschlüsselt, FIDO2/Passkey-gesichert und bereit für den produktiven Schuleinsatz.
 
 ---
@@ -19,7 +19,7 @@ Viele Lehrkräfte verwalten ihre Klassenlisten, Punktetabellen, Gewichtungen (`5
 
 ---
 
-## ✨ Funktionsumfang in Version `1.0.0`
+## ✨ Funktionsumfang in Version `1.0.1`
 
 ### 1. Vier vernetzte Arbeitsmodi
 - **📊 Gesamt-Matrix**:
@@ -66,7 +66,7 @@ Viele Lehrkräfte verwalten ihre Klassenlisten, Punktetabellen, Gewichtungen (`5
 
 ```text
 gradus21/
-├── Cargo.toml                        # Rust Workspace (v1.0.0)
+├── Cargo.toml                        # Rust Workspace (v1.0.1)
 ├── crates/
 │   ├── gradus21-core/                # Shared Rust Library + WebAssembly Bindings
 │   │   └── src/

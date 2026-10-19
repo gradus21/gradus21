@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, X } from 'lucide-react';
+import { AlertTriangle, ExternalLink, X } from 'lucide-react';
 import { AppHeader } from './components/AppHeader';
 import { ClassSetupAndExcelWizard } from './components/ClassSetupAndExcelWizard';
 import { ClassManagementModal } from './components/ClassManagementModal';
@@ -356,11 +356,22 @@ export const App: React.FC = () => {
       {/* APP FOOTER / LEGAL COMPLIANCE LINKS */}
       <footer className="mt-auto py-3 px-6 border-t border-slate-200/60 dark:border-slate-800/60 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500 dark:text-slate-400">
         <div className="flex items-center gap-2 font-medium">
-          <span className="font-bold text-slate-700 dark:text-slate-300">Gradus21 v1.0.0</span>
+          <span className="font-bold text-slate-700 dark:text-slate-300">Gradus21 v1.0.1</span>
           <span>·</span>
           <span>Zero-Knowledge E2EE & Client-Side Rust/WASM</span>
         </div>
         <div className="flex items-center gap-3">
+          <a
+            href="https://gradus21.de"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:underline transition hover:text-slate-800 dark:hover:text-slate-200 flex items-center gap-1 font-semibold text-teal-600 dark:text-teal-400"
+            title="Zur offiziellen Website gradus21.de"
+          >
+            <span>gradus21.de</span>
+            <ExternalLink className="w-3 h-3 opacity-70" />
+          </a>
+          <span>·</span>
           <button
             onClick={() => {
               setLegalTab('impressum');
@@ -386,7 +397,7 @@ export const App: React.FC = () => {
               setLegalTab('school_guide');
               setShowLegalModal(true);
             }}
-            className="hover:underline transition text-teal-600 dark:text-teal-400 font-semibold"
+            className="hover:underline transition hover:text-slate-800 dark:hover:text-slate-200"
           >
             Schul-Datenschutz & AVV
           </button>

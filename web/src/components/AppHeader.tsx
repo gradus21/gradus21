@@ -79,12 +79,18 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
         <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-2.5">
+          <a
+            href="https://gradus21.de"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2.5 group transition hover:opacity-95"
+            title="Zur offiziellen Website gradus21.de"
+          >
             <FlowRibbonLogo size={32} showWordmark={false} />
             <div>
               <div className="flex items-center gap-2">
                 <span
-                  className="font-extrabold tracking-tight text-base"
+                  className="font-extrabold tracking-tight text-base group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors"
                   style={{ color: 'var(--text-primary)' }}
                 >
                   Gradus21
@@ -103,7 +109,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 Offline-First & Zero-Knowledge Notenverwaltung
               </p>
             </div>
-          </div>
+          </a>
 
           {/* Class Switcher */}
           <div

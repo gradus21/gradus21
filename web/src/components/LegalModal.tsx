@@ -204,6 +204,17 @@ export const LegalModal: React.FC<LegalModalProps> = ({
               <div>
                 <h3 className="text-base font-bold text-slate-900 dark:text-white mb-2">Kontakt</h3>
                 <p>
+                  Website:{' '}
+                  <a
+                    href="https://gradus21.de"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-teal-600 dark:text-teal-400 underline font-medium"
+                  >
+                    https://gradus21.de
+                  </a>
+                </p>
+                <p>
                   E-Mail:{' '}
                   <a
                     href={`mailto:${config.email}`}

@@ -3,6 +3,12 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - 2026-10-20
+
+### Added
+- **Website Integration (`https://gradus21.de`)**:
+  - Integrated direct links to the official website and product documentation `gradus21.de` in the lock screen, the workspace footer, the application header logo, and the Impressum dialog.
+
 ## [1.0.0] - 2026-10-20 (Production Release)
 
 ### Added
