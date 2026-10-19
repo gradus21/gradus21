@@ -31,6 +31,7 @@ export interface ActiveVaultSession {
   token: string;
   userId: string;
   email: string;
+  isAdmin?: boolean;
   kdfSaltB64: string;
   dekB64: string;
   encryptedDek: string;
@@ -583,6 +584,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         token: loginData.token,
         userId: loginData.user_id,
         email: loginData.email,
+        isAdmin: loginData.is_admin ?? false,
         kdfSaltB64: loginData.kdf_salt_b64 || session?.kdfSaltB64 || '',
         dekB64: unwrappedDekB64,
         encryptedDek:
@@ -645,6 +647,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         token: data.token,
         userId: data.user_id,
         email: data.email,
+        isAdmin: data.is_admin ?? false,
         kdfSaltB64: bundle.kdf_salt_b64,
         dekB64: bundle.dek_b64,
         encryptedDek: bundle.encrypted_dek,
@@ -751,6 +754,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         token: loginData.token,
         userId: loginData.user_id,
         email: loginData.email,
+        isAdmin: loginData.is_admin ?? false,
         kdfSaltB64: usedSalt || loginData.kdf_salt_b64,
         dekB64: unlocked.dek_b64,
         encryptedDek: usedEncryptedDek || loginData.encrypted_dek,
@@ -881,6 +885,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         token: data.token,
         userId: data.user_id,
         email: data.email,
+        isAdmin: data.is_admin ?? false,
         kdfSaltB64: rewrapped.kdf_salt_b64,
         dekB64: recoveredDekB64,
         encryptedDek: rewrapped.encrypted_dek,

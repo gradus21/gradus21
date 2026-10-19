@@ -1,3 +1,4 @@
+pub mod admin;
 mod totp;
 
 use argon2::{
@@ -29,44 +30,64 @@ use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
 
 #[derive(Clone)]
-struct AppState {
-    db: Option<PgPool>,
-    disk_store_path: PathBuf,
-    mem_users: Arc<RwLock<HashMap<Uuid, UserRecord>>>,
-    mem_envelopes: Arc<RwLock<HashMap<Uuid, EncryptedEnvelopeRecord>>>,
-    auth_rate_limits: Arc<RwLock<HashMap<String, Vec<Instant>>>>,
-    jwt_secret: String,
-    server_encryption_key_b64: String,
+pub struct AppState {
+    pub db: Option<PgPool>,
+    pub disk_store_path: PathBuf,
+    pub mem_users: Arc<RwLock<HashMap<Uuid, UserRecord>>>,
+    pub mem_envelopes: Arc<RwLock<HashMap<Uuid, EncryptedEnvelopeRecord>>>,
+    pub mem_settings: Arc<RwLock<HashMap<String, serde_json::Value>>>,
+    pub mem_global_templates: Arc<RwLock<HashMap<Uuid, admin::GlobalTemplateRecord>>>,
+    pub auth_rate_limits: Arc<RwLock<HashMap<String, Vec<Instant>>>>,
+    pub jwt_secret: String,
+    pub server_encryption_key_b64: String,
+    pub admin_emails: Vec<String>,
+    pub enable_admin_panel: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct PersistentDiskStore {
-    users: HashMap<Uuid, UserRecord>,
-    envelopes: HashMap<Uuid, EncryptedEnvelopeRecord>,
+pub struct PersistentDiskStore {
+    pub users: HashMap<Uuid, UserRecord>,
+    pub envelopes: HashMap<Uuid, EncryptedEnvelopeRecord>,
+    #[serde(default)]
+    pub system_settings: HashMap<String, serde_json::Value>,
+    #[serde(default)]
+    pub global_templates: HashMap<Uuid, admin::GlobalTemplateRecord>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct UserRecord {
-    id: Uuid,
-    email: String,
-    auth_key_hash: String,
-    kdf_salt: String,
-    kdf_params: KdfParams,
-    encrypted_dek: String,
-    recovery_encrypted_dek: String,
+pub struct UserRecord {
+    pub id: Uuid,
+    pub email: String,
+    pub auth_key_hash: String,
+    pub kdf_salt: String,
+    pub kdf_params: KdfParams,
+    pub encrypted_dek: String,
+    pub recovery_encrypted_dek: String,
     #[serde(default)]
-    recovery_auth_key_hash: String,
-    totp_secret_server_encrypted: Option<String>,
-    totp_enabled: bool,
+    pub recovery_auth_key_hash: String,
+    pub totp_secret_server_encrypted: Option<String>,
+    pub totp_enabled: bool,
     #[serde(default)]
-    passkey_credential_id: Option<String>,
+    pub passkey_credential_id: Option<String>,
     #[serde(default)]
-    passkey_label: Option<String>,
+    pub passkey_label: Option<String>,
     #[serde(default)]
-    passkey_encrypted_dek: Option<String>,
+    pub passkey_encrypted_dek: Option<String>,
     #[serde(default)]
-    passkey_prf_salt: Option<String>,
-    ui_preferences: serde_json::Value,
+    pub passkey_prf_salt: Option<String>,
+    pub ui_preferences: serde_json::Value,
+    #[serde(default)]
+    pub is_admin: bool,
+    #[serde(default = "default_true")]
+    pub is_active: bool,
+    #[serde(default)]
+    pub created_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub last_login_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,11 +103,13 @@ pub struct EncryptedEnvelopeRecord {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct JwtClaims {
-    sub: String,
-    email: String,
-    two_factor_verified: bool,
-    exp: usize,
+pub struct JwtClaims {
+    pub sub: String,
+    pub email: String,
+    #[serde(default)]
+    pub is_admin: bool,
+    pub two_factor_verified: bool,
+    pub exp: usize,
 }
 
 #[derive(Deserialize)]
@@ -102,22 +125,23 @@ struct RegisterRequest {
 }
 
 #[derive(Serialize)]
-struct AuthResponse {
-    token: String,
-    user_id: Uuid,
-    email: String,
-    kdf_salt_b64: String,
-    kdf_params: KdfParams,
-    encrypted_dek: String,
-    recovery_encrypted_dek: String,
-    totp_enabled: bool,
-    totp_setup_uri: Option<String>,
-    totp_secret_base32: Option<String>,
-    passkey_credential_id: Option<String>,
-    passkey_label: Option<String>,
-    passkey_encrypted_dek: Option<String>,
-    passkey_prf_salt_b64: Option<String>,
-    ui_preferences: serde_json::Value,
+pub struct AuthResponse {
+    pub token: String,
+    pub user_id: Uuid,
+    pub email: String,
+    pub is_admin: bool,
+    pub kdf_salt_b64: String,
+    pub kdf_params: KdfParams,
+    pub encrypted_dek: String,
+    pub recovery_encrypted_dek: String,
+    pub totp_enabled: bool,
+    pub totp_setup_uri: Option<String>,
+    pub totp_secret_base32: Option<String>,
+    pub passkey_credential_id: Option<String>,
+    pub passkey_label: Option<String>,
+    pub passkey_encrypted_dek: Option<String>,
+    pub passkey_prf_salt_b64: Option<String>,
+    pub ui_preferences: serde_json::Value,
 }
 
 #[derive(Deserialize)]
@@ -238,6 +262,8 @@ async fn ensure_pg_schema_and_load(
     pool: &PgPool,
     users_map: &mut HashMap<Uuid, UserRecord>,
     envelopes_map: &mut HashMap<Uuid, EncryptedEnvelopeRecord>,
+    settings_map: &mut HashMap<String, serde_json::Value>,
+    templates_map: &mut HashMap<Uuid, admin::GlobalTemplateRecord>,
 ) {
     let schema_queries = [
         r#"CREATE TABLE IF NOT EXISTS users (
@@ -264,6 +290,9 @@ async fn ensure_pg_schema_and_load(
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS passkey_label TEXT",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS passkey_encrypted_dek TEXT",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS passkey_prf_salt TEXT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ",
         r#"CREATE TABLE IF NOT EXISTS encrypted_envelopes (
             id UUID PRIMARY KEY,
             owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -275,6 +304,20 @@ async fn ensure_pg_schema_and_load(
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )"#,
         "CREATE INDEX IF NOT EXISTS idx_encrypted_envelopes_owner ON encrypted_envelopes (owner_user_id)",
+        r#"CREATE TABLE IF NOT EXISTS system_settings (
+            key TEXT PRIMARY KEY,
+            value JSONB NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )"#,
+        r#"CREATE TABLE IF NOT EXISTS grading_templates (
+            id UUID PRIMARY KEY,
+            owner_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+            is_encrypted BOOLEAN NOT NULL DEFAULT TRUE,
+            payload TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )"#,
+        "ALTER TABLE grading_templates ALTER COLUMN owner_user_id DROP NOT NULL",
     ];
 
     for q in schema_queries {
@@ -284,7 +327,7 @@ async fn ensure_pg_schema_and_load(
     }
 
     if let Ok(rows) = sqlx::query(
-        "SELECT id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek, recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted, totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek, passkey_prf_salt, ui_preferences FROM users",
+        "SELECT id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek, recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted, totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek, passkey_prf_salt, ui_preferences, is_admin, is_active, created_at, last_login_at FROM users",
     )
     .fetch_all(pool)
     .await
@@ -308,6 +351,10 @@ async fn ensure_pg_schema_and_load(
                 passkey_encrypted_dek: row.try_get("passkey_encrypted_dek").ok().flatten(),
                 passkey_prf_salt: row.try_get("passkey_prf_salt").ok().flatten(),
                 ui_preferences: row.get("ui_preferences"),
+                is_admin: row.try_get("is_admin").unwrap_or(false),
+                is_active: row.try_get("is_active").unwrap_or(true),
+                created_at: row.try_get("created_at").ok(),
+                last_login_at: row.try_get("last_login_at").ok(),
             };
             users_map.insert(id, user);
         }
@@ -334,9 +381,45 @@ async fn ensure_pg_schema_and_load(
             envelopes_map.insert(id, env);
         }
     }
+
+    if let Ok(rows) = sqlx::query("SELECT key, value FROM system_settings").fetch_all(pool).await {
+        for row in rows {
+            let key: String = row.get("key");
+            let val: serde_json::Value = row.get("value");
+            settings_map.insert(key, val);
+        }
+    }
+
+    if let Ok(rows) = sqlx::query(
+        "SELECT id, payload, created_at, updated_at FROM grading_templates WHERE owner_user_id IS NULL AND is_encrypted = FALSE",
+    )
+    .fetch_all(pool)
+    .await
+    {
+        for row in rows {
+            let id: Uuid = row.get("id");
+            let payload_str: String = row.get("payload");
+            let parsed: serde_json::Value = serde_json::from_str(&payload_str).unwrap_or_default();
+            let title = parsed.get("title").and_then(|v| v.as_str()).unwrap_or("Globale Vorlage").to_string();
+            let desc = parsed.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let template_type = parsed.get("template_type").and_then(|v| v.as_str()).unwrap_or("curve").to_string();
+            templates_map.insert(
+                id,
+                admin::GlobalTemplateRecord {
+                    id,
+                    template_type,
+                    title,
+                    description: desc,
+                    payload: parsed,
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
+                },
+            );
+        }
+    }
 }
 
-async fn sync_user_to_pg(state: &AppState, user: &UserRecord) {
+pub async fn sync_user_to_pg(state: &AppState, user: &UserRecord) {
     let Some(pool) = &state.db else {
         return;
     };
@@ -346,8 +429,8 @@ async fn sync_user_to_pg(state: &AppState, user: &UserRecord) {
             id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek,
             recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted,
             totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek,
-            passkey_prf_salt, ui_preferences, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+            passkey_prf_salt, ui_preferences, is_admin, is_active, last_login_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW())
         ON CONFLICT (id) DO UPDATE SET
             email = EXCLUDED.email,
             auth_key_hash = EXCLUDED.auth_key_hash,
@@ -363,6 +446,9 @@ async fn sync_user_to_pg(state: &AppState, user: &UserRecord) {
             passkey_encrypted_dek = EXCLUDED.passkey_encrypted_dek,
             passkey_prf_salt = EXCLUDED.passkey_prf_salt,
             ui_preferences = EXCLUDED.ui_preferences,
+            is_admin = EXCLUDED.is_admin,
+            is_active = EXCLUDED.is_active,
+            last_login_at = EXCLUDED.last_login_at,
             updated_at = NOW()"#,
     )
     .bind(user.id)
@@ -380,6 +466,9 @@ async fn sync_user_to_pg(state: &AppState, user: &UserRecord) {
     .bind(&user.passkey_encrypted_dek)
     .bind(&user.passkey_prf_salt)
     .bind(&user.ui_preferences)
+    .bind(user.is_admin)
+    .bind(user.is_active)
+    .bind(user.last_login_at)
     .execute(pool)
     .await
     {
@@ -478,7 +567,14 @@ async fn main() {
         match PgPoolOptions::new().max_connections(10).connect(&db_url).await {
             Ok(pool) => {
                 tracing::info!("Connected to PostgreSQL database; ensuring schema and loading records");
-                ensure_pg_schema_and_load(&pool, &mut initial_disk.users, &mut initial_disk.envelopes).await;
+                ensure_pg_schema_and_load(
+                    &pool,
+                    &mut initial_disk.users,
+                    &mut initial_disk.envelopes,
+                    &mut initial_disk.system_settings,
+                    &mut initial_disk.global_templates,
+                )
+                .await;
                 Some(pool)
             }
             Err(e) => {
@@ -500,14 +596,29 @@ async fn main() {
         None
     };
 
+    let admin_emails: Vec<String> = std::env::var("ADMIN_EMAILS")
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let enable_admin_panel = std::env::var("ENABLE_ADMIN_PANEL")
+        .map(|v| v.trim() != "false" && v.trim() != "0")
+        .unwrap_or(true);
+
     let state = AppState {
         db,
         disk_store_path,
         mem_users: Arc::new(RwLock::new(initial_disk.users)),
         mem_envelopes: Arc::new(RwLock::new(initial_disk.envelopes)),
+        mem_settings: Arc::new(RwLock::new(initial_disk.system_settings)),
+        mem_global_templates: Arc::new(RwLock::new(initial_disk.global_templates)),
         auth_rate_limits: Arc::new(RwLock::new(HashMap::new())),
         jwt_secret,
         server_encryption_key_b64,
+        admin_emails,
+        enable_admin_panel,
     };
 
     let cors = if let Ok(origin) = std::env::var("CORS_ALLOWED_ORIGIN") {
@@ -540,6 +651,43 @@ async fn main() {
         .route("/api/envelopes/batch", post(batch_sync_envelopes))
         .route("/api/envelopes/:id", delete(delete_envelope))
         .route("/api/preferences", put(update_preferences))
+        // Admin & Global Template routes:
+        .route("/api/templates", get(admin::list_global_templates))
+        .route("/api/admin/users", get(admin::list_users))
+        .route("/api/admin/users/invite", post(admin::invite_user))
+        .route(
+            "/api/admin/users/:id",
+            delete(admin::delete_user).patch(admin::update_user_status),
+        )
+        .route("/api/admin/backups", get(admin::list_backups))
+        .route("/api/admin/backups/create", post(admin::create_backup_snapshot))
+        .route(
+            "/api/admin/backups/download/:filename",
+            get(admin::download_backup),
+        )
+        .route("/api/admin/backups/restore", post(admin::restore_backup))
+        .route(
+            "/api/admin/backups/config",
+            get(admin::get_backup_config).put(admin::update_backup_config),
+        )
+        .route("/api/admin/templates", post(admin::create_global_template))
+        .route(
+            "/api/admin/templates/:id",
+            delete(admin::delete_global_template),
+        )
+        .route(
+            "/api/admin/smtp",
+            get(admin::get_smtp_config).put(admin::update_smtp_config),
+        )
+        .route("/api/admin/smtp/test", post(admin::test_smtp))
+        .route(
+            "/api/admin/mail-templates",
+            get(admin::list_mail_templates),
+        )
+        .route(
+            "/api/admin/mail-templates/:id",
+            put(admin::update_mail_template),
+        )
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
         .layer(cors)
         .with_state(state);
@@ -555,10 +703,17 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-fn persist_to_disk(state: &AppState) {
+pub fn persist_to_disk(state: &AppState) {
     let users = state.mem_users.read().unwrap().clone();
     let envelopes = state.mem_envelopes.read().unwrap().clone();
-    let store = PersistentDiskStore { users, envelopes };
+    let system_settings = state.mem_settings.read().unwrap().clone();
+    let global_templates = state.mem_global_templates.read().unwrap().clone();
+    let store = PersistentDiskStore {
+        users,
+        envelopes,
+        system_settings,
+        global_templates,
+    };
     if let Ok(json) = serde_json::to_string_pretty(&store) {
         let tmp_path = state.disk_store_path.with_extension("json.tmp");
         if let Err(e) = fs::write(&tmp_path, json) {
@@ -643,6 +798,14 @@ async fn register_user(
 
     let ui_prefs = serde_json::json!({ "theme": "teal", "mode": "light" });
 
+    let is_first_user = {
+        let users = state.mem_users.read().unwrap();
+        users.is_empty()
+    };
+    let is_admin = is_first_user || state.admin_emails.contains(&email);
+    let is_active = true;
+    let now = Utc::now();
+
     let new_user = {
         let mut users = state.mem_users.write().unwrap();
         if users.values().any(|u| u.email == email) {
@@ -664,6 +827,10 @@ async fn register_user(
             passkey_encrypted_dek: None,
             passkey_prf_salt: None,
             ui_preferences: ui_prefs.clone(),
+            is_admin,
+            is_active,
+            created_at: Some(now),
+            last_login_at: Some(now),
         };
         users.insert(user_id, record.clone());
         record
@@ -671,11 +838,12 @@ async fn register_user(
     sync_user_to_pg(&state, &new_user).await;
     persist_to_disk(&state);
 
-    let token = issue_jwt(&state.jwt_secret, user_id, &email, true)?;
+    let token = issue_jwt(&state.jwt_secret, user_id, &email, is_admin, true)?;
     Ok(Json(AuthResponse {
         token,
         user_id,
         email,
+        is_admin,
         kdf_salt_b64: req.kdf_salt_b64,
         kdf_params: req.kdf_params,
         encrypted_dek: req.encrypted_dek,
@@ -703,6 +871,13 @@ async fn login_user(
         return Err((StatusCode::UNAUTHORIZED, "Ungültige Zugangsdaten".into()));
     };
 
+    if !user.is_active {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Dieses Benutzerkonto wurde von der Administration vorübergehend deaktiviert.".into(),
+        ));
+    }
+
     let parsed_hash = PasswordHash::new(&user.auth_key_hash)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Hash-Fehler".into()))?;
     Argon2::default()
@@ -729,11 +904,31 @@ async fn login_user(
         }
     }
 
-    let token = issue_jwt(&state.jwt_secret, user.id, &user.email, true)?;
+    let is_admin = user.is_admin || state.admin_emails.contains(&user.email.to_lowercase());
+    let now = Utc::now();
+    {
+        let mut users = state.mem_users.write().unwrap();
+        if let Some(u) = users.get_mut(&user.id) {
+            u.last_login_at = Some(now);
+            if is_admin && !u.is_admin {
+                u.is_admin = true;
+            }
+        }
+    }
+    if let Some(mut updated_user) = find_user_by_email(&state, &email).await {
+        updated_user.last_login_at = Some(now);
+        if is_admin {
+            updated_user.is_admin = true;
+        }
+        sync_user_to_pg(&state, &updated_user).await;
+    }
+
+    let token = issue_jwt(&state.jwt_secret, user.id, &user.email, is_admin, true)?;
     Ok(Json(AuthResponse {
         token,
         user_id: user.id,
         email: user.email,
+        is_admin,
         kdf_salt_b64: user.kdf_salt,
         kdf_params: user.kdf_params,
         encrypted_dek: user.encrypted_dek,
@@ -814,11 +1009,12 @@ async fn recover_password(
     sync_user_to_pg(&state, &updated_user).await;
     persist_to_disk(&state);
 
-    let token = issue_jwt(&state.jwt_secret, updated_user.id, &updated_user.email, true)?;
+    let token = issue_jwt(&state.jwt_secret, updated_user.id, &updated_user.email, updated_user.is_admin, true)?;
     Ok(Json(AuthResponse {
         token,
         user_id: updated_user.id,
         email: updated_user.email,
+        is_admin: updated_user.is_admin,
         kdf_salt_b64: updated_user.kdf_salt,
         kdf_params: updated_user.kdf_params,
         encrypted_dek: updated_user.encrypted_dek,
@@ -843,7 +1039,7 @@ async fn register_passkey(
     let user_id = Uuid::parse_str(&claims.sub)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
 
-    let issued_token = issue_jwt(&state.jwt_secret, user_id, &claims.email, true)?;
+    let issued_token = issue_jwt(&state.jwt_secret, user_id, &claims.email, claims.is_admin, true)?;
     let rec_hash_opt = match req
         .recovery_auth_key_b64
         .as_deref()
@@ -908,6 +1104,10 @@ async fn register_passkey(
                 passkey_encrypted_dek: Some(req.passkey_encrypted_dek.clone()),
                 passkey_prf_salt: req.passkey_prf_salt_b64.clone(),
                 ui_preferences: serde_json::json!({ "theme": "teal", "mode": "light" }),
+                is_admin: claims.is_admin,
+                is_active: true,
+                created_at: Some(Utc::now()),
+                last_login_at: Some(Utc::now()),
             };
             users.insert(user_id, new_user.clone());
             new_user
@@ -959,11 +1159,30 @@ async fn login_with_passkey(
         ));
     };
 
-    let token = issue_jwt(&state.jwt_secret, user.id, &user.email, true)?;
+    if !user.is_active {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Dein Benutzerkonto wurde von einem Administrator deaktiviert.".into(),
+        ));
+    }
+
+    let now = Utc::now();
+    {
+        let mut users = state.mem_users.write().unwrap();
+        if let Some(u) = users.get_mut(&user.id) {
+            u.last_login_at = Some(now);
+        }
+    }
+    let mut updated_user = user.clone();
+    updated_user.last_login_at = Some(now);
+    sync_user_to_pg(&state, &updated_user).await;
+
+    let token = issue_jwt(&state.jwt_secret, user.id, &user.email, user.is_admin, true)?;
     Ok(Json(AuthResponse {
         token,
         user_id: user.id,
         email: user.email,
+        is_admin: user.is_admin,
         kdf_salt_b64: user.kdf_salt,
         kdf_params: user.kdf_params,
         encrypted_dek: user.encrypted_dek,
@@ -1057,6 +1276,10 @@ async fn get_2fa_setup_info(
                 passkey_encrypted_dek: None,
                 passkey_prf_salt: None,
                 ui_preferences: serde_json::json!({ "theme": "teal", "mode": "light" }),
+                is_admin: claims.is_admin,
+                is_active: true,
+                created_at: Some(Utc::now()),
+                last_login_at: Some(Utc::now()),
             };
             users.insert(user_id, new_user.clone());
             (false, claims.email.clone(), secret, Some(new_user))
@@ -1343,7 +1566,7 @@ async fn find_user_by_email(state: &AppState, email: &str) -> Option<UserRecord>
 
     if let Some(pool) = &state.db {
         if let Ok(Some(row)) = sqlx::query(
-            "SELECT id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek, recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted, totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek, passkey_prf_salt, ui_preferences FROM users WHERE email = $1",
+            "SELECT id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek, recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted, totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek, passkey_prf_salt, ui_preferences, is_admin, is_active, created_at, last_login_at FROM users WHERE email = $1",
         )
         .bind(email)
         .fetch_optional(pool)
@@ -1367,6 +1590,10 @@ async fn find_user_by_email(state: &AppState, email: &str) -> Option<UserRecord>
                 passkey_encrypted_dek: row.try_get("passkey_encrypted_dek").ok().flatten(),
                 passkey_prf_salt: row.try_get("passkey_prf_salt").ok().flatten(),
                 ui_preferences: row.get("ui_preferences"),
+                is_admin: row.try_get("is_admin").unwrap_or(false),
+                is_active: row.try_get("is_active").unwrap_or(true),
+                created_at: row.try_get("created_at").ok(),
+                last_login_at: row.try_get("last_login_at").ok(),
             };
             state.mem_users.write().unwrap().insert(id, user.clone());
             return Some(user);
@@ -1379,12 +1606,14 @@ fn issue_jwt(
     secret: &str,
     user_id: Uuid,
     email: &str,
+    is_admin: bool,
     two_factor_verified: bool,
 ) -> Result<String, (StatusCode, String)> {
     let exp = (Utc::now().timestamp() + 86400 * 7) as usize;
     let claims = JwtClaims {
         sub: user_id.to_string(),
         email: email.to_string(),
+        is_admin,
         two_factor_verified,
         exp,
     };
@@ -1432,9 +1661,13 @@ mod tests {
             disk_store_path: tmp_file,
             mem_users: Arc::new(RwLock::new(HashMap::new())),
             mem_envelopes: Arc::new(RwLock::new(HashMap::new())),
+            mem_settings: Arc::new(RwLock::new(HashMap::new())),
+            mem_global_templates: Arc::new(RwLock::new(HashMap::new())),
             auth_rate_limits: Arc::new(RwLock::new(HashMap::new())),
             jwt_secret: "test_jwt_secret_2026".into(),
             server_encryption_key_b64: B64.encode(key_digest),
+            admin_emails: vec!["admin@example.com".into()],
+            enable_admin_panel: true,
         }
     }
 
@@ -1725,6 +1958,120 @@ mod tests {
         let unwrapped_dek = unwrap_dek_with_passkey_secret(&prf_secret_b64, cred_id, &login_resp.passkey_encrypted_dek.unwrap())
             .expect("unwrap dek");
         assert_eq!(unwrapped_dek, bundle.dek_b64);
+
+        let _ = fs::remove_file(&state.disk_store_path);
+    }
+
+    #[tokio::test]
+    async fn test_admin_permissions_user_management_and_templates() {
+        let state = create_test_state();
+        let bundle1 = generate_vault_bundle("AdminPass123!").expect("bundle1");
+        let bundle2 = generate_vault_bundle("TeacherPass123!").expect("bundle2");
+
+        // 1. Register first user (automatically becomes admin)
+        let Json(admin_auth) = register_user(
+            State(state.clone()),
+            Json(RegisterRequest {
+                email: "admin@schule.de".into(),
+                auth_key_b64: bundle1.auth_key_b64.clone(),
+                kdf_salt_b64: bundle1.kdf_salt_b64.clone(),
+                kdf_params: bundle1.kdf_params.clone(),
+                encrypted_dek: bundle1.encrypted_dek.clone(),
+                recovery_encrypted_dek: bundle1.recovery_encrypted_dek.clone(),
+                recovery_auth_key_b64: None,
+            }),
+        )
+        .await
+        .expect("admin register");
+        assert!(admin_auth.is_admin);
+
+        // 2. Register second user (standard user)
+        let Json(teacher_auth) = register_user(
+            State(state.clone()),
+            Json(RegisterRequest {
+                email: "teacher@schule.de".into(),
+                auth_key_b64: bundle2.auth_key_b64.clone(),
+                kdf_salt_b64: bundle2.kdf_salt_b64.clone(),
+                kdf_params: bundle2.kdf_params.clone(),
+                encrypted_dek: bundle2.encrypted_dek.clone(),
+                recovery_encrypted_dek: bundle2.recovery_encrypted_dek.clone(),
+                recovery_auth_key_b64: None,
+            }),
+        )
+        .await
+        .expect("teacher register");
+        assert!(!teacher_auth.is_admin);
+
+        // 3. Teacher attempts to access admin endpoint -> 403 Forbidden
+        let mut teacher_headers = HeaderMap::new();
+        teacher_headers.insert("authorization", format!("Bearer {}", teacher_auth.token).parse().unwrap());
+        let forbidden_res = admin::list_users(State(state.clone()), teacher_headers.clone()).await;
+        assert!(forbidden_res.is_err());
+        assert_eq!(forbidden_res.unwrap_err().0, StatusCode::FORBIDDEN);
+
+        // 4. Admin accesses admin endpoint -> success, returns user list with last_login_at
+        let mut admin_headers = HeaderMap::new();
+        admin_headers.insert("authorization", format!("Bearer {}", admin_auth.token).parse().unwrap());
+        let Json(users_list) = admin::list_users(State(state.clone()), admin_headers.clone())
+            .await
+            .expect("admin list users");
+        assert_eq!(users_list.len(), 2);
+        let teacher_entry = users_list.iter().find(|u| u.email == "teacher@schule.de").unwrap();
+        assert!(teacher_entry.last_login_at.is_some());
+        assert_eq!(teacher_entry.is_admin, false);
+
+        // 5. Demoting the only admin must fail
+        let demote_req = admin::UpdateUserStatusRequest {
+            is_admin: Some(false),
+            is_active: None,
+        };
+        let demote_res = admin::update_user_status(
+            State(state.clone()),
+            admin_headers.clone(),
+            Path(admin_auth.user_id),
+            Json(demote_req),
+        )
+        .await;
+        assert!(demote_res.is_err());
+        assert_eq!(demote_res.unwrap_err().0, StatusCode::BAD_REQUEST);
+
+        // 6. Deactivating oneself must fail
+        let deactivate_self_req = admin::UpdateUserStatusRequest {
+            is_admin: None,
+            is_active: Some(false),
+        };
+        let deactivate_self_res = admin::update_user_status(
+            State(state.clone()),
+            admin_headers.clone(),
+            Path(admin_auth.user_id),
+            Json(deactivate_self_req),
+        )
+        .await;
+        assert!(deactivate_self_res.is_err());
+        assert_eq!(deactivate_self_res.unwrap_err().0, StatusCode::BAD_REQUEST);
+
+        // 7. Admin creates global template
+        let tpl_req = admin::UpsertGlobalTemplateRequest {
+            template_type: "curve".into(),
+            title: "Standard IHK Schlüssel".into(),
+            description: "Globale Vorlage für Notenschlüssel".into(),
+            payload: serde_json::json!({ "linear": true, "pass_percentage": 50 }),
+        };
+        let Json(created_tpl) = admin::create_global_template(
+            State(state.clone()),
+            admin_headers.clone(),
+            Json(tpl_req),
+        )
+        .await
+        .expect("create global template");
+        assert_eq!(created_tpl.title, "Standard IHK Schlüssel");
+
+        // 8. Teacher can list global templates
+        let Json(public_tpls) = admin::list_global_templates(State(state.clone()), teacher_headers.clone())
+            .await
+            .expect("public tpls");
+        assert_eq!(public_tpls.len(), 1);
+        assert_eq!(public_tpls[0].title, "Standard IHK Schlüssel");
 
         let _ = fs::remove_file(&state.disk_store_path);
     }

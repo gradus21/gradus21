@@ -12,6 +12,7 @@ import { ClassSetupAndExcelWizard } from './components/ClassSetupAndExcelWizard'
 import { ClassManagementModal } from './components/ClassManagementModal';
 import { SettingsModal, WEIGHTING_PRESET_CATALOG } from './components/SettingsModal';
 import { ActiveVaultSession, VaultLockAndAuthModal } from './components/VaultLockAndAuthModal';
+import { AdminModal } from './components/admin/AdminModal';
 import {
   exportClassToXlsx,
   printClassConferenceReport,
@@ -54,6 +55,7 @@ import {
   Printer,
   RefreshCw,
   Settings,
+  Shield,
   Sliders,
   Sparkles,
   Trash2,
@@ -228,10 +230,11 @@ export const App: React.FC = () => {
   const [simCategoryId, setSimCategoryId] = useState<string>('cat_lnw');
   const [simTargetPercent, setSimTargetPercent] = useState<number>(80);
 
-  // Modals: Class Setup Wizard, Class Management (Edit existing), Settings, Vault/Auth
+  // Modals: Class Setup Wizard, Class Management (Edit existing), Settings, Vault/Auth, Admin
   const [showClassWizard, setShowClassWizard] = useState<boolean>(false);
   const [showClassManager, setShowClassManager] = useState<boolean>(false);
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+  const [showAdminModal, setShowAdminModal] = useState<boolean>(false);
   const [isVaultLocked, setIsVaultLocked] = useState<boolean>(() => {
     return localStorage.getItem(VAULT_LOCKED_STORAGE_KEY) === 'true';
   });
@@ -568,6 +571,7 @@ export const App: React.FC = () => {
       let token = '';
       let totpSecret = 'JBSWY3DPEHPK3PXP';
       let totpUri: string | undefined;
+      let isAdmin = false;
 
       try {
         const email = 'julian@gemeinschaftsschule.de';
@@ -590,6 +594,7 @@ export const App: React.FC = () => {
           token = authData.token;
           totpSecret = authData.totp_secret_base32 || totpSecret;
           totpUri = authData.totp_setup_uri;
+          isAdmin = authData.is_admin ?? false;
         }
       } catch {
         // Offline-first fallback
@@ -603,6 +608,7 @@ export const App: React.FC = () => {
         token,
         userId: serverUserId,
         email: 'julian@gemeinschaftsschule.de',
+        isAdmin,
         kdfSaltB64: bundle.kdf_salt_b64,
         dekB64: lockedFlag ? '' : bundle.dek_b64,
         encryptedDek: bundle.encrypted_dek,
@@ -1438,6 +1444,22 @@ export const App: React.FC = () => {
             <KeyRound className="w-3.5 h-3.5" />
             <span>Konto & Schutz</span>
           </button>
+
+          {vaultSession?.isAdmin && (
+            <button
+              onClick={() => setShowAdminModal(true)}
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition hover:opacity-90 shadow-sm"
+              style={{
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                color: '#dc2626',
+                borderColor: 'rgba(239, 68, 68, 0.25)',
+              }}
+              title="System-Administration (Userverwaltung, Backups, Globale Vorlagen, SMTP & E-Mails)"
+            >
+              <Shield className="w-3.5 h-3.5 text-red-600" />
+              <span>Admin-Bereich</span>
+            </button>
+          )}
 
           <button
             onClick={() => setPrivacyBlur((b) => !b)}
@@ -4235,6 +4257,15 @@ export const App: React.FC = () => {
           onUnlockSuccess={(updatedSession) => setVaultSession(updatedSession)}
           onLockVault={handleLockVault}
           onCloseInspector={() => setShowVaultInspector(false)}
+        />
+      )}
+
+      {/* MODAL 5: SYSTEM-ADMINISTRATION */}
+      {showAdminModal && vaultSession && (
+        <AdminModal
+          isOpen={showAdminModal}
+          onClose={() => setShowAdminModal(false)}
+          session={vaultSession}
         />
       )}
     </div>
