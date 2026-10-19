@@ -124,7 +124,7 @@ struct RegisterRequest {
     recovery_auth_key_b64: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct AuthResponse {
     pub token: String,
     pub user_id: Uuid,
@@ -2072,6 +2072,135 @@ mod tests {
             .expect("public tpls");
         assert_eq!(public_tpls.len(), 1);
         assert_eq!(public_tpls[0].title, "Standard IHK Schlüssel");
+
+        let _ = fs::remove_file(&state.disk_store_path);
+    }
+
+    #[tokio::test]
+    async fn test_full_registration_onboarding_recovery_totp_and_passkey_flow() {
+        let state = create_test_state();
+        let password = "SuperSecretPassword2026!";
+        let bundle = generate_vault_bundle(password).expect("bundle");
+
+        // 1. Initial registration step (Credentials & Master Password)
+        let Json(reg_resp) = register_user(
+            State(state.clone()),
+            Json(RegisterRequest {
+                email: "onboarding.teacher@schule.de".into(),
+                auth_key_b64: bundle.auth_key_b64.clone(),
+                kdf_salt_b64: bundle.kdf_salt_b64.clone(),
+                kdf_params: bundle.kdf_params.clone(),
+                encrypted_dek: bundle.encrypted_dek.clone(),
+                recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
+                recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
+            }),
+        )
+        .await
+        .expect("register user");
+
+        assert_eq!(reg_resp.email, "onboarding.teacher@schule.de");
+        assert_eq!(reg_resp.totp_enabled, false);
+        assert!(reg_resp.totp_setup_uri.is_some());
+        assert!(reg_resp.totp_secret_base32.is_some());
+
+        let mut auth_headers = HeaderMap::new();
+        auth_headers.insert(
+            "authorization",
+            format!("Bearer {}", reg_resp.token).parse().unwrap(),
+        );
+
+        // 2. Recovery Key verification: Ensure recovery key allows DEK recovery
+        let rec_auth_key = derive_recovery_auth_key(&bundle.recovery_key_formatted).unwrap();
+        assert_eq!(rec_auth_key, bundle.recovery_auth_key_b64);
+
+        // 3. Mandatory 2FA Setup Step
+        let totp_secret_b32 = reg_resp.totp_secret_base32.unwrap();
+        // Trying with invalid 2FA code must fail with 400 Bad Request
+        let bad_2fa = verify_and_enable_2fa(
+            State(state.clone()),
+            auth_headers.clone(),
+            Json(VerifyTotpRequest {
+                totp_code: "000000".into(),
+            }),
+        )
+        .await;
+        assert!(bad_2fa.is_err());
+        assert_eq!(bad_2fa.unwrap_err().0, StatusCode::BAD_REQUEST);
+
+        // Verifying with valid 6-digit TOTP code must succeed and enable 2FA
+        let valid_totp = totp::current_totp_code(&totp_secret_b32).expect("valid totp code");
+        let Json(verified_info) = verify_and_enable_2fa(
+            State(state.clone()),
+            auth_headers.clone(),
+            Json(VerifyTotpRequest {
+                totp_code: valid_totp.clone(),
+            }),
+        )
+        .await
+        .expect("verify 2fa");
+        assert_eq!(verified_info["totp_enabled"], true);
+
+        // 4. Optional Passkey Registration Step
+        let cred_id = "test_passkey_cred_123";
+        let passkey_enc_dek = "v1:nonce:passkey_encrypted_dek_payload";
+        let prf_salt_b64 = "prf_salt_sample_base64";
+        let Json(passkey_reg_resp) = register_passkey(
+            State(state.clone()),
+            auth_headers.clone(),
+            Json(PasskeyRegisterRequest {
+                credential_id: cred_id.into(),
+                label: "MacBook Touch ID".into(),
+                passkey_encrypted_dek: passkey_enc_dek.into(),
+                passkey_prf_salt_b64: Some(prf_salt_b64.into()),
+                kdf_salt_b64: Some(bundle.kdf_salt_b64.clone()),
+                encrypted_dek: Some(bundle.encrypted_dek.clone()),
+                recovery_encrypted_dek: Some(bundle.recovery_encrypted_dek.clone()),
+                recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
+            }),
+        )
+        .await
+        .expect("register passkey");
+        assert_eq!(passkey_reg_resp["passkey_credential_id"], cred_id);
+
+        // 5. Subsequent Login Verification:
+        // A) Password login without TOTP code must now be rejected with 2FA_REQUIRED
+        let login_no_2fa = login_user(
+            State(state.clone()),
+            Json(LoginRequest {
+                email: "onboarding.teacher@schule.de".into(),
+                auth_key_b64: bundle.auth_key_b64.clone(),
+                totp_code: None,
+            }),
+        )
+        .await;
+        assert!(login_no_2fa.is_err());
+        assert_eq!(login_no_2fa.unwrap_err().1, "2FA_REQUIRED");
+
+        // B) Password login with valid TOTP code succeeds
+        let Json(login_ok) = login_user(
+            State(state.clone()),
+            Json(LoginRequest {
+                email: "onboarding.teacher@schule.de".into(),
+                auth_key_b64: bundle.auth_key_b64.clone(),
+                totp_code: Some(valid_totp),
+            }),
+        )
+        .await
+        .expect("login with 2fa");
+        assert_eq!(login_ok.totp_enabled, true);
+        assert_eq!(login_ok.passkey_credential_id, Some(cred_id.into()));
+
+        // C) Passkey login succeeds directly
+        let Json(passkey_login_ok) = login_with_passkey(
+            State(state.clone()),
+            Json(PasskeyLoginRequest {
+                email: Some("onboarding.teacher@schule.de".into()),
+                credential_id: cred_id.into(),
+            }),
+        )
+        .await
+        .expect("passkey login");
+        assert_eq!(passkey_login_ok.passkey_encrypted_dek, Some(passkey_enc_dek.into()));
 
         let _ = fs::remove_file(&state.disk_store_path);
     }

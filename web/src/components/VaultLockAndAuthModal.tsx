@@ -13,6 +13,10 @@ import {
 import { escapeHtml } from './ExportAndPrintHelpers';
 import { FlowRibbonLogo } from './FlowRibbonLogo';
 import {
+  AlertCircle,
+  ArrowLeft,
+  ArrowRight,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -144,6 +148,8 @@ function base64ToBytes(b64: string): Uint8Array {
   return bytes;
 }
 
+export type RegistrationStep = 'credentials' | 'recovery' | 'totp' | 'passkey' | 'complete';
+
 export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   isLockedScreen,
   session,
@@ -167,6 +173,19 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   const [localPasskeyForEmail, setLocalPasskeyForEmail] = useState<LocalPasskeyStoreEntry | null>(
     null
   );
+
+  // Registration wizard state
+  const [registerStep, setRegisterStep] = useState<RegistrationStep>('credentials');
+  const [regSession, setRegSession] = useState<ActiveVaultSession | null>(null);
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [recoverySavedConfirmed, setRecoverySavedConfirmed] = useState(false);
+  const [regTotpCode, setRegTotpCode] = useState('');
+  const [regTotpVerified, setRegTotpVerified] = useState(false);
+  const [regPasskeyDone, setRegPasskeyDone] = useState(false);
+  const [regQrDataUrl, setRegQrDataUrl] = useState<string | null>(null);
+  const [showRegTotpManualSecret, setShowRegTotpManualSecret] = useState(false);
+  const [copiedRegTotpSecret, setCopiedRegTotpSecret] = useState(false);
+  const [loginRequiresTotp, setLoginRequiresTotp] = useState(false);
 
   useEffect(() => {
     const store = loadLocalPasskeys();
@@ -277,14 +296,15 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   // ===========================================================================
   // PASSKEY EINRICHTEN (WebAuthn PRF + Zero-Knowledge Schlüssel-Umschlag)
   // ===========================================================================
-  const handleSetupPasskey = async () => {
-    if (!session) return;
+  const handleSetupPasskey = async (target?: ActiveVaultSession): Promise<boolean> => {
+    const activeSession = target || session;
+    if (!activeSession) return false;
     setErrorMsg(null);
     setStatusMsg('Fingerabdruck / Face ID wird eingerichtet...');
 
     try {
       const challenge = crypto.getRandomValues(new Uint8Array(32));
-      const userIdBytes = new TextEncoder().encode(session.userId);
+      const userIdBytes = new TextEncoder().encode(activeSession.userId);
       const prfSalt = crypto.getRandomValues(new Uint8Array(32));
       const prfSaltB64 = bytesToBase64(prfSalt);
 
@@ -306,8 +326,8 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               },
               user: {
                 id: userIdBytes,
-                name: session.email,
-                displayName: session.email,
+                name: activeSession.email,
+                displayName: activeSession.email,
               },
               pubKeyCredParams: [
                 { type: 'public-key', alg: -7 }, // ES256
@@ -346,7 +366,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           if (webauthnErr?.name === 'NotAllowedError') {
             setStatusMsg(null);
             setErrorMsg('Die Passkey-Einrichtung wurde abgebrochen.');
-            return;
+            return false;
           }
         }
       }
@@ -359,29 +379,29 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
       // Verschlüssele den persönlichen Hauptschlüssel (DEK) mit dem Passkey-Geheimnis via Rust/WASM
       const passkeyEncryptedDek = wasm_wrap_dek_with_passkey(
-        session.dekB64,
+        activeSession.dekB64,
         passkeySecretB64,
         credentialIdB64
       );
 
-      const recoveryAuthKeyB64 = session.recoveryKeyFormatted
-        ? wasm_derive_recovery_auth_key(session.recoveryKeyFormatted)
+      const recoveryAuthKeyB64 = activeSession.recoveryKeyFormatted
+        ? wasm_derive_recovery_auth_key(activeSession.recoveryKeyFormatted)
         : undefined;
 
       const res = await fetch('/api/auth/passkey/register', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.token}`,
+          Authorization: `Bearer ${activeSession.token}`,
         },
         body: JSON.stringify({
           credential_id: credentialIdB64,
           label: deviceLabel,
           passkey_encrypted_dek: passkeyEncryptedDek,
           passkey_prf_salt_b64: isPrfEnabled ? prfSaltB64 : undefined,
-          kdf_salt_b64: session.kdfSaltB64,
-          encrypted_dek: session.encryptedDek,
-          recovery_encrypted_dek: session.recoveryEncryptedDek,
+          kdf_salt_b64: activeSession.kdfSaltB64,
+          encrypted_dek: activeSession.encryptedDek,
+          recovery_encrypted_dek: activeSession.recoveryEncryptedDek,
           recovery_auth_key_b64: recoveryAuthKeyB64,
         }),
       });
@@ -390,14 +410,14 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         const errText = await res.text();
         setErrorMsg(errText || 'Passkey konnte nicht gespeichert werden.');
         setStatusMsg(null);
-        return;
+        return false;
       }
 
       const data = await res.json();
 
       const entry: LocalPasskeyStoreEntry = {
         credentialId: credentialIdB64,
-        email: session.email.trim().toLowerCase(),
+        email: activeSession.email.trim().toLowerCase(),
         label: deviceLabel,
         prfSupported: isPrfEnabled,
         prfSaltB64: isPrfEnabled ? prfSaltB64 : undefined,
@@ -408,20 +428,30 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       saveLocalPasskey(entry);
       setLocalPasskeyForEmail(entry);
 
-      onUnlockSuccess({
-        ...session,
-        token: data.token || session.token,
+      const updatedSession: ActiveVaultSession = {
+        ...activeSession,
+        token: data.token || activeSession.token,
         passkeyCredentialId: credentialIdB64,
         passkeyLabel: deviceLabel,
-      });
+      };
+
+      if (target) {
+        setRegSession(updatedSession);
+        setRegPasskeyDone(true);
+      } else {
+        onUnlockSuccess(updatedSession);
+      }
+
       setStatusMsg(
         isPrfEnabled
           ? 'Passkey mit Hardware-PRF eingerichtet! Der Tresorschlüssel ist nun direkt im Sicherheitschip (Secure Enclave / TPM) verankert.'
           : 'Passkey ist eingerichtet! Du kannst Gradus21 ab sofort bequem per Fingerabdruck, Face ID oder Geräte-PIN öffnen.'
       );
+      return true;
     } catch (err: any) {
       setErrorMsg('Passkey-Einrichtung fehlgeschlagen: ' + String(err));
       setStatusMsg(null);
+      return false;
     }
   };
 
@@ -607,16 +637,105 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     }
   };
 
-  const handleRegisterVault = async (e: React.FormEvent) => {
+  const printRecoverySheetDocument = (targetEmail: string, formattedKey: string) => {
+    const win = window.open('', '_blank', 'width=800,height=700');
+    if (!win) return;
+    win.document.write(`
+      <html>
+        <head>
+          <title>Gradus21 – Persönliches Notfallblatt</title>
+          <style>
+            body { font-family: system-ui, sans-serif; padding: 40px; color: #0f1d22; }
+            .box { border: 2px solid #0d9488; border-radius: 14px; padding: 24px; margin-top: 20px; background: #f8fafa; }
+            .code { font-family: monospace; font-size: 20px; font-weight: bold; letter-spacing: 2px; color: #0f766e; padding: 14px; background: #fff; border: 1px dashed #0d9488; border-radius: 8px; text-align: center; margin: 16px 0; }
+            .meta { font-size: 14px; color: #4a636b; line-height: 1.6; }
+          </style>
+        </head>
+        <body>
+          <h1>Gradus21 — Persönliches Notfallblatt</h1>
+          <p class="meta">
+            Deine Schülerdaten und Noten sind so geschützt, dass nur du allein darauf zugreifen kannst.
+            Falls du dein Passwort einmal vergisst, kannst du mit diesem persönlichen Notfall-Code jederzeit
+            ein neues Passwort vergeben. Bitte drucke dieses Blatt aus und hefte es zu Hause sicher ab.
+          </p>
+          <div class="box">
+            <div><strong>Deine E-Mail-Adresse:</strong> ${escapeHtml(targetEmail)}</div>
+            <div style="margin-top:14px;"><strong>Dein persönlicher Notfall-Wiederherstellungscode:</strong></div>
+            <div class="code">${escapeHtml(formattedKey || 'XXXX-XXXX-XXXX-XXXX-XXXX-XXXX')}</div>
+          </div>
+          <script>window.print();</script>
+        </body>
+      </html>
+    `);
+    win.document.close();
+  };
+
+  const handleCopyRecoveryKey = (textToCopy: string) => {
+    if (!textToCopy) return;
+    navigator.clipboard.writeText(textToCopy);
+    setCopiedRecoveryKey(true);
+    setTimeout(() => setCopiedRecoveryKey(false), 2000);
+  };
+
+  const handleCopyRegSecret = (secret: string) => {
+    if (!secret) return;
+    navigator.clipboard.writeText(secret);
+    setCopiedRegTotpSecret(true);
+    setTimeout(() => setCopiedRegTotpSecret(false), 2000);
+  };
+
+  const handlePrintRegRecoverySheet = () => {
+    if (!regSession) return;
+    printRecoverySheetDocument(
+      regSession.email,
+      regSession.recoveryKeyFormatted || 'XXXX-XXXX-XXXX-XXXX-XXXX-XXXX'
+    );
+  };
+
+  const handleCancelRegistration = () => {
+    setRegisterStep('credentials');
+    setRegSession(null);
+    setPassword('');
+    setConfirmPassword('');
+    setRegTotpCode('');
+    setRegTotpVerified(false);
+    setRegPasskeyDone(false);
+    setRecoverySavedConfirmed(false);
+    setErrorMsg(null);
+    setStatusMsg(null);
+    setAuthTab('login');
+  };
+
+  // Schritt 1 der Registrierung: Formular ausfüllen & Tresor initialisieren
+  const handleStartRegistration = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
-    setStatusMsg('Konto wird eingerichtet und geschützt...');
+    setStatusMsg(null);
+
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!trimmedEmail || !trimmedEmail.includes('@')) {
+      setErrorMsg('Bitte gib eine gültige E-Mail-Adresse ein.');
+      return;
+    }
+
+    if (password.length < 8) {
+      setErrorMsg('Das Master-Passwort muss mindestens 8 Zeichen lang sein.');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setErrorMsg('Die Passwörter stimmen nicht überein. Bitte überprüfe deine Eingabe.');
+      return;
+    }
+
+    setStatusMsg('Zero-Knowledge Tresor wird im Browser verschlüsselt...');
+
     try {
       const bundleJson = wasm_generate_vault(password);
       const bundle = JSON.parse(bundleJson);
 
       saveLocalRecoveryMeta({
-        email,
+        email: trimmedEmail,
         recoveryEncryptedDek: bundle.recovery_encrypted_dek,
       });
 
@@ -624,7 +743,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email,
+          email: trimmedEmail,
           auth_key_b64: bundle.auth_key_b64,
           kdf_salt_b64: bundle.kdf_salt_b64,
           kdf_params: bundle.kdf_params,
@@ -636,14 +755,15 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
       if (!res.ok) {
         const errText = await res.text();
-        setErrorMsg(errText || 'Registrierung fehlgeschlagen');
+        setErrorMsg(errText || 'Registrierung fehlgeschlagen.');
         setStatusMsg(null);
         return;
       }
 
       const data = await res.json();
-      setStatusMsg('Konto erfolgreich eingerichtet!');
-      onUnlockSuccess({
+      setStatusMsg(null);
+
+      const newSession: ActiveVaultSession = {
         token: data.token,
         userId: data.user_id,
         email: data.email,
@@ -653,15 +773,107 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         encryptedDek: bundle.encrypted_dek,
         recoveryEncryptedDek: bundle.recovery_encrypted_dek,
         recoveryKeyFormatted: bundle.recovery_key_formatted,
-        totpEnabled: data.totp_enabled,
+        totpEnabled: false,
         totpSetupUri: data.totp_setup_uri,
         totpSecretBase32: data.totp_secret_base32,
         serverSyncedCount: 0,
-      });
+      };
+
+      setRegSession(newSession);
+
+      if (data.totp_setup_uri) {
+        QRCode.toDataURL(data.totp_setup_uri, {
+          width: 240,
+          margin: 3,
+          errorCorrectionLevel: 'M',
+          color: { dark: '#000000', light: '#FFFFFF' },
+        })
+          .then((url) => setRegQrDataUrl(url))
+          .catch(() => setRegQrDataUrl(null));
+      }
+
+      setRegisterStep('recovery');
     } catch (err: any) {
-      setErrorMsg(String(err));
+      setErrorMsg('Fehler beim Initialisieren des Tresors: ' + String(err));
       setStatusMsg(null);
     }
+  };
+
+  // Schritt 2 der Registrierung: Wiederherstellungsschlüssel bestätigt
+  const handleProceedToTotp = () => {
+    if (!recoverySavedConfirmed) {
+      setErrorMsg('Bitte bestätige zuerst durch das Häkchen, dass du den Wiederherstellungsschlüssel gesichert hast.');
+      return;
+    }
+    setErrorMsg(null);
+    setStatusMsg(null);
+    setRegisterStep('totp');
+  };
+
+  // Schritt 3 der Registrierung: 2FA-Code verifizieren & aktivieren
+  const handleVerifyRegistration2FA = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!regSession) return;
+    setErrorMsg(null);
+    setStatusMsg('Code wird überprüft...');
+
+    const code = regTotpCode.trim();
+    if (code.length !== 6) {
+      setErrorMsg('Bitte gib den vollständigen 6-stelligen Code aus deiner Authenticator-App ein.');
+      setStatusMsg(null);
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/auth/2fa/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${regSession.token}`,
+        },
+        body: JSON.stringify({ totp_code: code }),
+      });
+
+      if (!res.ok) {
+        setErrorMsg('Der 6-stellige Code stimmt noch nicht. Bitte prüfe deine Handy-Uhrzeit und die Anzeige in der App.');
+        setStatusMsg(null);
+        return;
+      }
+
+      const updated = { ...regSession, totpEnabled: true };
+      setRegSession(updated);
+      setRegTotpVerified(true);
+      setStatusMsg('2FA erfolgreich aktiviert!');
+      setErrorMsg(null);
+      setTimeout(() => {
+        setStatusMsg(null);
+        setRegisterStep('passkey');
+      }, 700);
+    } catch (err: any) {
+      setErrorMsg('Verbindungsfehler bei der 2FA-Aktivierung: ' + String(err));
+      setStatusMsg(null);
+    }
+  };
+
+  // Schritt 4 der Registrierung: Passkey (Optional)
+  const handleSetupRegistrationPasskey = async () => {
+    if (!regSession) return;
+    const ok = await handleSetupPasskey(regSession);
+    if (ok) {
+      setRegPasskeyDone(true);
+    }
+  };
+
+  const handleSkipPasskey = () => {
+    setErrorMsg(null);
+    setStatusMsg(null);
+    setRegisterStep('complete');
+  };
+
+  // Schritt 5 der Registrierung: Registrierung abschließen & Tresor starten
+  const handleFinishRegistration = () => {
+    if (!regSession) return;
+    onUnlockSuccess(regSession);
   };
 
   const handleLoginVault = async (e: React.FormEvent) => {
@@ -685,6 +897,13 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       }
 
       const saltData = await saltRes.json();
+
+      if (saltData.totp_enabled && !totpCode.trim()) {
+        setLoginRequiresTotp(true);
+        setErrorMsg('Bitte gib den 6-stelligen Code aus deiner Authenticator-App ein.');
+        setStatusMsg(null);
+        return;
+      }
 
       // Versuche zuerst den aktuellen verschlüsselten Schlüssel vom Server, dann den lokalen Cache
       const candidateEncryptedDeks = [
@@ -739,11 +958,12 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
       if (!loginRes.ok) {
         const t = await loginRes.text();
-        setErrorMsg(
-          t === '2FA_REQUIRED'
-            ? 'Bitte gib noch den 6-stelligen Zahlencode aus deiner Handy-App ein.'
-            : t || 'Anmeldung fehlgeschlagen'
-        );
+        if (t === '2FA_REQUIRED') {
+          setLoginRequiresTotp(true);
+          setErrorMsg('Bitte gib noch den 6-stelligen Zahlencode aus deiner Handy-App ein.');
+        } else {
+          setErrorMsg(t || 'Anmeldung fehlgeschlagen');
+        }
         setStatusMsg(null);
         return;
       }
@@ -925,63 +1145,103 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
   const handlePrintRecoverySheet = () => {
     if (!session) return;
-    const win = window.open('', '_blank', 'width=800,height=700');
-    if (!win) return;
-    win.document.write(`
-      <html>
-        <head>
-          <title>Gradus21 – Persönliches Notfallblatt</title>
-          <style>
-            body { font-family: system-ui, sans-serif; padding: 40px; color: #0f1d22; }
-            .box { border: 2px solid #0d9488; border-radius: 14px; padding: 24px; margin-top: 20px; background: #f8fafa; }
-            .code { font-family: monospace; font-size: 20px; font-weight: bold; letter-spacing: 2px; color: #0f766e; padding: 14px; background: #fff; border: 1px dashed #0d9488; border-radius: 8px; text-align: center; margin: 16px 0; }
-            .meta { font-size: 14px; color: #4a636b; line-height: 1.6; }
-          </style>
-        </head>
-        <body>
-          <h1>Gradus21 — Persönliches Notfallblatt</h1>
-          <p class="meta">
-            Deine Schülerdaten und Noten sind so geschützt, dass nur du allein darauf zugreifen kannst.
-            Falls du dein Passwort einmal vergisst, kannst du mit diesem persönlichen Notfall-Code jederzeit
-            ein neues Passwort vergeben. Bitte drucke dieses Blatt aus und hefte es zu Hause sicher ab.
-          </p>
-          <div class="box">
-            <div><strong>Deine E-Mail-Adresse:</strong> ${escapeHtml(session.email)}</div>
-            <div style="margin-top:14px;"><strong>Dein persönlicher Notfall-Wiederherstellungscode:</strong></div>
-            <div class="code">${escapeHtml(session.recoveryKeyFormatted || 'XXXX-XXXX-XXXX-XXXX-XXXX-XXXX')}</div>
-          </div>
-          <script>window.print();</script>
-        </body>
-      </html>
-    `);
-    win.document.close();
+    printRecoverySheetDocument(
+      session.email,
+      session.recoveryKeyFormatted || 'XXXX-XXXX-XXXX-XXXX-XXXX-XXXX'
+    );
   };
 
   // ===========================================================================
   // 1. GESPERRTER BILDSCHIRM (Freundlicher Anmelde-Dialog mit Passkey-Button)
   // ===========================================================================
   if (isLockedScreen) {
+    const isRegisterWizard = authTab === 'register' && registerStep !== 'credentials';
+
     return (
       <div
         className="min-h-screen flex items-center justify-center p-6"
         style={{ backgroundColor: 'var(--bg-canvas)' }}
       >
         <div
-          className="max-w-md w-full rounded-3xl border p-8 shadow-xl space-y-5"
+          className={`w-full rounded-3xl border p-8 shadow-xl space-y-5 transition-all duration-300 ${
+            isRegisterWizard ? 'max-w-lg' : 'max-w-md'
+          }`}
           style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
         >
+          {/* Logo & Titel */}
           <div className="flex flex-col items-center text-center space-y-2">
             <FlowRibbonLogo size={48} showWordmark={true} />
             <h2 className="text-lg font-bold pt-2" style={{ color: 'var(--text-primary)' }}>
-              Gradus21 ist gesperrt
+              {isRegisterWizard
+                ? 'Konto & Schutz einrichten'
+                : authTab === 'register'
+                ? 'Neues Gradus21-Konto'
+                : authTab === 'recover'
+                ? 'Passwort wiederherstellen'
+                : 'Gradus21 ist gesperrt'}
             </h2>
             <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              Öffne deine Notenlisten bequem per Fingerabdruck / Face ID oder mit deinem Passwort.
+              {isRegisterWizard
+                ? 'Vervollständige die Sicherheitsmaßnahmen für deinen Noten-Tresor.'
+                : authTab === 'register'
+                ? 'Erstelle deinen persönlichen Ende-zu-Ende verschlüsselten Noten-Tresor.'
+                : authTab === 'recover'
+                ? 'Stelle den Zugang mit deinem Notfallblatt wieder her.'
+                : 'Öffne deine Notenlisten bequem per Fingerabdruck / Face ID oder mit deinem Passwort.'}
             </p>
           </div>
 
-          {/* 1-Klick Passkey-Schnellstart (wenn auf diesem Gerät eingerichtet oder verfügbar) */}
-          {authTab === 'login' && (
+          {/* Registrierungs-Fortschrittsleiste (Schritte 1-4) */}
+          {isRegisterWizard && (
+            <div
+              className="flex items-center justify-between pb-3 border-b"
+              style={{ borderColor: 'var(--border-subtle)' }}
+            >
+              {[
+                { id: 'recovery', label: '1. Notfall-Code' },
+                { id: 'totp', label: '2. 2FA' },
+                { id: 'passkey', label: '3. Passkey' },
+                { id: 'complete', label: '4. Fertig' },
+              ].map((s, idx) => {
+                const isCurrent = registerStep === s.id;
+                const isPast =
+                  (s.id === 'recovery' && ['totp', 'passkey', 'complete'].includes(registerStep)) ||
+                  (s.id === 'totp' && ['passkey', 'complete'].includes(registerStep)) ||
+                  (s.id === 'passkey' && registerStep === 'complete');
+                return (
+                  <div key={s.id} className="flex items-center gap-1.5 text-[11px] font-semibold">
+                    <div
+                      className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold transition ${
+                        isPast
+                          ? 'bg-emerald-500 text-white'
+                          : isCurrent
+                          ? 'text-white'
+                          : 'text-zinc-400 bg-zinc-200 dark:bg-zinc-800'
+                      }`}
+                      style={isCurrent ? { backgroundColor: 'var(--primary-500)' } : undefined}
+                    >
+                      {isPast ? <Check className="w-3 h-3 stroke-[3]" /> : idx + 1}
+                    </div>
+                    <span
+                      className={`hidden sm:inline ${
+                        isCurrent
+                          ? 'font-bold'
+                          : isPast
+                          ? 'text-emerald-700 dark:text-emerald-400'
+                          : 'text-zinc-400'
+                      }`}
+                      style={isCurrent ? { color: 'var(--text-primary)' } : undefined}
+                    >
+                      {s.label.split('. ')[1]}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* 1-Klick Passkey-Schnellstart (nur im Login-Tab) */}
+          {authTab === 'login' && !isRegisterWizard && (
             <div className="space-y-2">
               <button
                 type="button"
@@ -993,8 +1253,13 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 <span>Mit Fingerabdruck / Face ID öffnen (Passkey)</span>
               </button>
               {localPasskeyForEmail && (
-                <div className="text-[11px] text-center flex items-center justify-center gap-1.5 flex-wrap" style={{ color: 'var(--text-secondary)' }}>
-                  <span>Passkey aktiv für <strong>{localPasskeyForEmail.email}</strong></span>
+                <div
+                  className="text-[11px] text-center flex items-center justify-center gap-1.5 flex-wrap"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  <span>
+                    Passkey aktiv für <strong>{localPasskeyForEmail.email}</strong>
+                  </span>
                   {localPasskeyForEmail.prfSupported && (
                     <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100/80 text-emerald-800 border border-emerald-300/60 inline-flex items-center gap-1">
                       <Shield className="w-2.5 h-2.5" />
@@ -1005,7 +1270,10 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               )}
               <div className="flex items-center gap-3 pt-1">
                 <div className="h-px flex-1" style={{ backgroundColor: 'var(--border-subtle)' }} />
-                <span className="text-[11px] font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                <span
+                  className="text-[11px] font-semibold"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
                   oder mit Passwort
                 </span>
                 <div className="h-px flex-1" style={{ backgroundColor: 'var(--border-subtle)' }} />
@@ -1013,44 +1281,60 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             </div>
           )}
 
-          <div
-            className="flex gap-1 p-1 rounded-xl border text-xs font-bold"
-            style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
-          >
-            <button
-              onClick={() => setAuthTab('login')}
-              className={`flex-1 py-2 rounded-lg transition ${
-                authTab === 'login' ? 'text-white shadow-sm' : ''
-              }`}
-              style={{
-                backgroundColor: authTab === 'login' ? 'var(--primary-500)' : 'transparent',
-              }}
+          {/* Standard-Tabs für Anmelden / Neues Konto / Passwort vergessen */}
+          {!isRegisterWizard && (
+            <div
+              className="flex gap-1 p-1 rounded-xl border text-xs font-bold"
+              style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
             >
-              Anmelden
-            </button>
-            <button
-              onClick={() => setAuthTab('register')}
-              className={`flex-1 py-2 rounded-lg transition ${
-                authTab === 'register' ? 'text-white shadow-sm' : ''
-              }`}
-              style={{
-                backgroundColor: authTab === 'register' ? 'var(--primary-500)' : 'transparent',
-              }}
-            >
-              Neues Konto
-            </button>
-            <button
-              onClick={() => setAuthTab('recover')}
-              className={`flex-1 py-2 rounded-lg transition ${
-                authTab === 'recover' ? 'text-white shadow-sm' : ''
-              }`}
-              style={{
-                backgroundColor: authTab === 'recover' ? 'var(--primary-500)' : 'transparent',
-              }}
-            >
-              Passwort vergessen?
-            </button>
-          </div>
+              <button
+                onClick={() => {
+                  setAuthTab('login');
+                  setErrorMsg(null);
+                  setStatusMsg(null);
+                }}
+                className={`flex-1 py-2 rounded-lg transition ${
+                  authTab === 'login' ? 'text-white shadow-sm' : ''
+                }`}
+                style={{
+                  backgroundColor: authTab === 'login' ? 'var(--primary-500)' : 'transparent',
+                }}
+              >
+                Anmelden
+              </button>
+              <button
+                onClick={() => {
+                  setAuthTab('register');
+                  setRegisterStep('credentials');
+                  setErrorMsg(null);
+                  setStatusMsg(null);
+                }}
+                className={`flex-1 py-2 rounded-lg transition ${
+                  authTab === 'register' ? 'text-white shadow-sm' : ''
+                }`}
+                style={{
+                  backgroundColor: authTab === 'register' ? 'var(--primary-500)' : 'transparent',
+                }}
+              >
+                Neues Konto
+              </button>
+              <button
+                onClick={() => {
+                  setAuthTab('recover');
+                  setErrorMsg(null);
+                  setStatusMsg(null);
+                }}
+                className={`flex-1 py-2 rounded-lg transition ${
+                  authTab === 'recover' ? 'text-white shadow-sm' : ''
+                }`}
+                style={{
+                  backgroundColor: authTab === 'recover' ? 'var(--primary-500)' : 'transparent',
+                }}
+              >
+                Passwort vergessen?
+              </button>
+            </div>
+          )}
 
           {errorMsg && (
             <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 text-xs font-semibold">
@@ -1063,13 +1347,438 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             </div>
           )}
 
-          {authTab === 'recover' ? (
+          {/* REGISTRIERUNGS-WIZARD SCHRITTE */}
+          {isRegisterWizard ? (
+            <div className="space-y-4">
+              {/* SCHRITT 1: WIEDERHERSTELLUNGSSCHLÜSSEL SICHERN */}
+              {registerStep === 'recovery' && regSession && (
+                <div className="space-y-4 text-xs">
+                  <div className="p-3.5 rounded-2xl bg-teal-500/10 border border-teal-500/20 text-teal-800 dark:text-teal-300 space-y-1.5">
+                    <div className="font-bold flex items-center gap-1.5 text-xs">
+                      <KeyRound className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+                      <span>Wiederherstellungsschlüssel sichern</span>
+                    </div>
+                    <p className="text-[11px] leading-relaxed opacity-90">
+                      Gradus21 verschlüsselt deine Noten Zero-Knowledge auf deinem Gerät. Wenn du dein
+                      Master-Passwort vergisst, ist dieser Code die{' '}
+                      <strong>einzige Möglichkeit</strong>, wieder an deine Schülerdaten zu gelangen.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label
+                      className="block font-semibold mb-1.5"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      Dein persönlicher 24-stelliger Notfall-Code:
+                    </label>
+                    <div
+                      className="p-3.5 rounded-2xl border font-mono font-bold text-center tracking-wider select-all text-sm sm:text-base break-all"
+                      style={{
+                        backgroundColor: 'var(--bg-subtle)',
+                        borderColor: 'var(--primary-500)',
+                        color: 'var(--text-primary)',
+                      }}
+                    >
+                      {regSession.recoveryKeyFormatted || 'XXXX-XXXX-XXXX-XXXX-XXXX-XXXX'}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleCopyRecoveryKey(regSession.recoveryKeyFormatted || '')
+                      }
+                      className="flex-1 min-w-[140px] py-2 px-3 rounded-xl border font-semibold flex items-center justify-center gap-1.5 transition hover:opacity-90"
+                      style={{
+                        backgroundColor: 'var(--bg-subtle)',
+                        borderColor: 'var(--border-subtle)',
+                        color: 'var(--text-primary)',
+                      }}
+                    >
+                      {copiedRecoveryKey ? (
+                        <>
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          <span className="text-emerald-700">Code kopiert!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-4 h-4" />
+                          <span>Code kopieren</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handlePrintRegRecoverySheet}
+                      className="flex-1 min-w-[140px] py-2 px-3 rounded-xl border font-semibold flex items-center justify-center gap-1.5 transition hover:opacity-90"
+                      style={{
+                        backgroundColor: 'var(--bg-subtle)',
+                        borderColor: 'var(--border-subtle)',
+                        color: 'var(--text-primary)',
+                      }}
+                    >
+                      <Printer className="w-4 h-4 text-teal-600" />
+                      <span>Notfallblatt drucken</span>
+                    </button>
+                  </div>
+
+                  <div
+                    className="p-3 rounded-xl border flex items-start gap-2.5 transition"
+                    style={{
+                      backgroundColor: recoverySavedConfirmed
+                        ? 'var(--primary-soft)'
+                        : 'var(--bg-subtle)',
+                      borderColor: recoverySavedConfirmed
+                        ? 'var(--primary-500)'
+                        : 'var(--border-subtle)',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      id="reg-recovery-ack"
+                      checked={recoverySavedConfirmed}
+                      onChange={(e) => {
+                        setRecoverySavedConfirmed(e.target.checked);
+                        if (e.target.checked) setErrorMsg(null);
+                      }}
+                      className="mt-0.5 rounded cursor-pointer accent-teal-600"
+                    />
+                    <label
+                      htmlFor="reg-recovery-ack"
+                      className="cursor-pointer font-medium text-[11px] leading-snug"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      Ich habe diesen Notfall-Code sicher notiert oder das Notfallblatt ausgedruckt
+                      und verwahrt.
+                    </label>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleProceedToTotp}
+                    disabled={!recoverySavedConfirmed}
+                    className={`w-full py-2.5 rounded-xl text-xs font-bold text-white shadow-sm flex items-center justify-center gap-2 transition ${
+                      !recoverySavedConfirmed
+                        ? 'opacity-50 cursor-not-allowed'
+                        : 'hover:opacity-95'
+                    }`}
+                    style={{ backgroundColor: 'var(--primary-500)' }}
+                  >
+                    <span>Weiter zur 2FA-Einrichtung</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {/* SCHRITT 2: 2-FAKTOR-AUTHENTIFIZIERUNG EINRICHTEN */}
+              {registerStep === 'totp' && regSession && (
+                <form onSubmit={handleVerifyRegistration2FA} className="space-y-4 text-xs">
+                  <div className="p-3.5 rounded-2xl bg-teal-500/10 border border-teal-500/20 text-teal-800 dark:text-teal-300 space-y-1">
+                    <div className="font-bold flex items-center gap-1.5 text-xs">
+                      <Smartphone className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+                      <span>2-Faktor-Authentifizierung (2FA)</span>
+                    </div>
+                    <p className="text-[11px] leading-relaxed opacity-90">
+                      Scanne diesen QR-Code mit deiner Authenticator-App (z.B. Google Authenticator,
+                      Microsoft Authenticator, Apple Passwörter oder 2FAS).
+                    </p>
+                  </div>
+
+                  <div
+                    className="flex flex-col items-center justify-center p-3 rounded-2xl border"
+                    style={{
+                      backgroundColor: 'var(--bg-subtle)',
+                      borderColor: 'var(--border-subtle)',
+                    }}
+                  >
+                    {regQrDataUrl ? (
+                      <img
+                        src={regQrDataUrl}
+                        alt="2FA QR Code"
+                        className="w-44 h-44 rounded-xl border p-2 bg-white shadow-sm"
+                      />
+                    ) : (
+                      <div className="w-44 h-44 flex items-center justify-center text-xs text-zinc-400">
+                        QR-Code wird geladen...
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => setShowRegTotpManualSecret(!showRegTotpManualSecret)}
+                      className="mt-3 text-[11px] font-semibold flex items-center gap-1 transition hover:underline"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      <span>Keine Kamera? Schlüssel manuell eingeben</span>
+                      {showRegTotpManualSecret ? (
+                        <ChevronUp className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+
+                    {showRegTotpManualSecret && regSession.totpSecretBase32 && (
+                      <div className="mt-2 w-full p-2.5 rounded-xl border text-center space-y-1.5 bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800">
+                        <div className="font-mono font-bold tracking-wider select-all text-xs text-teal-700 dark:text-teal-400 break-all">
+                          {regSession.totpSecretBase32}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleCopyRegSecret(regSession.totpSecretBase32 || '')
+                          }
+                          className="text-[11px] font-semibold text-teal-600 hover:underline inline-flex items-center gap-1"
+                        >
+                          {copiedRegTotpSecret ? (
+                            <Check className="w-3 h-3" />
+                          ) : (
+                            <Copy className="w-3 h-3" />
+                          )}
+                          {copiedRegTotpSecret ? 'Schlüssel kopiert!' : 'Schlüssel kopieren'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label
+                      className="block font-semibold mb-1 text-center"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      6-stelligen Code aus der Authenticator-App eingeben:
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={6}
+                      value={regTotpCode}
+                      onChange={(e) => setRegTotpCode(e.target.value.replace(/\D/g, ''))}
+                      placeholder="123456"
+                      autoFocus
+                      className="w-48 mx-auto block px-3.5 py-2.5 rounded-xl border font-mono text-center tracking-widest text-lg font-bold bg-transparent"
+                      style={{ borderColor: 'var(--primary-500)', color: 'var(--text-primary)' }}
+                    />
+                  </div>
+
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setErrorMsg(null);
+                        setStatusMsg(null);
+                        setRegisterStep('recovery');
+                      }}
+                      className="py-2.5 px-3 rounded-xl border font-semibold flex items-center justify-center gap-1 transition hover:opacity-90"
+                      style={{
+                        backgroundColor: 'var(--bg-subtle)',
+                        borderColor: 'var(--border-subtle)',
+                        color: 'var(--text-secondary)',
+                      }}
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                      <span className="hidden sm:inline">Zurück</span>
+                    </button>
+
+                    <button
+                      type="submit"
+                      disabled={regTotpCode.length !== 6 || regTotpVerified}
+                      className={`flex-1 py-2.5 rounded-xl text-xs font-bold text-white shadow-sm flex items-center justify-center gap-2 transition ${
+                        regTotpCode.length !== 6 || regTotpVerified
+                          ? 'opacity-50 cursor-not-allowed'
+                          : 'hover:opacity-95'
+                      }`}
+                      style={{ backgroundColor: 'var(--primary-500)' }}
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Code bestätigen & 2FA aktivieren</span>
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* SCHRITT 3: PASSKEY EINRICHTEN (OPTIONAL) */}
+              {registerStep === 'passkey' && regSession && (
+                <div className="space-y-4 text-xs">
+                  <div className="p-3.5 rounded-2xl bg-teal-500/10 border border-teal-500/20 text-teal-800 dark:text-teal-300 space-y-1">
+                    <div className="font-bold flex items-center gap-1.5 text-xs">
+                      <Fingerprint className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+                      <span>Schnell-Anmeldung per Passkey (Optional)</span>
+                    </div>
+                    <p className="text-[11px] leading-relaxed opacity-90">
+                      Entsperre Gradus21 in Zukunft per Fingerabdruck, Face ID oder PIN – ganz ohne
+                      langes Passwort. Der Schlüssel wird sicher im Hardware-Sicherheitschip (TPM /
+                      Secure Enclave) dieses Geräts verankert.
+                    </p>
+                  </div>
+
+                  {regPasskeyDone ? (
+                    <div className="p-4 rounded-2xl border text-center space-y-2 bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-300">
+                      <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
+                      <div className="font-bold text-xs">Passkey erfolgreich eingerichtet!</div>
+                      <p className="text-[11px] opacity-90">
+                        Du kannst Gradus21 auf diesem Gerät ab sofort mit nur einem Klick entsperren.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={handleSetupRegistrationPasskey}
+                        className="w-full py-3 px-4 rounded-2xl text-xs font-bold text-white flex items-center justify-center gap-2.5 shadow-md transition hover:opacity-95"
+                        style={{ backgroundColor: 'var(--primary-500)' }}
+                      >
+                        <Fingerprint className="w-5 h-5" />
+                        <span>Passkey auf diesem Gerät einrichten</span>
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setErrorMsg(null);
+                        setStatusMsg(null);
+                        setRegisterStep('totp');
+                      }}
+                      className="py-2.5 px-3 rounded-xl border font-semibold flex items-center justify-center gap-1 transition hover:opacity-90"
+                      style={{
+                        backgroundColor: 'var(--bg-subtle)',
+                        borderColor: 'var(--border-subtle)',
+                        color: 'var(--text-secondary)',
+                      }}
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                      <span className="hidden sm:inline">Zurück</span>
+                    </button>
+
+                    {regPasskeyDone ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setErrorMsg(null);
+                          setStatusMsg(null);
+                          setRegisterStep('complete');
+                        }}
+                        className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white shadow-sm flex items-center justify-center gap-2 transition hover:opacity-95"
+                        style={{ backgroundColor: 'var(--primary-500)' }}
+                      >
+                        <span>Weiter zum Abschluss</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleSkipPasskey}
+                        className="flex-1 py-2.5 rounded-xl border font-semibold flex items-center justify-center gap-1 transition hover:opacity-90"
+                        style={{
+                          backgroundColor: 'var(--bg-subtle)',
+                          borderColor: 'var(--border-subtle)',
+                          color: 'var(--text-primary)',
+                        }}
+                      >
+                        <span>Diesen Schritt überspringen</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* SCHRITT 4: REGISTRIERUNG ABGESCHLOSSEN */}
+              {registerStep === 'complete' && regSession && (
+                <div className="space-y-4 text-xs">
+                  <div className="text-center space-y-1.5 py-1">
+                    <div className="w-12 h-12 rounded-2xl mx-auto flex items-center justify-center bg-emerald-500/10 text-emerald-600">
+                      <CheckCircle2 className="w-7 h-7" />
+                    </div>
+                    <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
+                      Registrierung abgeschlossen!
+                    </h3>
+                    <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                      Dein Gradus21-Notentresor ist vollständig eingerichtet und geschützt.
+                    </p>
+                  </div>
+
+                  <div
+                    className="p-3.5 rounded-2xl border space-y-2.5 text-[11px]"
+                    style={{
+                      backgroundColor: 'var(--bg-subtle)',
+                      borderColor: 'var(--border-subtle)',
+                    }}
+                  >
+                    <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-semibold">
+                      <Check className="w-4 h-4 stroke-[3]" />
+                      <span>Konto angelegt & Zero-Knowledge verschlüsselt</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-semibold">
+                      <Check className="w-4 h-4 stroke-[3]" />
+                      <span>Wiederherstellungsschlüssel für den Notfall gesichert</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-semibold">
+                      <Check className="w-4 h-4 stroke-[3]" />
+                      <span>Zwei-Faktor-Authentifizierung (2FA) aktiv</span>
+                    </div>
+                    <div className="flex items-center gap-2 font-semibold">
+                      {regPasskeyDone ? (
+                        <>
+                          <Check className="w-4 h-4 text-emerald-600 stroke-[3]" />
+                          <span className="text-emerald-700 dark:text-emerald-400">
+                            Passkey für 1-Klick-Entsperrung eingerichtet
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <div className="w-4 h-4 rounded-full border border-dashed border-zinc-400 flex items-center justify-center text-[9px] text-zinc-400">
+                            ○
+                          </div>
+                          <span style={{ color: 'var(--text-secondary)' }}>
+                            Passkey übersprungen (in den Einstellungen jederzeit möglich)
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleFinishRegistration}
+                    className="w-full py-3 rounded-2xl text-xs font-bold text-white shadow-md flex items-center justify-center gap-2.5 transition hover:opacity-95"
+                    style={{ backgroundColor: 'var(--primary-500)' }}
+                  >
+                    <Unlock className="w-4 h-4" />
+                    <span>Gradus21 starten & Noten verwalten</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Link: Registrierung abbrechen */}
+              <div className="text-center pt-1">
+                <button
+                  type="button"
+                  onClick={handleCancelRegistration}
+                  className="text-[11px] font-medium transition hover:underline"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Registrierung abbrechen & zum Login zurückkehren
+                </button>
+              </div>
+            </div>
+          ) : authTab === 'recover' ? (
             <form onSubmit={handleRecoverWithKey} className="space-y-3.5 text-xs">
               <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                Gib den Code von deinem ausgedruckten <strong>Notfallblatt</strong> ein, um ein neues Passwort festzulegen.
+                Gib den Code von deinem ausgedruckten <strong>Notfallblatt</strong> ein, um ein neues
+                Passwort festzulegen.
               </p>
               <div>
-                <label className="block font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
+                <label
+                  className="block font-semibold mb-1"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
                   Deine E-Mail-Adresse
                 </label>
                 <input
@@ -1081,7 +1790,10 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 />
               </div>
               <div>
-                <label className="block font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
+                <label
+                  className="block font-semibold mb-1"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
                   Notfall-Code (vom Notfallblatt)
                 </label>
                 <input
@@ -1094,7 +1806,10 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 />
               </div>
               <div>
-                <label className="block font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
+                <label
+                  className="block font-semibold mb-1"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
                   Neues Passwort wählen
                 </label>
                 <input
@@ -1114,17 +1829,19 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 Neues Passwort speichern & öffnen
               </button>
             </form>
-          ) : (
-            <form
-              onSubmit={authTab === 'login' ? handleLoginVault : handleRegisterVault}
-              className="space-y-3.5 text-xs"
-            >
+          ) : authTab === 'register' ? (
+            /* SCHRITT 0 DER REGISTRIERUNG: KONTO-DATEN EINGEBEN */
+            <form onSubmit={handleStartRegistration} className="space-y-3.5 text-xs">
               <div>
-                <label className="block font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
+                <label
+                  className="block font-semibold mb-1"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
                   E-Mail-Adresse
                 </label>
                 <input
                   type="email"
+                  required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-xl border bg-transparent"
@@ -1132,27 +1849,112 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 />
               </div>
               <div>
-                <label className="block font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-                  Passwort
+                <label
+                  className="block font-semibold mb-1"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Master-Passwort (mind. 8 Zeichen)
                 </label>
                 <input
                   type="password"
+                  required
+                  minLength={8}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-xl border bg-transparent"
                   style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
                 />
               </div>
-              {authTab === 'login' && session?.totpEnabled && (
+              <div>
+                <label
+                  className="block font-semibold mb-1"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Master-Passwort wiederholen
+                </label>
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl border bg-transparent"
+                  style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                />
+              </div>
+
+              <div className="p-2.5 rounded-xl border text-[11px] flex items-start gap-2 text-teal-800 dark:text-teal-300 bg-teal-500/10 border-teal-500/20">
+                <Shield className="w-4 h-4 shrink-0 mt-0.5 text-teal-600 dark:text-teal-400" />
+                <span className="leading-snug opacity-90">
+                  Zero-Knowledge: Dein Passwort verlässt dein Gerät niemals unverschlüsselt. Im
+                  nächsten Schritt sicherst du deinen Notfall-Schlüssel und richtest 2FA ein.
+                </span>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-2.5 rounded-xl text-xs font-bold text-white shadow-sm flex items-center justify-center gap-2 transition hover:opacity-95"
+                style={{ backgroundColor: 'var(--primary-500)' }}
+              >
+                <KeyRound className="w-4 h-4" />
+                <span>Konto anlegen & Sicherheit einrichten</span>
+              </button>
+            </form>
+          ) : (
+            /* ANMELDEN */
+            <form onSubmit={handleLoginVault} className="space-y-3.5 text-xs">
+              <div>
+                <label
+                  className="block font-semibold mb-1"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  E-Mail-Adresse
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setLoginRequiresTotp(false);
+                  }}
+                  className="w-full px-3.5 py-2 rounded-xl border bg-transparent"
+                  style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                />
+              </div>
+              <div>
+                <label
+                  className="block font-semibold mb-1"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Passwort
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl border bg-transparent"
+                  style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                />
+              </div>
+              {(session?.totpEnabled || loginRequiresTotp) && (
                 <div>
-                  <label className="block font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
+                  <label
+                    className="block font-semibold mb-1"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
                     6-stelliger Sicherheitscode (vom Handy)
                   </label>
                   <input
                     type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
                     value={totpCode}
-                    onChange={(e) => setTotpCode(e.target.value)}
+                    onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ''))}
                     placeholder="123456"
+                    autoFocus={loginRequiresTotp}
                     className="w-full px-3.5 py-2 rounded-xl border font-mono text-center tracking-widest bg-transparent"
                     style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
                   />
@@ -1169,9 +1971,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 }}
               >
                 <Unlock className="w-4 h-4" style={{ color: 'var(--primary-500)' }} />
-                <span>
-                  {authTab === 'login' ? 'Mit Passwort öffnen' : 'Konto jetzt erstellen'}
-                </span>
+                <span>Mit Passwort öffnen</span>
               </button>
             </form>
           )}
