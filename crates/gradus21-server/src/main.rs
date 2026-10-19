@@ -627,6 +627,9 @@ async fn main() {
         enable_admin_panel,
     };
 
+    // Spawn background tasks (Automated snapshot scheduler & retention)
+    tokio::spawn(admin::start_backup_scheduler(state.clone()));
+
     let cors = if let Ok(origin) = std::env::var("CORS_ALLOWED_ORIGIN") {
         if let Ok(header_val) = origin.parse::<HeaderValue>() {
             CorsLayer::new()
@@ -671,6 +674,7 @@ async fn main() {
         )
         .route("/api/admin/backups", get(admin::list_backups))
         .route("/api/admin/backups/create", post(admin::create_backup_snapshot))
+        .route("/api/admin/backups/snapshot", post(admin::create_backup_snapshot))
         .route(
             "/api/admin/backups/download/:filename",
             get(admin::download_backup),
@@ -678,7 +682,15 @@ async fn main() {
         .route("/api/admin/backups/restore", post(admin::restore_backup))
         .route(
             "/api/admin/backups/config",
-            get(admin::get_backup_config).put(admin::update_backup_config),
+            get(admin::get_backup_config)
+                .put(admin::update_backup_config)
+                .post(admin::update_backup_config),
+        )
+        .route(
+            "/api/admin/backups/schedule",
+            get(admin::get_backup_config)
+                .put(admin::update_backup_config)
+                .post(admin::update_backup_config),
         )
         .route("/api/admin/templates", post(admin::create_global_template))
         .route(
@@ -2453,6 +2465,79 @@ mod tests {
         .expect("passkey login");
         assert_eq!(passkey_login_ok.passkey_encrypted_dek, Some(passkey_enc_dek.into()));
 
+        let _ = fs::remove_file(&state.disk_store_path);
+    }
+
+    #[tokio::test]
+    async fn test_backup_snapshot_and_schedule_configuration() {
+        let state = create_test_state();
+        let claims = JwtClaims {
+            sub: Uuid::new_v4().to_string(),
+            email: "admin@example.com".into(),
+            is_admin: true,
+            two_factor_verified: true,
+            exp: (Utc::now() + chrono::Duration::hours(1)).timestamp() as usize,
+        };
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(state.jwt_secret.as_bytes()),
+        )
+        .expect("token");
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+        );
+
+        // 1. Create a snapshot
+        let Json(entry) = admin::create_backup_snapshot(State(state.clone()), headers.clone())
+            .await
+            .expect("create snapshot");
+        assert!(entry.filename.starts_with("gradus21_backup_"));
+        assert!(entry.size_bytes > 0);
+
+        // 2. List backups
+        let Json(backups) = admin::list_backups(State(state.clone()), headers.clone())
+            .await
+            .expect("list backups");
+        assert_eq!(backups.len(), 1);
+        assert_eq!(backups[0].filename, entry.filename);
+
+        // 3. Update schedule with alias and custom intervals
+        let new_cfg = admin::BackupScheduleConfig {
+            auto_backup_enabled: true,
+            interval_hours: 12,
+            retention_days: 14,
+            last_run: None,
+        };
+        let Json(saved_cfg) = admin::update_backup_config(
+            State(state.clone()),
+            headers.clone(),
+            Json(new_cfg),
+        )
+        .await
+        .expect("update schedule");
+        assert_eq!(saved_cfg.interval_hours, 12);
+        assert_eq!(saved_cfg.retention_days, 14);
+
+        // 4. Retrieve schedule
+        let Json(retrieved_cfg) = admin::get_backup_config(State(state.clone()), headers.clone())
+            .await
+            .expect("get schedule");
+        assert_eq!(retrieved_cfg.auto_backup_enabled, true);
+        assert_eq!(retrieved_cfg.interval_hours, 12);
+        assert_eq!(retrieved_cfg.retention_days, 14);
+
+        // Cleanup test files
+        let backup_dir = state
+            .disk_store_path
+            .parent()
+            .unwrap()
+            .join("backups");
+        let _ = fs::remove_file(backup_dir.join(&entry.filename));
+        let _ = fs::remove_dir(backup_dir);
         let _ = fs::remove_file(&state.disk_store_path);
     }
 }

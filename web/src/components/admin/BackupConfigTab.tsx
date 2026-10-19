@@ -19,10 +19,11 @@ interface BackupEntry {
 }
 
 interface BackupScheduleConfig {
-  enabled: boolean;
+  auto_backup_enabled: boolean;
+  enabled?: boolean;
   interval_hours: number;
   retention_days: number;
-  backup_dir?: string;
+  last_run?: string | null;
 }
 
 interface BackupConfigTabProps {
@@ -32,9 +33,10 @@ interface BackupConfigTabProps {
 export const BackupConfigTab: React.FC<BackupConfigTabProps> = ({ token }) => {
   const [backups, setBackups] = useState<BackupEntry[]>([]);
   const [schedule, setSchedule] = useState<BackupScheduleConfig>({
-    enabled: true,
+    auto_backup_enabled: true,
     interval_hours: 24,
     retention_days: 30,
+    last_run: null,
   });
   const [loading, setLoading] = useState<boolean>(true);
   const [creatingSnapshot, setCreatingSnapshot] = useState<boolean>(false);
@@ -62,7 +64,12 @@ export const BackupConfigTab: React.FC<BackupConfigTabProps> = ({ token }) => {
 
       if (schedRes.ok) {
         const schedData = await schedRes.json();
-        setSchedule(schedData);
+        setSchedule({
+          auto_backup_enabled: schedData.auto_backup_enabled ?? schedData.enabled ?? true,
+          interval_hours: schedData.interval_hours ?? 24,
+          retention_days: schedData.retention_days ?? 30,
+          last_run: schedData.last_run ?? null,
+        });
       }
     } catch (err: any) {
       setErrorMsg('Fehler beim Laden der Backups: ' + (err.message || String(err)));
@@ -107,9 +114,23 @@ export const BackupConfigTab: React.FC<BackupConfigTabProps> = ({ token }) => {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(schedule),
+        body: JSON.stringify({
+          auto_backup_enabled: schedule.auto_backup_enabled,
+          enabled: schedule.auto_backup_enabled,
+          interval_hours: schedule.interval_hours,
+          retention_days: schedule.retention_days,
+          last_run: schedule.last_run,
+        }),
       });
       if (!res.ok) throw new Error(await res.text());
+      const saved = await res.json();
+      setSchedule((prev) => ({
+        ...prev,
+        auto_backup_enabled: saved.auto_backup_enabled ?? saved.enabled ?? prev.auto_backup_enabled,
+        interval_hours: saved.interval_hours ?? prev.interval_hours,
+        retention_days: saved.retention_days ?? prev.retention_days,
+        last_run: saved.last_run ?? prev.last_run,
+      }));
       setSuccessMsg('Automatischer Backup-Zeitplan gespeichert.');
     } catch (err: any) {
       setErrorMsg('Speichern des Zeitplans fehlgeschlagen: ' + (err.message || String(err)));
@@ -244,10 +265,17 @@ export const BackupConfigTab: React.FC<BackupConfigTabProps> = ({ token }) => {
 
       {/* Backup Schedule Configuration */}
       <div className="p-5 border border-slate-200 dark:border-slate-800 rounded-2xl bg-slate-50/50 dark:bg-slate-900/50 space-y-4">
-        <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider flex items-center gap-2">
-          <Clock className="w-4 h-4 text-indigo-500" />
-          <span>Automatischer Backup-Zeitplan</span>
-        </h4>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider flex items-center gap-2">
+            <Clock className="w-4 h-4 text-indigo-500" />
+            <span>Automatischer Backup-Zeitplan</span>
+          </h4>
+          {schedule.last_run && (
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+              Letzter automatischer Snapshot: {new Date(schedule.last_run).toLocaleString('de-DE')}
+            </span>
+          )}
+        </div>
 
         <form onSubmit={handleSaveSchedule} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
           <div>
@@ -257,11 +285,11 @@ export const BackupConfigTab: React.FC<BackupConfigTabProps> = ({ token }) => {
             <label className="flex items-center gap-2 text-xs text-slate-800 dark:text-slate-200 cursor-pointer p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
               <input
                 type="checkbox"
-                checked={schedule.enabled}
-                onChange={(e) => setSchedule({ ...schedule, enabled: e.target.checked })}
+                checked={schedule.auto_backup_enabled}
+                onChange={(e) => setSchedule({ ...schedule, auto_backup_enabled: e.target.checked })}
                 className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
               />
-              <span>Tägliche Snapshots aktiv</span>
+              <span>Regelmäßige Snapshots aktiv</span>
             </label>
           </div>
 

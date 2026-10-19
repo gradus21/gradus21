@@ -308,6 +308,18 @@ pub async fn invite_user(
 // 2. Backup & Snapshot Endpoints
 // =============================================================================
 
+fn default_true() -> bool {
+    true
+}
+
+fn default_interval() -> u32 {
+    24
+}
+
+fn default_retention() -> u32 {
+    30
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BackupEntry {
     pub filename: String,
@@ -317,9 +329,13 @@ pub struct BackupEntry {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BackupScheduleConfig {
+    #[serde(alias = "enabled", default = "default_true")]
     pub auto_backup_enabled: bool,
+    #[serde(default = "default_interval")]
     pub interval_hours: u32,
+    #[serde(default = "default_retention")]
     pub retention_days: u32,
+    #[serde(default)]
     pub last_run: Option<DateTime<Utc>>,
 }
 
@@ -332,6 +348,126 @@ fn get_backup_dir(state: &AppState) -> PathBuf {
     let backup_dir = parent.join("backups");
     let _ = fs::create_dir_all(&backup_dir);
     backup_dir
+}
+
+pub fn perform_backup_snapshot(state: &AppState) -> Result<BackupEntry, String> {
+    let users = state.mem_users.read().unwrap().clone();
+    let envelopes = state.mem_envelopes.read().unwrap().clone();
+    let settings = state.mem_settings.read().unwrap().clone();
+    let templates = state.mem_global_templates.read().unwrap().clone();
+
+    let snapshot = serde_json::json!({
+        "version": 2,
+        "format": "gradus21_e2ee_full_backup",
+        "created_at": Utc::now(),
+        "users": users,
+        "envelopes": envelopes,
+        "system_settings": settings,
+        "global_templates": templates,
+    });
+
+    let filename = format!("gradus21_backup_{}.json", Utc::now().format("%Y%m%d_%H%M%S"));
+    let backup_dir = get_backup_dir(state);
+    let target_path = backup_dir.join(&filename);
+
+    let content = serde_json::to_string_pretty(&snapshot)
+        .map_err(|e| e.to_string())?;
+
+    fs::write(&target_path, content.as_bytes())
+        .map_err(|e| format!("Dateischreibfehler: {}", e))?;
+
+    let size_bytes = content.len() as u64;
+
+    Ok(BackupEntry {
+        filename,
+        size_bytes,
+        created_at: Utc::now(),
+    })
+}
+
+pub fn cleanup_old_backups(state: &AppState, retention_days: u32) -> usize {
+    if retention_days == 0 {
+        return 0;
+    }
+    let backup_dir = get_backup_dir(state);
+    let cutoff = Utc::now() - chrono::Duration::days(retention_days as i64);
+    let mut deleted_count = 0;
+
+    if let Ok(entries) = fs::read_dir(backup_dir) {
+        for entry in entries.flatten() {
+            if let Ok(meta) = entry.metadata() {
+                if meta.is_file() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.starts_with("gradus21_backup_") && name.ends_with(".json") {
+                        let created: DateTime<Utc> = meta
+                            .created()
+                            .or_else(|_| meta.modified())
+                            .map(DateTime::from)
+                            .unwrap_or_else(|_| Utc::now());
+                        if created < cutoff {
+                            if fs::remove_file(entry.path()).is_ok() {
+                                deleted_count += 1;
+                                tracing::info!("Altes Backup gemäß Retention gelöscht: {}", name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    deleted_count
+}
+
+pub async fn start_backup_scheduler(state: AppState) {
+    tracing::info!("Automatischer Backup-Scheduler gestartet (Prüfintervall: 5 Minuten)");
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
+    loop {
+        interval.tick().await;
+
+        let cfg_opt = {
+            let settings = state.mem_settings.read().unwrap();
+            settings
+                .get("backup_schedule")
+                .and_then(|v| serde_json::from_value::<BackupScheduleConfig>(v.clone()).ok())
+        };
+
+        if let Some(mut cfg) = cfg_opt {
+            if !cfg.auto_backup_enabled {
+                continue;
+            }
+
+            let interval_hours = if cfg.interval_hours == 0 { 24 } else { cfg.interval_hours };
+            let is_due = match cfg.last_run {
+                None => true,
+                Some(last) => {
+                    let elapsed = Utc::now().signed_duration_since(last);
+                    elapsed >= chrono::Duration::hours(interval_hours as i64)
+                }
+            };
+
+            if is_due {
+                tracing::info!("Führe geplanten automatischen Backup-Snapshot aus...");
+                match perform_backup_snapshot(&state) {
+                    Ok(entry) => {
+                        tracing::info!("Automatischer Snapshot erfolgreich: {}", entry.filename);
+                        cleanup_old_backups(&state, cfg.retention_days);
+                        cfg.last_run = Some(Utc::now());
+                        if let Ok(val) = serde_json::to_value(&cfg) {
+                            {
+                                let mut settings = state.mem_settings.write().unwrap();
+                                settings.insert("backup_schedule".into(), val.clone());
+                            }
+                            save_setting_to_pg(&state, "backup_schedule", &val).await;
+                            persist_to_disk(&state);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Fehler beim automatischen Backup-Snapshot: {}", e);
+                    }
+                }
+            }
+        }
+    }
 }
 
 pub async fn list_backups(
@@ -374,38 +510,10 @@ pub async fn create_backup_snapshot(
 ) -> Result<Json<BackupEntry>, (StatusCode, String)> {
     require_admin(&state, &headers)?;
 
-    let users = state.mem_users.read().unwrap().clone();
-    let envelopes = state.mem_envelopes.read().unwrap().clone();
-    let settings = state.mem_settings.read().unwrap().clone();
-    let templates = state.mem_global_templates.read().unwrap().clone();
+    let entry = perform_backup_snapshot(&state)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    let snapshot = serde_json::json!({
-        "version": 2,
-        "format": "gradus21_e2ee_full_backup",
-        "created_at": Utc::now(),
-        "users": users,
-        "envelopes": envelopes,
-        "system_settings": settings,
-        "global_templates": templates,
-    });
-
-    let filename = format!("gradus21_backup_{}.json", Utc::now().format("%Y%m%d_%H%M%S"));
-    let backup_dir = get_backup_dir(&state);
-    let target_path = backup_dir.join(&filename);
-
-    let content = serde_json::to_string_pretty(&snapshot)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    fs::write(&target_path, content.as_bytes())
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Dateischreibfehler: {}", e)))?;
-
-    let size_bytes = content.len() as u64;
-
-    Ok(Json(BackupEntry {
-        filename,
-        size_bytes,
-        created_at: Utc::now(),
-    }))
+    Ok(Json(entry))
 }
 
 pub async fn download_backup(
