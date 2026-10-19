@@ -68,7 +68,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
       students: [...ds.students, newStu],
     }));
     setNewStudentName('');
-    showToast(`Schüler „${newStu.name}“ wurde hinzugefügt.`);
+    showToast(`Schüler:in „${newStu.name}“ wurde hinzugefügt.`);
   };
 
   const updateStudentField = (studentId: string, patch: Partial<StudentProfile>) => {
@@ -226,7 +226,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
             >
               <Users className="w-3.5 h-3.5" />
               <span>
-                Schülerliste & Archiv ({activeStudents.length} aktiv
+                Schüler:innenliste & Archiv ({activeStudents.length} aktiv
                 {archivedStudents.length > 0 ? ` · ${archivedStudents.length} archiviert` : ''})
               </span>
             </button>
@@ -267,7 +267,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
         {/* Scrollable Body */}
         <div className="flex-1 overflow-y-auto space-y-5 pr-1">
           {/* =================================================================
-              TAB 1: SCHÜLERLISTE BEARBEITEN, ARCHIVIEREN & LÖSCHEN
+              TAB 1: SCHÜLER:INNENLISTE BEARBEITEN, ARCHIVIEREN & LÖSCHEN
              ================================================================= */}
           {activeTab === 'students' && (
             <div className="space-y-5">
@@ -278,7 +278,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
               >
                 <div className="flex-1 min-w-[200px]">
                   <label className="block text-[11px] font-bold mb-1" style={{ color: 'var(--text-secondary)' }}>
-                    Neuen Schüler zur Klasse hinzufügen
+                    Neue:n Schüler:in zur Klasse hinzufügen
                   </label>
                   <input
                     type="text"
@@ -312,14 +312,14 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
                   style={{ backgroundColor: 'var(--primary-500)' }}
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Schüler aufnehmen</span>
+                  <span>Schüler:in aufnehmen</span>
                 </button>
               </form>
 
               {/* Active Students Table */}
               <div className="space-y-2">
                 <div className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>
-                  Aktive Schüler in {dataset.className} ({activeStudents.length})
+                  Aktive Schüler:innen in {dataset.className} ({activeStudents.length})
                 </div>
                 <div
                   className="rounded-xl border divide-y"
@@ -377,7 +377,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
                           }}
                           className="px-2.5 py-1 rounded-lg border text-[11px] font-semibold flex items-center gap-1 hover:bg-amber-500/10 text-amber-700 dark:text-amber-400"
                           style={{ borderColor: 'var(--border-subtle)' }}
-                          title="Schüler archivieren (z. B. bei Schulwechsel unter dem Jahr – Noten bleiben gespeichert)"
+                          title="Schüler:in archivieren (z. B. bei Schulwechsel unter dem Jahr – Noten bleiben gespeichert)"
                         >
                           <Archive className="w-3.5 h-3.5" />
                           <span>Archivieren</span>
@@ -387,7 +387,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
                           onClick={() => deleteStudentPermanently(stu.id, stu.name)}
                           className="p-1.5 rounded-lg border text-rose-600 hover:bg-rose-500/10"
                           style={{ borderColor: 'var(--border-subtle)' }}
-                          title="Schüler samt Noten endgültig löschen"
+                          title="Schüler:in samt Noten endgültig löschen"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -401,7 +401,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
               {archivedStudents.length > 0 && (
                 <div className="space-y-2 pt-2">
                   <div className="text-xs font-bold uppercase tracking-wider text-amber-600">
-                    Archivierte Schüler ({archivedStudents.length}) — Ausgeblendet & ohne Einfluss auf den Klassenschnitt
+                    Archivierte Schüler:innen ({archivedStudents.length}) — Ausgeblendet & ohne Einfluss auf den Klassenschnitt
                   </div>
                   <div
                     className="rounded-xl border divide-y bg-amber-500/5"

@@ -10,11 +10,11 @@ mod tests {
 
     #[test]
     fn test_zero_knowledge_envelope_encryption_and_recovery() {
-        let bundle = generate_vault_bundle("LehrerGeheim2026!").expect("vault bundle");
+        let bundle = generate_vault_bundle("LehrkraftGeheim2026!").expect("vault bundle");
         assert_eq!(bundle.recovery_key_formatted.len(), 29);
 
         let unlocked = unlock_vault_with_password(
-            "LehrerGeheim2026!",
+            "LehrkraftGeheim2026!",
             &bundle.kdf_salt_b64,
             &bundle.kdf_params,
             &bundle.encrypted_dek,
@@ -218,7 +218,7 @@ mod tests {
         assert_eq!(scale2, GradingScaleId::DeOberstufe0To15);
 
         // Verify recovery auth key derivation is deterministic and distinct from recovery KEK
-        let bundle = generate_vault_bundle("LehrerGeheim2026!").expect("vault bundle");
+        let bundle = generate_vault_bundle("LehrkraftGeheim2026!").expect("vault bundle");
         let derived_rec_auth =
             derive_recovery_auth_key(&bundle.recovery_key_formatted).expect("derive recovery auth");
         assert_eq!(derived_rec_auth, bundle.recovery_auth_key_b64);

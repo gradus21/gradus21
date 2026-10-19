@@ -1,15 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   CellDisplayFormat,
   GradingScaleId,
   ThemePreset,
+  ThemeMode,
   UserSyncSettings,
   WeightingMode,
+  getEffectiveThemeMode,
+  resolveIsDarkMode,
 } from '../data/demoClasses';
 import {
   CheckCircle2,
   Cloud,
+  Compass,
   Eye,
+  HelpCircle,
+  Monitor,
   Moon,
   Palette,
   Settings,
@@ -24,6 +30,7 @@ interface SettingsModalProps {
   settings: UserSyncSettings;
   onUpdateSettings: (updater: (prev: UserSyncSettings) => UserSyncSettings) => void;
   onClose: () => void;
+  onOpenInteractiveGuide?: () => void;
 }
 
 export const WEIGHTING_PRESET_CATALOG: Array<{
@@ -45,11 +52,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   settings,
   onUpdateSettings,
   onClose,
+  onOpenInteractiveGuide,
 }) => {
-  const [activeSection, setActiveSection] = useState<'favorites' | 'visibility' | 'appearance'>(
-    'favorites'
-  );
+  const [activeSection, setActiveSection] = useState<
+    'favorites' | 'visibility' | 'appearance' | 'help'
+  >('favorites');
   const [savedIndicator, setSavedIndicator] = useState(false);
+  const [systemIsDark, setSystemIsDark] = useState<boolean>(() => {
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (e: MediaQueryListEvent) => setSystemIsDark(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
+  const currentMode = getEffectiveThemeMode(settings);
 
   const triggerSaved = () => {
     setSavedIndicator(true);
@@ -167,7 +191,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }}
           >
             <Palette className="w-3.5 h-3.5" />
-            <span>Farbwelt & Erscheinungsbild</span>
+            <span>Farbwelt</span>
+          </button>
+          <button
+            onClick={() => setActiveSection('help')}
+            className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 transition ${
+              activeSection === 'help' ? 'text-white shadow-sm' : ''
+            }`}
+            style={{
+              backgroundColor:
+                activeSection === 'help' ? 'var(--primary-500)' : 'transparent',
+            }}
+          >
+            <Compass className="w-3.5 h-3.5" />
+            <span>Hilfe & Guide</span>
           </button>
         </div>
 
@@ -423,13 +460,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     },
                     {
                       key: 'showWhatIfSimulator',
-                      title: '„Was-wäre-wenn“-Zielnoten-Rechner in der Schüler-360°-Akte sofort öffnen',
+                      title: '„Was-wäre-wenn“-Zielnoten-Rechner in der Schüler:innen-360°-Akte sofort öffnen',
                       desc: 'Wenn deaktiviert, bleibt der Simulator eingeklappt und öffnet sich erst auf Klick im Elterngespräch.',
                     },
                     {
                       key: 'showCurveEditorInSpeedGrading',
                       title: 'Interaktiven Notenschlüssel-Editor beim Speed-Grading sofort einblenden',
                       desc: 'Wenn deaktiviert, wird rechts nur der Live-Notenspiegel gezeigt und die Schieberegler öffnen sich erst bei Bedarf.',
+                    },
+                    {
+                      key: 'showGuideButtonInHeader',
+                      title: 'Schnellstart-Icon für den interaktiven Funktions-Guide in der Kopfleiste anzeigen',
+                      desc: 'Wenn deaktiviert, bleibt die Kopfleiste maximal aufgeräumt. Du kannst den Guide jederzeit hier in den Einstellungen oder per Taste ? starten.',
                     },
                   ] as const
                 ).map((item) => (
@@ -548,35 +590,193 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
 
               <div
-                className="p-4 rounded-2xl border flex items-center justify-between"
+                className="p-4 rounded-2xl border space-y-3"
                 style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
               >
-                <div className="flex items-center gap-3">
-                  {settings.darkMode ? (
-                    <Moon className="w-5 h-5 text-teal-400" />
-                  ) : (
-                    <Sun className="w-5 h-5 text-amber-500" />
-                  )}
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
-                      Darstellungsmodus: {settings.darkMode ? 'Dunkler Modus (Dark Mode)' : 'Heller Tageslicht-Modus'}
+                      Darstellungsmodus
                     </div>
-                    <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-                      Heller Modus für das Klassenzimmer, dunkler Modus für die Korrektur am Abend.
+                    <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                      Wähle zwischen hellem Tageslicht-Modus, dunklem Nacht-Modus oder automatischer Anpassung an dein Betriebssystem.
+                    </p>
+                  </div>
+                  {currentMode === 'system' && (
+                    <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20">
+                      System aktiv: {systemIsDark ? '🌙 Dunkel' : '☀️ Hell'}
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {(
+                    [
+                      {
+                        id: 'system' as const,
+                        label: 'System (Automatisch)',
+                        icon: Monitor,
+                        desc: 'Folgt automatisch den Hell-/Dunkel-Einstellungen deines Geräts',
+                      },
+                      {
+                        id: 'light' as const,
+                        label: 'Hell (Tageslicht)',
+                        icon: Sun,
+                        desc: 'Klarer, kontrastreicher heller Modus für Schule & Tageslicht',
+                      },
+                      {
+                        id: 'dark' as const,
+                        label: 'Dunkel (Nachtmodus)',
+                        icon: Moon,
+                        desc: 'Blendfreier dunkler Modus für die Korrektur am Abend',
+                      },
+                    ]
+                  ).map((modeOpt) => {
+                    const isSelected = currentMode === modeOpt.id;
+                    const Icon = modeOpt.icon;
+                    return (
+                      <button
+                        key={modeOpt.id}
+                        type="button"
+                        onClick={() => {
+                          const isDark = resolveIsDarkMode(modeOpt.id);
+                          onUpdateSettings((s) => ({
+                            ...s,
+                            themeMode: modeOpt.id,
+                            darkMode: isDark,
+                          }));
+                          triggerSaved();
+                        }}
+                        className={`p-3.5 rounded-xl border text-left flex flex-col justify-between gap-3 transition ${
+                          isSelected ? 'ring-2 ring-teal-500 shadow-sm' : 'opacity-80 hover:opacity-100'
+                        }`}
+                        style={{
+                          backgroundColor: isSelected ? 'var(--primary-soft)' : 'var(--bg-surface)',
+                          borderColor: 'var(--border-subtle)',
+                        }}
+                      >
+                        <div className="flex items-center justify-between w-full">
+                          <div
+                            className="w-8 h-8 rounded-lg flex items-center justify-center"
+                            style={{
+                              backgroundColor: isSelected ? 'var(--primary-500)' : 'var(--bg-subtle)',
+                              color: isSelected ? '#ffffff' : 'var(--text-secondary)',
+                            }}
+                          >
+                            <Icon className="w-4 h-4" />
+                          </div>
+                          {isSelected && (
+                            <span
+                              className="text-[10px] font-bold px-2 py-0.5 rounded-md text-white"
+                              style={{ backgroundColor: 'var(--primary-500)' }}
+                            >
+                              Aktiv
+                            </span>
+                          )}
+                        </div>
+                        <div>
+                          <div className="font-bold text-xs" style={{ color: 'var(--text-primary)' }}>
+                            {modeOpt.label}
+                          </div>
+                          <div className="text-[11px] mt-1 leading-snug" style={{ color: 'var(--text-secondary)' }}>
+                            {modeOpt.desc}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* =================================================================
+              SECTION 4: HILFE & INTERAKTIVER GUIDE
+             ================================================================= */}
+          {activeSection === 'help' && (
+            <div className="space-y-4">
+              <div
+                className="p-5 rounded-2xl border space-y-4"
+                style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                      style={{ backgroundColor: 'var(--primary-soft)', color: 'var(--primary-text)' }}
+                    >
+                      <Sparkles className="w-5 h-5 animate-pulse" />
                     </div>
+                    <div>
+                      <h4 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
+                        Interaktive Demo & Didaktischer Guide
+                      </h4>
+                      <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                        Interaktive Schritt-für-Schritt-Touren direkt in der echten Oberfläche von Gradus21.
+                      </p>
+                    </div>
+                  </div>
+
+                  {onOpenInteractiveGuide && (
+                    <button
+                      onClick={() => {
+                        onClose();
+                        onOpenInteractiveGuide();
+                      }}
+                      className="px-4 py-2 rounded-xl text-xs font-bold text-white shadow-sm flex items-center justify-center gap-1.5 transition hover:opacity-95 shrink-0"
+                      style={{ backgroundColor: 'var(--primary-500)' }}
+                    >
+                      <Compass className="w-4 h-4" />
+                      <span>Kapitelauswahl öffnen</span>
+                    </button>
+                  )}
+                </div>
+
+                <div
+                  className="p-3.5 rounded-xl border flex items-center justify-between gap-3 text-xs"
+                  style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className="font-mono text-xs px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 font-bold text-slate-800 dark:text-slate-100">
+                      ?
+                    </span>
+                    <span style={{ color: 'var(--text-secondary)' }}>
+                      Schnelltaste: Drücke jederzeit <strong style={{ color: 'var(--text-primary)' }}>?</strong> (oder F1) im Arbeitsbereich, um den Guide direkt aufzurufen.
+                    </span>
                   </div>
                 </div>
 
-                <button
-                  onClick={() => {
-                    onUpdateSettings((s) => ({ ...s, darkMode: !s.darkMode }));
-                    triggerSaved();
-                  }}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-white shadow-sm"
-                  style={{ backgroundColor: 'var(--primary-500)' }}
-                >
-                  Auf {settings.darkMode ? 'Hell' : 'Dunkel'} umschalten
-                </button>
+                <div className="space-y-2 pt-1">
+                  <span className="block font-bold text-xs uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>
+                    Verfügbare Kapitel zum Durchspielen:
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                    <div className="p-3 rounded-xl border space-y-1" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}>
+                      <div className="font-bold" style={{ color: 'var(--text-primary)' }}>1. Großer Rundgang</div>
+                      <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Alle 4 Modi & Sicherheitskonzepte im Überblick (~3 Min.)</div>
+                    </div>
+                    <div className="p-3 rounded-xl border space-y-1" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}>
+                      <div className="font-bold" style={{ color: 'var(--text-primary)' }}>2. Erste Klasse einrichten</div>
+                      <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Klassen-Assistent, .xlsx Drag & Drop, Vorlagen (~2 Min.)</div>
+                    </div>
+                    <div className="p-3 rounded-xl border space-y-1" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}>
+                      <div className="font-bold" style={{ color: 'var(--text-primary)' }}>3. Eigenes Notenmodell</div>
+                      <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Gewichtungs-Baukasten, Notenschlüssel & G/M/E (~2 Min.)</div>
+                    </div>
+                    <div className="p-3 rounded-xl border space-y-1" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}>
+                      <div className="font-bold" style={{ color: 'var(--text-primary)' }}>4. Speed-Grading</div>
+                      <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Schnelleingabe per Ziffernblock, K-Taste & Notenspiegel (~2 Min.)</div>
+                    </div>
+                    <div className="p-3 rounded-xl border space-y-1" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}>
+                      <div className="font-bold" style={{ color: 'var(--text-primary)' }}>5. 360°-Akte & Simulator</div>
+                      <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Stärken/Schwächen & Was-wäre-wenn Zielrechner (~2 Min.)</div>
+                    </div>
+                    <div className="p-3 rounded-xl border space-y-1" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}>
+                      <div className="font-bold" style={{ color: 'var(--text-primary)' }}>6. Beamer-Schutz & E2EE</div>
+                      <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Namen ausblenden (Alt+P), Offline-First & Zero-Knowledge (~1.5 Min.)</div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}

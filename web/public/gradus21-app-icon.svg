@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="appBg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0F766E"/>
+      <stop offset="60%" stop-color="#082F49"/>
+      <stop offset="100%" stop-color="#031726"/>
+    </linearGradient>
+
+    <!-- Outer Border Glow -->
+    <linearGradient id="appBorder" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#5EEAD4" stop-opacity="0.6"/>
+      <stop offset="50%" stop-color="#14B8A6" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#38BDF8" stop-opacity="0.5"/>
+    </linearGradient>
+
+    <!-- Ribbons Gradients -->
+    <linearGradient id="ribbonTop" x1="90" y1="160" x2="420" y2="230" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#5EEAD4"/>
+      <stop offset="100%" stop-color="#2DD4BF"/>
+    </linearGradient>
+
+    <linearGradient id="ribbonMid" x1="90" y1="260" x2="420" y2="260" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2DD4BF"/>
+      <stop offset="100%" stop-color="#14B8A6"/>
+    </linearGradient>
+
+    <linearGradient id="ribbonBot" x1="90" y1="360" x2="420" y2="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#99F6E4"/>
+      <stop offset="100%" stop-color="#38BDF8"/>
+    </linearGradient>
+
+    <!-- Drop Shadows for 3D Depth -->
+    <filter id="ribbonShadow" x="60" y="80" width="392" height="340" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#0F766E" flood-opacity="0.4"/>
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+
+    <!-- Spark Glow -->
+    <filter id="sparkGlow" x="370" y="80" width="100" height="100" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="12" result="glow"/>
+      <feMerge>
+        <feMergeNode in="glow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Squircle Base Canvas (22.5% border radius for Apple HIG / Android Adaptive Icon) -->
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="url(#appBg)"/>
+  <rect x="16" y="16" width="480" height="480" rx="108" stroke="url(#appBorder)" stroke-width="3"/>
+
+  <!-- Subtle Ambient Glow in center -->
+  <circle cx="256" cy="256" r="160" fill="#0D9488" opacity="0.15" filter="blur(40px)"/>
+
+  <!-- The Three Flow Ribbons (The Gradus Steps: G / M / E Levels & Growth) -->
+  <g filter="url(#ribbonShadow)">
+    <!-- Top Ribbon -->
+    <path
+      d="M106 170C165 170 197 125 261 170C325 212 357 154 406 126"
+      stroke="url(#ribbonTop)"
+      stroke-width="44"
+      stroke-linecap="round"
+    />
+    <!-- Middle Ribbon -->
+    <path
+      d="M106 262C175 262 207 208 271 262C335 315 367 225 406 198"
+      stroke="url(#ribbonMid)"
+      stroke-width="44"
+      stroke-linecap="round"
+    />
+    <!-- Bottom Ribbon -->
+    <path
+      d="M106 354C186 354 218 290 282 344C346 397 373 301 406 270"
+      stroke="url(#ribbonBot)"
+      stroke-width="44"
+      stroke-linecap="round"
+    />
+  </g>
+
+  <!-- Innovation Spark Node (The '21' Milestone) -->
+  <g filter="url(#sparkGlow)">
+    <circle cx="406" cy="126" r="28" fill="#5EEAD4" opacity="0.4"/>
+    <circle cx="406" cy="126" r="18" fill="#F0FDFA"/>
+  </g>
+</svg>

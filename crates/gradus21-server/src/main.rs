@@ -27,13 +27,32 @@ use std::{
     time::{Duration, Instant},
 };
 use tower_http::cors::{Any, CorsLayer};
+use url::Url;
 use uuid::Uuid;
+use webauthn_rs::prelude::*;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserPasskeyRecord {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub credential_id: String,
+    pub passkey_label: String,
+    pub passkey_encrypted_dek: String,
+    #[serde(default)]
+    pub passkey_prf_salt: Option<String>,
+    #[serde(default)]
+    pub passkey_data: Option<serde_json::Value>,
+    pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub last_used_at: Option<DateTime<Utc>>,
+}
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: Option<PgPool>,
     pub disk_store_path: PathBuf,
     pub mem_users: Arc<RwLock<HashMap<Uuid, UserRecord>>>,
+    pub mem_passkeys: Arc<RwLock<HashMap<Uuid, UserPasskeyRecord>>>,
     pub mem_envelopes: Arc<RwLock<HashMap<Uuid, EncryptedEnvelopeRecord>>>,
     pub mem_settings: Arc<RwLock<HashMap<String, serde_json::Value>>>,
     pub mem_global_templates: Arc<RwLock<HashMap<Uuid, admin::GlobalTemplateRecord>>>,
@@ -42,11 +61,16 @@ pub struct AppState {
     pub server_encryption_key_b64: String,
     pub admin_emails: Vec<String>,
     pub enable_admin_panel: bool,
+    pub webauthn: Arc<Webauthn>,
+    pub reg_challenges: Arc<RwLock<HashMap<String, (Instant, PasskeyRegistration, Uuid)>>>,
+    pub auth_challenges: Arc<RwLock<HashMap<String, (Instant, PasskeyAuthentication, Option<Uuid>)>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PersistentDiskStore {
     pub users: HashMap<Uuid, UserRecord>,
+    #[serde(default)]
+    pub passkeys: HashMap<Uuid, UserPasskeyRecord>,
     pub envelopes: HashMap<Uuid, EncryptedEnvelopeRecord>,
     #[serde(default)]
     pub system_settings: HashMap<String, serde_json::Value>,
@@ -212,20 +236,22 @@ struct VerifyTotpRequest {
     totp_code: String,
 }
 
-#[derive(Deserialize, Clone)]
-struct UpsertEnvelopeRequest {
-    id: Uuid,
-    entity_type: String,
-    parent_id: Option<Uuid>,
-    class_id: Option<Uuid>,
-    encrypted_payload: String,
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct UpsertEnvelopeRequest {
+    pub id: Uuid,
+    pub entity_type: String,
+    pub parent_id: Option<Uuid>,
+    pub class_id: Option<Uuid>,
+    pub encrypted_payload: String,
     #[serde(default)]
-    expected_version: Option<i32>,
+    pub expected_version: Option<i32>,
 }
+
+pub type BatchUpsertItem = UpsertEnvelopeRequest;
 
 #[derive(Deserialize)]
 struct BatchSyncRequest {
-    envelopes: Vec<UpsertEnvelopeRequest>,
+    envelopes: Vec<BatchUpsertItem>,
 }
 
 fn check_auth_rate_limit(state: &AppState, key: &str) -> Result<(), (StatusCode, String)> {
@@ -267,6 +293,7 @@ fn hash_client_key(key_b64: &str) -> Result<String, (StatusCode, String)> {
 async fn ensure_pg_schema_and_load(
     pool: &PgPool,
     users_map: &mut HashMap<Uuid, UserRecord>,
+    passkeys_map: &mut HashMap<Uuid, UserPasskeyRecord>,
     envelopes_map: &mut HashMap<Uuid, EncryptedEnvelopeRecord>,
     settings_map: &mut HashMap<String, serde_json::Value>,
     templates_map: &mut HashMap<Uuid, admin::GlobalTemplateRecord>,
@@ -299,6 +326,19 @@ async fn ensure_pg_schema_and_load(
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ",
+        r#"CREATE TABLE IF NOT EXISTS user_passkeys (
+            id UUID PRIMARY KEY,
+            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            credential_id TEXT NOT NULL UNIQUE,
+            passkey_label TEXT NOT NULL,
+            passkey_encrypted_dek TEXT NOT NULL,
+            passkey_prf_salt TEXT,
+            passkey_data JSONB,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_used_at TIMESTAMPTZ
+        )"#,
+        "CREATE INDEX IF NOT EXISTS idx_user_passkeys_user ON user_passkeys (user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_user_passkeys_cred ON user_passkeys (credential_id)",
         r#"CREATE TABLE IF NOT EXISTS encrypted_envelopes (
             id UUID PRIMARY KEY,
             owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -367,6 +407,52 @@ async fn ensure_pg_schema_and_load(
     }
 
     if let Ok(rows) = sqlx::query(
+        "SELECT id, user_id, credential_id, passkey_label, passkey_encrypted_dek, passkey_prf_salt, passkey_data, created_at, last_used_at FROM user_passkeys",
+    )
+    .fetch_all(pool)
+    .await
+    {
+        for row in rows {
+            let id: Uuid = row.get("id");
+            let pk = UserPasskeyRecord {
+                id,
+                user_id: row.get("user_id"),
+                credential_id: row.get("credential_id"),
+                passkey_label: row.get("passkey_label"),
+                passkey_encrypted_dek: row.get("passkey_encrypted_dek"),
+                passkey_prf_salt: row.try_get("passkey_prf_salt").ok().flatten(),
+                passkey_data: row.try_get("passkey_data").ok().flatten(),
+                created_at: row.get("created_at"),
+                last_used_at: row.try_get("last_used_at").ok().flatten(),
+            };
+            passkeys_map.insert(id, pk);
+        }
+    }
+
+    // Auto-migrate legacy passkey from users into user_passkeys if not already present
+    for user in users_map.values() {
+        if let Some(cred_id) = &user.passkey_credential_id {
+            if !cred_id.trim().is_empty() && !passkeys_map.values().any(|p| p.user_id == user.id && p.credential_id == *cred_id) {
+                let pid = Uuid::new_v4();
+                let label = user.passkey_label.clone().unwrap_or_else(|| "Passkey (Standard)".into());
+                let enc_dek = user.passkey_encrypted_dek.clone().unwrap_or_else(|| user.encrypted_dek.clone());
+                let rec = UserPasskeyRecord {
+                    id: pid,
+                    user_id: user.id,
+                    credential_id: cred_id.clone(),
+                    passkey_label: label,
+                    passkey_encrypted_dek: enc_dek,
+                    passkey_prf_salt: user.passkey_prf_salt.clone(),
+                    passkey_data: None,
+                    created_at: user.created_at.unwrap_or_else(Utc::now),
+                    last_used_at: user.last_login_at,
+                };
+                passkeys_map.insert(pid, rec);
+            }
+        }
+    }
+
+    if let Ok(rows) = sqlx::query(
         "SELECT id, owner_user_id, entity_type, parent_id, class_id, encrypted_payload, version, updated_at FROM encrypted_envelopes",
     )
     .fetch_all(pool)
@@ -431,7 +517,7 @@ async fn ensure_pg_schema_and_load(
 
     // Seed default global templates into PostgreSQL if not already present
     for default_tpl in admin::default_global_templates() {
-        if !templates_map.contains_key(&default_tpl.id) {
+        if let std::collections::hash_map::Entry::Vacant(e) = templates_map.entry(default_tpl.id) {
             let payload_str = serde_json::to_string(&default_tpl).unwrap_or_default();
             let _ = sqlx::query(
                 r#"INSERT INTO grading_templates (id, owner_user_id, is_encrypted, payload, created_at, updated_at)
@@ -444,7 +530,7 @@ async fn ensure_pg_schema_and_load(
             .bind(default_tpl.updated_at)
             .execute(pool)
             .await;
-            templates_map.insert(default_tpl.id, default_tpl);
+            e.insert(default_tpl);
         }
     }
 }
@@ -551,6 +637,85 @@ async fn delete_envelope_from_pg(state: &AppState, id: Uuid, owner_id: Uuid) {
     }
 }
 
+pub fn create_webauthn() -> Arc<Webauthn> {
+    let rp_id = std::env::var("WEBAUTHN_RP_ID").unwrap_or_else(|_| "localhost".into());
+    let rp_name = std::env::var("WEBAUTHN_RP_NAME").unwrap_or_else(|_| "Gradus21".into());
+    let rp_origin_str = std::env::var("WEBAUTHN_RP_ORIGIN").unwrap_or_else(|_| "http://localhost:5173".into());
+    let rp_origin = Url::parse(&rp_origin_str).unwrap_or_else(|_| Url::parse("http://localhost:5173").unwrap());
+
+    let mut builder = WebauthnBuilder::new(&rp_id, &rp_origin)
+        .expect("Fehler bei der Initialisierung von WebauthnBuilder")
+        .rp_name(&rp_name);
+
+    if let Ok(allowed_origins_str) = std::env::var("WEBAUTHN_ALLOWED_ORIGINS") {
+        for orig_str in allowed_origins_str.split(',') {
+            let trimmed = orig_str.trim();
+            if !trimmed.is_empty() {
+                if let Ok(u) = Url::parse(trimmed) {
+                    if u != rp_origin {
+                        builder = builder.append_allowed_origin(&u);
+                    }
+                }
+            }
+        }
+    } else {
+        for default_orig in &["http://localhost:5173", "http://localhost:3080", "http://127.0.0.1:5173", "http://127.0.0.1:3080"] {
+            if let Ok(u) = Url::parse(default_orig) {
+                if u != rp_origin {
+                    builder = builder.append_allowed_origin(&u);
+                }
+            }
+        }
+    }
+
+    Arc::new(builder.build().expect("Fehler beim Erstellen der Webauthn-Instanz"))
+}
+
+pub async fn sync_passkey_to_pg(state: &AppState, pk: &UserPasskeyRecord) {
+    let Some(pool) = &state.db else {
+        return;
+    };
+    if let Err(e) = sqlx::query(
+        r#"INSERT INTO user_passkeys (
+            id, user_id, credential_id, passkey_label, passkey_encrypted_dek,
+            passkey_prf_salt, passkey_data, created_at, last_used_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT (id) DO UPDATE SET
+            passkey_label = EXCLUDED.passkey_label,
+            passkey_encrypted_dek = EXCLUDED.passkey_encrypted_dek,
+            passkey_prf_salt = EXCLUDED.passkey_prf_salt,
+            passkey_data = EXCLUDED.passkey_data,
+            last_used_at = EXCLUDED.last_used_at"#,
+    )
+    .bind(pk.id)
+    .bind(pk.user_id)
+    .bind(&pk.credential_id)
+    .bind(&pk.passkey_label)
+    .bind(&pk.passkey_encrypted_dek)
+    .bind(&pk.passkey_prf_salt)
+    .bind(&pk.passkey_data)
+    .bind(pk.created_at)
+    .bind(pk.last_used_at)
+    .execute(pool)
+    .await
+    {
+        tracing::error!("Failed to sync passkey {} to PostgreSQL: {}", pk.id, e);
+    }
+}
+
+pub async fn delete_passkey_from_pg(state: &AppState, id: Uuid) {
+    let Some(pool) = &state.db else {
+        return;
+    };
+    if let Err(e) = sqlx::query("DELETE FROM user_passkeys WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await
+    {
+        tracing::error!("Failed to delete passkey {} from PostgreSQL: {}", id, e);
+    }
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -600,6 +765,7 @@ async fn main() {
                 ensure_pg_schema_and_load(
                     &pool,
                     &mut initial_disk.users,
+                    &mut initial_disk.passkeys,
                     &mut initial_disk.envelopes,
                     &mut initial_disk.system_settings,
                     &mut initial_disk.global_templates,
@@ -626,6 +792,31 @@ async fn main() {
         None
     };
 
+    // Migrate legacy passkeys from users into initial_disk.passkeys if not already present
+    for user in initial_disk.users.values() {
+        if let Some(cred_id) = &user.passkey_credential_id {
+            if !cred_id.trim().is_empty()
+                && !initial_disk.passkeys.values().any(|p| p.user_id == user.id && p.credential_id == *cred_id)
+            {
+                let pid = Uuid::new_v4();
+                let label = user.passkey_label.clone().unwrap_or_else(|| "Passkey (Standard)".into());
+                let enc_dek = user.passkey_encrypted_dek.clone().unwrap_or_else(|| user.encrypted_dek.clone());
+                let rec = UserPasskeyRecord {
+                    id: pid,
+                    user_id: user.id,
+                    credential_id: cred_id.clone(),
+                    passkey_label: label,
+                    passkey_encrypted_dek: enc_dek,
+                    passkey_prf_salt: user.passkey_prf_salt.clone(),
+                    passkey_data: None,
+                    created_at: user.created_at.unwrap_or_else(Utc::now),
+                    last_used_at: user.last_login_at,
+                };
+                initial_disk.passkeys.insert(pid, rec);
+            }
+        }
+    }
+
     let admin_emails: Vec<String> = std::env::var("ADMIN_EMAILS")
         .unwrap_or_default()
         .split(',')
@@ -642,10 +833,13 @@ async fn main() {
         initial_disk.global_templates.entry(default_tpl.id).or_insert(default_tpl);
     }
 
+    let webauthn = create_webauthn();
+
     let state = AppState {
         db,
         disk_store_path,
         mem_users: Arc::new(RwLock::new(initial_disk.users)),
+        mem_passkeys: Arc::new(RwLock::new(initial_disk.passkeys)),
         mem_envelopes: Arc::new(RwLock::new(initial_disk.envelopes)),
         mem_settings: Arc::new(RwLock::new(initial_disk.system_settings)),
         mem_global_templates: Arc::new(RwLock::new(initial_disk.global_templates)),
@@ -654,6 +848,9 @@ async fn main() {
         server_encryption_key_b64,
         admin_emails,
         enable_admin_panel,
+        webauthn,
+        reg_challenges: Arc::new(RwLock::new(HashMap::new())),
+        auth_challenges: Arc::new(RwLock::new(HashMap::new())),
     };
 
     // Spawn background tasks (Automated snapshot scheduler & retention)
@@ -682,6 +879,15 @@ async fn main() {
         .route("/api/auth/login", post(login_user))
         .route("/api/auth/recover", post(recover_password))
         .route("/api/auth/recovery/rotate", post(rotate_recovery_key))
+        .route("/api/auth/passkey/register/start", post(passkey_register_start))
+        .route("/api/auth/passkey/register/finish", post(passkey_register_finish))
+        .route("/api/auth/passkey/login/start", post(passkey_login_start))
+        .route("/api/auth/passkey/login/finish", post(passkey_login_finish))
+        .route("/api/auth/passkey/list", get(list_user_passkeys))
+        .route(
+            "/api/auth/passkey/:id",
+            delete(delete_user_passkey_by_id).patch(rename_user_passkey),
+        )
         .route("/api/auth/passkey/register", post(register_passkey))
         .route("/api/auth/passkey/login", post(login_with_passkey))
         .route("/api/auth/passkey", delete(delete_passkey))
@@ -690,6 +896,7 @@ async fn main() {
         .route("/api/auth/2fa/reconfigure", post(reconfigure_2fa))
         .route("/api/auth/2fa/disable", post(disable_2fa))
         .route("/api/envelopes", get(list_envelopes).post(upsert_envelope))
+        .route("/api/envelopes/sync", get(list_envelopes))
         .route("/api/envelopes/batch", post(batch_sync_envelopes))
         .route("/api/envelopes/:id", delete(delete_envelope))
         .route("/api/preferences", put(update_preferences))
@@ -759,7 +966,7 @@ async fn main() {
         .and_then(|p| p.parse().ok())
         .unwrap_or(8080);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    tracing::info!("BTE NotenFlow Zero-Knowledge API listening on http://{}", addr);
+    tracing::info!("Gradus21 Zero-Knowledge API listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
@@ -767,11 +974,13 @@ async fn main() {
 
 pub fn persist_to_disk(state: &AppState) {
     let users = state.mem_users.read().unwrap().clone();
+    let passkeys = state.mem_passkeys.read().unwrap().clone();
     let envelopes = state.mem_envelopes.read().unwrap().clone();
     let system_settings = state.mem_settings.read().unwrap().clone();
     let global_templates = state.mem_global_templates.read().unwrap().clone();
     let store = PersistentDiskStore {
         users,
+        passkeys,
         envelopes,
         system_settings,
         global_templates,
@@ -814,15 +1023,38 @@ async fn get_user_salt(
     check_auth_rate_limit(&state, &format!("salt:{}", email))?;
 
     if let Some(u) = find_user_by_email(&state, &email).await {
+        let (has_passkey, passkey_label, passkey_prf_salt_b64) = {
+            let pks = state.mem_passkeys.read().unwrap();
+            let user_pks: Vec<_> = pks.values().filter(|p| p.user_id == u.id).collect();
+            if !user_pks.is_empty() {
+                let primary = user_pks
+                    .iter()
+                    .find(|p| u.passkey_credential_id.as_deref() == Some(&p.credential_id))
+                    .or_else(|| user_pks.first())
+                    .unwrap();
+                (
+                    true,
+                    Some(primary.passkey_label.clone()),
+                    primary.passkey_prf_salt.clone(),
+                )
+            } else {
+                (
+                    u.passkey_credential_id.is_some(),
+                    u.passkey_label.clone(),
+                    u.passkey_prf_salt.clone(),
+                )
+            }
+        };
+
         return Ok(Json(SaltQueryResponse {
             kdf_salt_b64: u.kdf_salt,
             kdf_params: u.kdf_params,
             encrypted_dek: u.encrypted_dek,
             recovery_encrypted_dek: u.recovery_encrypted_dek,
             totp_enabled: u.totp_enabled,
-            has_passkey: u.passkey_credential_id.is_some(),
-            passkey_label: u.passkey_label,
-            passkey_prf_salt_b64: u.passkey_prf_salt,
+            has_passkey,
+            passkey_label,
+            passkey_prf_salt_b64,
         }));
     }
 
@@ -1051,7 +1283,7 @@ async fn recover_password(
         let mut users = state.mem_users.write().unwrap();
         let user = users
             .get_mut(&existing_user.id)
-            .ok_or((StatusCode::NOT_FOUND, "Benutzer nicht gefunden".into()))?;
+            .ok_or((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()))?;
         user.auth_key_hash = new_hash;
         user.kdf_salt = req.new_kdf_salt_b64.clone();
         user.kdf_params = req.new_kdf_params.clone();
@@ -1107,7 +1339,7 @@ async fn rotate_recovery_key(
         let mut users = state.mem_users.write().unwrap();
         let user = users
             .get_mut(&user_id)
-            .ok_or((StatusCode::NOT_FOUND, "Benutzer nicht gefunden".into()))?;
+            .ok_or((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()))?;
         user.recovery_encrypted_dek = req.recovery_encrypted_dek.clone();
         user.recovery_auth_key_hash = rec_hash;
         user.clone()
@@ -1120,6 +1352,571 @@ async fn rotate_recovery_key(
         "success": true,
         "message": "Notfall-Schlüssel erfolgreich erneuert",
         "recovery_encrypted_dek": req.recovery_encrypted_dek,
+    })))
+}
+
+#[derive(Serialize)]
+struct PasskeyRegisterStartResponse {
+    session_id: String,
+    #[serde(rename = "publicKey")]
+    public_key: CreationChallengeResponse,
+}
+
+#[derive(Deserialize)]
+struct PasskeyRegisterFinishRequest {
+    session_id: String,
+    registration_response: RegisterPublicKeyCredential,
+    label: Option<String>,
+    passkey_encrypted_dek: String,
+    #[serde(default)]
+    passkey_prf_salt_b64: Option<String>,
+    #[serde(default)]
+    kdf_salt_b64: Option<String>,
+    #[serde(default)]
+    encrypted_dek: Option<String>,
+    #[serde(default)]
+    recovery_encrypted_dek: Option<String>,
+    #[serde(default)]
+    recovery_auth_key_b64: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PasskeyLoginStartRequest {
+    #[serde(default)]
+    email: Option<String>,
+}
+
+#[derive(Serialize)]
+struct PasskeyLoginStartResponse {
+    session_id: String,
+    #[serde(rename = "publicKey")]
+    public_key: RequestChallengeResponse,
+}
+
+#[derive(Deserialize)]
+struct PasskeyLoginFinishRequest {
+    session_id: String,
+    assertion_response: PublicKeyCredential,
+}
+
+#[derive(Deserialize)]
+struct RenamePasskeyRequest {
+    label: String,
+}
+
+async fn passkey_register_start(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<PasskeyRegisterStartResponse>, (StatusCode, String)> {
+    let claims = authenticate_request(&state, &headers)?;
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
+
+    let user = {
+        let users = state.mem_users.read().unwrap();
+        users
+            .get(&user_id)
+            .cloned()
+            .ok_or((StatusCode::NOT_FOUND, "Benutzerkonto nicht gefunden".into()))?
+    };
+
+    let pks = state.mem_passkeys.read().unwrap();
+    let exclude_credentials: Vec<CredentialID> = pks
+        .values()
+        .filter(|p| p.user_id == user_id)
+        .filter_map(|p| {
+            if let Some(val) = &p.passkey_data {
+                if let Ok(pk) = serde_json::from_value::<Passkey>(val.clone()) {
+                    return Some(pk.cred_id().clone());
+                }
+            }
+            B64.decode(&p.credential_id).ok().map(CredentialID::from)
+        })
+        .collect();
+
+    let exclude_opt = if exclude_credentials.is_empty() {
+        None
+    } else {
+        Some(exclude_credentials)
+    };
+
+    let (creation_challenge, reg_state) = state
+        .webauthn
+        .start_passkey_registration(user_id, &user.email, &user.email, exclude_opt)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Fehler bei WebAuthn-Registrierung: {}", e),
+            )
+        })?;
+
+    let session_id = format!("g21_reg_{}", Uuid::new_v4().simple());
+    {
+        let mut map = state.reg_challenges.write().unwrap();
+        let now = Instant::now();
+        map.retain(|_, (created, _, _)| now.duration_since(*created) < Duration::from_secs(120));
+        map.insert(session_id.clone(), (now, reg_state, user_id));
+    }
+
+    Ok(Json(PasskeyRegisterStartResponse {
+        session_id,
+        public_key: creation_challenge,
+    }))
+}
+
+async fn passkey_register_finish(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<PasskeyRegisterFinishRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let claims = authenticate_request(&state, &headers)?;
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
+
+    let challenge_entry = {
+        let mut map = state.reg_challenges.write().unwrap();
+        let now = Instant::now();
+        map.retain(|_, (created, _, _)| now.duration_since(*created) < Duration::from_secs(120));
+        map.remove(&req.session_id)
+    };
+
+    let Some((_, reg_state, expected_user_id)) = challenge_entry else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Registrierungs-Sitzung abgelaufen oder ungültig. Bitte erneut versuchen.".into(),
+        ));
+    };
+
+    if expected_user_id != user_id {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Sitzung gehört nicht zu diesem Benutzerkonto.".into(),
+        ));
+    }
+
+    let passkey = state
+        .webauthn
+        .finish_passkey_registration(&req.registration_response, &reg_state)
+        .map_err(|e| {
+            tracing::warn!("WebAuthn registration verification failed: {}", e);
+            (
+                StatusCode::BAD_REQUEST,
+                format!("WebAuthn-Verifizierung fehlgeschlagen: {}", e),
+            )
+        })?;
+
+    let cred_id_str = req.registration_response.id.clone();
+    let label = req
+        .label
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "Passkey (Fingerabdruck / Face ID)".to_string());
+    let passkey_id = Uuid::new_v4();
+
+    let rec_hash_opt = match req
+        .recovery_auth_key_b64
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        Some(k) => Some(hash_client_key(k)?),
+        None => None,
+    };
+
+    let passkey_rec = UserPasskeyRecord {
+        id: passkey_id,
+        user_id,
+        credential_id: cred_id_str.clone(),
+        passkey_label: label.clone(),
+        passkey_encrypted_dek: req.passkey_encrypted_dek.clone(),
+        passkey_prf_salt: req.passkey_prf_salt_b64.clone(),
+        passkey_data: serde_json::to_value(&passkey).ok(),
+        created_at: Utc::now(),
+        last_used_at: Some(Utc::now()),
+    };
+
+    state
+        .mem_passkeys
+        .write()
+        .unwrap()
+        .insert(passkey_id, passkey_rec.clone());
+    sync_passkey_to_pg(&state, &passkey_rec).await;
+
+    // Update primary passkey on user record
+    let updated_user = {
+        let mut users = state.mem_users.write().unwrap();
+        let u = users
+            .get_mut(&user_id)
+            .ok_or((StatusCode::NOT_FOUND, "Benutzer nicht gefunden".into()))?;
+        u.passkey_credential_id = Some(cred_id_str.clone());
+        u.passkey_label = Some(label.clone());
+        u.passkey_encrypted_dek = Some(req.passkey_encrypted_dek.clone());
+        if let Some(prf) = &req.passkey_prf_salt_b64 {
+            u.passkey_prf_salt = Some(prf.clone());
+        }
+        if let Some(salt) = req.kdf_salt_b64.as_ref().filter(|s| !s.is_empty()) {
+            if u.kdf_salt.is_empty() {
+                u.kdf_salt = salt.clone();
+            }
+        }
+        if let Some(enc_dek) = req.encrypted_dek.as_ref().filter(|s| !s.is_empty()) {
+            u.encrypted_dek = enc_dek.clone();
+        }
+        if let Some(rec_dek) = req.recovery_encrypted_dek.as_ref().filter(|s| !s.is_empty()) {
+            u.recovery_encrypted_dek = rec_dek.clone();
+        }
+        if let Some(rec_hash) = &rec_hash_opt {
+            u.recovery_auth_key_hash = rec_hash.clone();
+        }
+        u.clone()
+    };
+    sync_user_to_pg(&state, &updated_user).await;
+    persist_to_disk(&state);
+
+    let issued_token = issue_jwt(&state.jwt_secret, user_id, &claims.email, claims.is_admin, true)?;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "token": issued_token,
+        "passkey_id": passkey_id,
+        "credential_id": cred_id_str,
+        "label": label,
+        "passkey_prf_salt_b64": req.passkey_prf_salt_b64,
+    })))
+}
+
+async fn passkey_login_start(
+    State(state): State<AppState>,
+    Json(req): Json<PasskeyLoginStartRequest>,
+) -> Result<Json<PasskeyLoginStartResponse>, (StatusCode, String)> {
+    let user_opt = if let Some(e) = req.email.as_deref().filter(|s| !s.trim().is_empty()) {
+        let clean = e.trim().to_lowercase();
+        let users = state.mem_users.read().unwrap();
+        users.values().find(|u| u.email.to_lowercase() == clean).cloned()
+    } else {
+        None
+    };
+
+    let pks = state.mem_passkeys.read().unwrap();
+    let passkeys_to_allow: Vec<Passkey> = pks
+        .values()
+        .filter(|p| {
+            if let Some(u) = &user_opt {
+                p.user_id == u.id
+            } else {
+                true
+            }
+        })
+        .filter_map(|p| {
+            if let Some(val) = &p.passkey_data {
+                serde_json::from_value::<Passkey>(val.clone()).ok()
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if passkeys_to_allow.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Kein passender Passkey für diesen Benutzer hinterlegt. Bitte melde dich mit deinem Passwort an.".into(),
+        ));
+    }
+
+    let (request_challenge, auth_state) = state
+        .webauthn
+        .start_passkey_authentication(&passkeys_to_allow)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Fehler beim Vorbereiten der Authentifizierung: {}", e),
+            )
+        })?;
+
+    let session_id = format!("g21_auth_{}", Uuid::new_v4().simple());
+    {
+        let mut map = state.auth_challenges.write().unwrap();
+        let now = Instant::now();
+        map.retain(|_, (created, _, _)| now.duration_since(*created) < Duration::from_secs(120));
+        map.insert(session_id.clone(), (now, auth_state, user_opt.map(|u| u.id)));
+    }
+
+    Ok(Json(PasskeyLoginStartResponse {
+        session_id,
+        public_key: request_challenge,
+    }))
+}
+
+async fn passkey_login_finish(
+    State(state): State<AppState>,
+    Json(req): Json<PasskeyLoginFinishRequest>,
+) -> Result<Json<AuthResponse>, (StatusCode, String)> {
+    check_auth_rate_limit(&state, &format!("passkey_auth:{}", req.session_id))?;
+
+    let challenge_entry = {
+        let mut map = state.auth_challenges.write().unwrap();
+        let now = Instant::now();
+        map.retain(|_, (created, _, _)| now.duration_since(*created) < Duration::from_secs(120));
+        map.remove(&req.session_id)
+    };
+
+    let Some((_, auth_state, _)) = challenge_entry else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Anmelde-Sitzung abgelaufen oder ungültig. Bitte erneut versuchen.".into(),
+        ));
+    };
+
+    let auth_result = state
+        .webauthn
+        .finish_passkey_authentication(&req.assertion_response, &auth_state)
+        .map_err(|e| {
+            tracing::warn!("WebAuthn authentication failed: {}", e);
+            (
+                StatusCode::UNAUTHORIZED,
+                format!("Passkey-Authentifizierung fehlgeschlagen: {}", e),
+            )
+        })?;
+
+    let cred_id_bytes = auth_result.cred_id().as_slice();
+    let matched_passkey = {
+        let pks = state.mem_passkeys.read().unwrap();
+        pks.values()
+            .find(|p| {
+                if let Some(val) = &p.passkey_data {
+                    if let Ok(pk) = serde_json::from_value::<Passkey>(val.clone()) {
+                        return pk.cred_id().as_slice() == cred_id_bytes;
+                    }
+                }
+                p.credential_id == req.assertion_response.id
+            })
+            .cloned()
+    };
+
+    let Some(mut passkey_rec) = matched_passkey else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "Zugehöriger Passkey im System nicht gefunden".into(),
+        ));
+    };
+
+    passkey_rec.last_used_at = Some(Utc::now());
+    if let Some(mut data) = passkey_rec.passkey_data.clone() {
+        data["sign_counter"] = serde_json::json!(auth_result.counter());
+        passkey_rec.passkey_data = Some(data);
+    }
+    state
+        .mem_passkeys
+        .write()
+        .unwrap()
+        .insert(passkey_rec.id, passkey_rec.clone());
+    sync_passkey_to_pg(&state, &passkey_rec).await;
+
+    let user_opt = {
+        let users = state.mem_users.read().unwrap();
+        users.get(&passkey_rec.user_id).cloned()
+    };
+    let Some(user) = user_opt else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            "Benutzerkonto nicht gefunden".into(),
+        ));
+    };
+
+    if !user.is_active {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Dein Benutzerkonto wurde von der Administration deaktiviert.".into(),
+        ));
+    }
+
+    let now = Utc::now();
+    {
+        let mut users = state.mem_users.write().unwrap();
+        if let Some(u) = users.get_mut(&user.id) {
+            u.last_login_at = Some(now);
+        }
+    }
+    let mut updated_user = user.clone();
+    updated_user.last_login_at = Some(now);
+    sync_user_to_pg(&state, &updated_user).await;
+    persist_to_disk(&state);
+
+    let token = issue_jwt(&state.jwt_secret, user.id, &user.email, user.is_admin, true)?;
+
+    Ok(Json(AuthResponse {
+        token,
+        user_id: user.id,
+        email: user.email,
+        is_admin: user.is_admin,
+        kdf_salt_b64: user.kdf_salt,
+        kdf_params: user.kdf_params,
+        encrypted_dek: user.encrypted_dek,
+        recovery_encrypted_dek: user.recovery_encrypted_dek,
+        totp_enabled: user.totp_enabled,
+        totp_setup_uri: None,
+        totp_secret_base32: None,
+        passkey_credential_id: Some(passkey_rec.credential_id),
+        passkey_label: Some(passkey_rec.passkey_label),
+        passkey_encrypted_dek: Some(passkey_rec.passkey_encrypted_dek),
+        passkey_prf_salt_b64: passkey_rec.passkey_prf_salt,
+        ui_preferences: user.ui_preferences,
+    }))
+}
+
+async fn list_user_passkeys(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<serde_json::Value>>, (StatusCode, String)> {
+    let claims = authenticate_request(&state, &headers)?;
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
+
+    let pks = state.mem_passkeys.read().unwrap();
+    let mut user_pks: Vec<_> = pks.values().filter(|p| p.user_id == user_id).cloned().collect();
+    user_pks.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+    let list = user_pks
+        .into_iter()
+        .map(|p| {
+            serde_json::json!({
+                "id": p.id,
+                "label": p.passkey_label,
+                "credential_id": p.credential_id,
+                "prf_supported": p.passkey_prf_salt.is_some(),
+                "created_at": p.created_at,
+                "last_used_at": p.last_used_at,
+            })
+        })
+        .collect();
+
+    Ok(Json(list))
+}
+
+async fn delete_user_passkey_by_id(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(passkey_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let claims = authenticate_request(&state, &headers)?;
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
+
+    let removed = {
+        let mut pks = state.mem_passkeys.write().unwrap();
+        if let Some(entry) = pks.get(&passkey_id) {
+            if entry.user_id != user_id {
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    "Keine Berechtigung für diesen Passkey".into(),
+                ));
+            }
+            pks.remove(&passkey_id)
+        } else {
+            None
+        }
+    };
+
+    let Some(p) = removed else {
+        return Err((StatusCode::NOT_FOUND, "Passkey nicht gefunden".into()));
+    };
+
+    delete_passkey_from_pg(&state, passkey_id).await;
+
+    // Update primary passkey on user if it was deleted
+    let user_to_sync = {
+        let mut users = state.mem_users.write().unwrap();
+        if let Some(u) = users.get_mut(&user_id) {
+            if u.passkey_credential_id.as_deref() == Some(&p.credential_id) {
+                let remaining = state.mem_passkeys.read().unwrap();
+                let next_opt = remaining.values().find(|r| r.user_id == user_id).cloned();
+                drop(remaining);
+                if let Some(next) = next_opt {
+                    u.passkey_credential_id = Some(next.credential_id);
+                    u.passkey_label = Some(next.passkey_label);
+                    u.passkey_encrypted_dek = Some(next.passkey_encrypted_dek);
+                    u.passkey_prf_salt = next.passkey_prf_salt;
+                } else {
+                    u.passkey_credential_id = None;
+                    u.passkey_label = None;
+                    u.passkey_encrypted_dek = None;
+                    u.passkey_prf_salt = None;
+                }
+                Some(u.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+    if let Some(u) = user_to_sync {
+        sync_user_to_pg(&state, &u).await;
+    }
+    persist_to_disk(&state);
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Passkey erfolgreich gelöscht",
+    })))
+}
+
+async fn rename_user_passkey(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(passkey_id): Path<Uuid>,
+    Json(payload): Json<RenamePasskeyRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let claims = authenticate_request(&state, &headers)?;
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
+
+    let clean_label = payload.label.trim();
+    if clean_label.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Der Name darf nicht leer sein.".into(),
+        ));
+    }
+
+    let updated = {
+        let mut pks = state.mem_passkeys.write().unwrap();
+        let entry = pks
+            .get_mut(&passkey_id)
+            .ok_or((StatusCode::NOT_FOUND, "Passkey nicht gefunden".into()))?;
+        if entry.user_id != user_id {
+            return Err((
+                StatusCode::FORBIDDEN,
+                "Keine Berechtigung für diesen Passkey".into(),
+            ));
+        }
+        entry.passkey_label = clean_label.to_string();
+        entry.clone()
+    };
+
+    sync_passkey_to_pg(&state, &updated).await;
+
+    // Update primary label on user if this is the primary passkey
+    let user_to_sync = {
+        let mut users = state.mem_users.write().unwrap();
+        if let Some(u) = users.get_mut(&user_id) {
+            if u.passkey_credential_id.as_deref() == Some(&updated.credential_id) {
+                u.passkey_label = Some(updated.passkey_label.clone());
+                Some(u.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+    if let Some(u) = user_to_sync {
+        sync_user_to_pg(&state, &u).await;
+    }
+    persist_to_disk(&state);
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "id": passkey_id,
+        "label": updated.passkey_label,
     })))
 }
 
@@ -1141,6 +1938,25 @@ async fn register_passkey(
         Some(rec_key) => Some(hash_client_key(rec_key)?),
         None => None,
     };
+
+    let passkey_id = Uuid::new_v4();
+    let passkey_rec = UserPasskeyRecord {
+        id: passkey_id,
+        user_id,
+        credential_id: req.credential_id.clone(),
+        passkey_label: req.label.clone(),
+        passkey_encrypted_dek: req.passkey_encrypted_dek.clone(),
+        passkey_prf_salt: req.passkey_prf_salt_b64.clone(),
+        passkey_data: None,
+        created_at: Utc::now(),
+        last_used_at: Some(Utc::now()),
+    };
+    state
+        .mem_passkeys
+        .write()
+        .unwrap()
+        .insert(passkey_id, passkey_rec.clone());
+    sync_passkey_to_pg(&state, &passkey_rec).await;
 
     let updated_record = {
         let mut users = state.mem_users.write().unwrap();
@@ -1228,13 +2044,24 @@ async fn delete_passkey(
         let mut users = state.mem_users.write().unwrap();
         let user = users
             .get_mut(&user_id)
-            .ok_or((StatusCode::NOT_FOUND, "Benutzer nicht gefunden".into()))?;
+            .ok_or((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()))?;
         user.passkey_credential_id = None;
         user.passkey_label = None;
         user.passkey_encrypted_dek = None;
         user.passkey_prf_salt = None;
         user.clone()
     };
+
+    {
+        let mut pks = state.mem_passkeys.write().unwrap();
+        pks.retain(|_, p| p.user_id != user_id);
+    }
+    if let Some(pool) = &state.db {
+        let _ = sqlx::query("DELETE FROM user_passkeys WHERE user_id = $1")
+            .bind(user_id)
+            .execute(pool)
+            .await;
+    }
 
     sync_user_to_pg(&state, &updated_record).await;
     persist_to_disk(&state);
@@ -1257,7 +2084,17 @@ async fn login_with_passkey(
         .to_lowercase();
     check_auth_rate_limit(&state, &format!("passkey:{}", rate_key))?;
 
-    let user_opt = {
+    let passkey_opt = {
+        let pks = state.mem_passkeys.read().unwrap();
+        pks.values()
+            .find(|p| p.credential_id == req.credential_id)
+            .cloned()
+    };
+
+    let user_opt = if let Some(pk) = &passkey_opt {
+        let users = state.mem_users.read().unwrap();
+        users.get(&pk.user_id).cloned()
+    } else {
         let users = state.mem_users.read().unwrap();
         users
             .values()
@@ -1284,11 +2121,17 @@ async fn login_with_passkey(
     if !user.is_active {
         return Err((
             StatusCode::FORBIDDEN,
-            "Dein Benutzerkonto wurde von einem Administrator deaktiviert.".into(),
+            "Dein Benutzerkonto wurde von der Administration deaktiviert.".into(),
         ));
     }
 
     let now = Utc::now();
+    if let Some(mut pk) = passkey_opt.clone() {
+        pk.last_used_at = Some(now);
+        state.mem_passkeys.write().unwrap().insert(pk.id, pk.clone());
+        sync_passkey_to_pg(&state, &pk).await;
+    }
+
     {
         let mut users = state.mem_users.write().unwrap();
         if let Some(u) = users.get_mut(&user.id) {
@@ -1298,6 +2141,22 @@ async fn login_with_passkey(
     let mut updated_user = user.clone();
     updated_user.last_login_at = Some(now);
     sync_user_to_pg(&state, &updated_user).await;
+
+    let (cred_id, label, enc_dek, prf_salt) = if let Some(pk) = &passkey_opt {
+        (
+            Some(pk.credential_id.clone()),
+            Some(pk.passkey_label.clone()),
+            Some(pk.passkey_encrypted_dek.clone()),
+            pk.passkey_prf_salt.clone(),
+        )
+    } else {
+        (
+            user.passkey_credential_id.clone(),
+            user.passkey_label.clone(),
+            user.passkey_encrypted_dek.clone(),
+            user.passkey_prf_salt.clone(),
+        )
+    };
 
     let token = issue_jwt(&state.jwt_secret, user.id, &user.email, user.is_admin, true)?;
     Ok(Json(AuthResponse {
@@ -1312,10 +2171,10 @@ async fn login_with_passkey(
         totp_enabled: user.totp_enabled,
         totp_setup_uri: None,
         totp_secret_base32: None,
-        passkey_credential_id: user.passkey_credential_id,
-        passkey_label: user.passkey_label,
-        passkey_encrypted_dek: user.passkey_encrypted_dek,
-        passkey_prf_salt_b64: user.passkey_prf_salt,
+        passkey_credential_id: cred_id,
+        passkey_label: label,
+        passkey_encrypted_dek: enc_dek,
+        passkey_prf_salt_b64: prf_salt,
         ui_preferences: user.ui_preferences,
     }))
 }
@@ -1458,7 +2317,7 @@ async fn verify_and_enable_2fa(
                 return Err((StatusCode::BAD_REQUEST, "Kein 2FA-Secret initialisiert".into()));
             }
         } else {
-            return Err((StatusCode::NOT_FOUND, "Benutzer nicht gefunden".into()));
+            return Err((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()));
         }
     };
     if let Some(saved_user) = updated_user_opt {
@@ -1499,7 +2358,7 @@ async fn reconfigure_2fa(
             user.totp_enabled = false;
             (user.email.clone(), user.clone())
         } else {
-            return Err((StatusCode::NOT_FOUND, "Benutzer nicht gefunden".into()));
+            return Err((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()));
         }
     };
 
@@ -1535,7 +2394,7 @@ async fn disable_2fa(
             user.totp_enabled = false;
             user.clone()
         } else {
-            return Err((StatusCode::NOT_FOUND, "Benutzer nicht gefunden".into()));
+            return Err((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()));
         }
     };
 
@@ -1572,6 +2431,15 @@ fn resolve_tenant_envelope_id(owner_id: Uuid, requested_id: Uuid) -> Uuid {
     if owner_id == default_demo_owner {
         return requested_id;
     }
+
+    let static_ws = Uuid::parse_str("00000000-0000-4000-8000-000000000001").unwrap();
+    let static_pref = Uuid::parse_str("00000000-0000-4000-8000-000000000002").unwrap();
+
+    // Only shared static singleton IDs (workspace and user_settings) need deterministic tenant namespacing
+    if requested_id != static_ws && requested_id != static_pref {
+        return requested_id;
+    }
+
     let o_bytes = owner_id.as_bytes();
     let r_bytes = requested_id.as_bytes();
     let mut combined = [0u8; 16];
@@ -1596,27 +2464,44 @@ async fn upsert_envelope(
 
     let record = {
         let mut store = state.mem_envelopes.write().unwrap();
-        if let Some(existing) = store.get(&effective_id) {
+        let existing = store.get(&effective_id).or_else(|| store.get(&req.id));
+        if let Some(existing) = existing {
             if existing.owner_user_id != owner_id {
                 return Err((StatusCode::FORBIDDEN, "Zugriff verweigert (Mandantentrennung)".into()));
             }
             // Issue #2: Optimistic Concurrency Control
             if let Some(exp_ver) = req.expected_version {
                 if existing.version != exp_ver {
-                    return Err((
-                        StatusCode::CONFLICT,
-                        format!(
+                    let err_json = serde_json::json!({
+                        "error": "conflict",
+                        "message": format!(
                             "Konflikt: Datensatz hat Version {}, erwartete Version war {}",
                             existing.version, exp_ver
                         ),
-                    ));
+                        "conflict_envelope": existing,
+                        "current_envelope": existing,
+                        "server_version": existing.version,
+                        "expected_version": exp_ver,
+                        "envelope_id": req.id
+                    });
+                    return Err((StatusCode::CONFLICT, err_json.to_string()));
                 }
             }
         }
 
-        let next_version = store.get(&effective_id).map(|e| e.version + 1).unwrap_or(1);
+        let key = if let Some(existing) = store.get(&req.id) {
+            if existing.owner_user_id == owner_id {
+                req.id
+            } else {
+                effective_id
+            }
+        } else {
+            effective_id
+        };
+
+        let next_version = store.get(&key).map(|e| e.version + 1).unwrap_or(1);
         let rec = EncryptedEnvelopeRecord {
-            id: effective_id,
+            id: key,
             owner_user_id: owner_id,
             entity_type: req.entity_type,
             parent_id: req.parent_id,
@@ -1625,7 +2510,7 @@ async fn upsert_envelope(
             version: next_version,
             updated_at: Utc::now(),
         };
-        store.insert(effective_id, rec.clone());
+        store.insert(key, rec.clone());
         rec
     };
     sync_envelope_to_pg(&state, &record).await;
@@ -1648,19 +2533,26 @@ async fn batch_sync_envelopes(
         // Pre-validation pass: verify all expected_versions before mutating any record
         for item in &req.envelopes {
             let effective_id = resolve_tenant_envelope_id(owner_id, item.id);
-            if let Some(existing) = store.get(&effective_id) {
+            let existing = store.get(&effective_id).or_else(|| store.get(&item.id));
+            if let Some(existing) = existing {
                 if existing.owner_user_id != owner_id {
                     return Err((StatusCode::FORBIDDEN, "Zugriff verweigert".into()));
                 }
                 if let Some(exp_ver) = item.expected_version {
                     if existing.version != exp_ver {
-                        return Err((
-                            StatusCode::CONFLICT,
-                            format!(
+                        let err_json = serde_json::json!({
+                            "error": "conflict",
+                            "message": format!(
                                 "Konflikt bei Envelope {}: Server hat Version {}, erwartet war {}",
                                 item.id, existing.version, exp_ver
                             ),
-                        ));
+                            "conflict_envelope": existing,
+                            "current_envelope": existing,
+                            "server_version": existing.version,
+                            "expected_version": exp_ver,
+                            "envelope_id": item.id
+                        });
+                        return Err((StatusCode::CONFLICT, err_json.to_string()));
                     }
                 }
             }
@@ -1670,9 +2562,18 @@ async fn batch_sync_envelopes(
 
         for item in req.envelopes {
             let effective_id = resolve_tenant_envelope_id(owner_id, item.id);
-            let next_version = store.get(&effective_id).map(|e| e.version + 1).unwrap_or(1);
+            let key = if let Some(existing) = store.get(&item.id) {
+                if existing.owner_user_id == owner_id {
+                    item.id
+                } else {
+                    effective_id
+                }
+            } else {
+                effective_id
+            };
+            let next_version = store.get(&key).map(|e| e.version + 1).unwrap_or(1);
             let record = EncryptedEnvelopeRecord {
-                id: effective_id,
+                id: key,
                 owner_user_id: owner_id,
                 entity_type: item.entity_type,
                 parent_id: item.parent_id,
@@ -1681,7 +2582,7 @@ async fn batch_sync_envelopes(
                 version: next_version,
                 updated_at: Utc::now(),
             };
-            store.insert(effective_id, record.clone());
+            store.insert(key, record.clone());
             out.push(record);
         }
         out
@@ -1861,10 +2762,22 @@ mod tests {
     fn create_test_state() -> AppState {
         let tmp_file = std::env::temp_dir().join(format!("gradus21_test_vault_{}.json", Uuid::new_v4()));
         let key_digest = Sha256::digest(b"test_server_encryption_key_2026");
+        let rp_id = "localhost";
+        let rp_origin = Url::parse("http://localhost:5173").unwrap();
+        let webauthn = Arc::new(
+            WebauthnBuilder::new(rp_id, &rp_origin)
+                .unwrap()
+                .rp_name("Gradus21 Test")
+                .append_allowed_origin(&Url::parse("http://localhost:3080").unwrap())
+                .build()
+                .unwrap(),
+        );
+
         AppState {
             db: None,
             disk_store_path: tmp_file,
             mem_users: Arc::new(RwLock::new(HashMap::new())),
+            mem_passkeys: Arc::new(RwLock::new(HashMap::new())),
             mem_envelopes: Arc::new(RwLock::new(HashMap::new())),
             mem_settings: Arc::new(RwLock::new(HashMap::new())),
             mem_global_templates: Arc::new(RwLock::new(HashMap::new())),
@@ -1873,6 +2786,9 @@ mod tests {
             server_encryption_key_b64: B64.encode(key_digest),
             admin_emails: vec!["admin@example.com".into()],
             enable_admin_panel: true,
+            webauthn,
+            reg_challenges: Arc::new(RwLock::new(HashMap::new())),
+            auth_challenges: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -2633,6 +3549,289 @@ mod tests {
             .await
             .expect("unauthenticated list global templates");
         assert_eq!(listed.len(), 17);
+    }
+
+    #[tokio::test]
+    async fn test_multi_passkey_management() {
+        use gradus21_core::crypto::{generate_vault_bundle, wrap_dek_with_passkey_secret};
+        use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+
+        let state = create_test_state();
+        let bundle = generate_vault_bundle("Password123!").expect("bundle");
+
+        // 1. Register user
+        let Json(reg_resp) = register_user(
+            State(state.clone()),
+            Json(RegisterRequest {
+                email: "teacher_multipass@schule.de".into(),
+                auth_key_b64: bundle.auth_key_b64.clone(),
+                kdf_salt_b64: bundle.kdf_salt_b64.clone(),
+                kdf_params: bundle.kdf_params.clone(),
+                encrypted_dek: bundle.encrypted_dek.clone(),
+                recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
+                recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
+            }),
+        )
+        .await
+        .expect("register user");
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Bearer {}", reg_resp.token)).unwrap(),
+        );
+
+        // 2. Register first passkey (iPad)
+        let prf_secret_1 = [10u8; 32];
+        let enc_dek_1 = wrap_dek_with_passkey_secret(&bundle.dek_b64, &B64.encode(prf_secret_1), "cred_ipad_1")
+            .unwrap();
+        let _ = register_passkey(
+            State(state.clone()),
+            headers.clone(),
+            Json(PasskeyRegisterRequest {
+                credential_id: "cred_ipad_1".into(),
+                label: "iPad Air Touch ID".into(),
+                passkey_encrypted_dek: enc_dek_1.clone(),
+                passkey_prf_salt_b64: Some(B64.encode([1u8; 32])),
+                kdf_salt_b64: None,
+                encrypted_dek: None,
+                recovery_encrypted_dek: None,
+                recovery_auth_key_b64: None,
+            }),
+        )
+        .await
+        .expect("register ipad passkey");
+
+        // 3. Register second passkey (MacBook)
+        let prf_secret_2 = [20u8; 32];
+        let enc_dek_2 = wrap_dek_with_passkey_secret(&bundle.dek_b64, &B64.encode(prf_secret_2), "cred_macbook_2")
+            .unwrap();
+        let _ = register_passkey(
+            State(state.clone()),
+            headers.clone(),
+            Json(PasskeyRegisterRequest {
+                credential_id: "cred_macbook_2".into(),
+                label: "MacBook Pro Touch ID".into(),
+                passkey_encrypted_dek: enc_dek_2.clone(),
+                passkey_prf_salt_b64: Some(B64.encode([2u8; 32])),
+                kdf_salt_b64: None,
+                encrypted_dek: None,
+                recovery_encrypted_dek: None,
+                recovery_auth_key_b64: None,
+            }),
+        )
+        .await
+        .expect("register macbook passkey");
+
+        // 4. List passkeys
+        let Json(list) = list_user_passkeys(State(state.clone()), headers.clone())
+            .await
+            .expect("list passkeys");
+        assert_eq!(list.len(), 2);
+        let cred_ids: Vec<&str> = list.iter().map(|p| p["credential_id"].as_str().unwrap()).collect();
+        assert!(cred_ids.contains(&"cred_ipad_1"));
+        assert!(cred_ids.contains(&"cred_macbook_2"));
+
+        let ipad_entry = list.iter().find(|p| p["credential_id"] == "cred_ipad_1").unwrap();
+        let ipad_id = Uuid::parse_str(ipad_entry["id"].as_str().unwrap()).unwrap();
+
+        // 5. Rename passkey
+        let Json(renamed) = rename_user_passkey(
+            State(state.clone()),
+            headers.clone(),
+            Path(ipad_id),
+            Json(RenamePasskeyRequest {
+                label: "iPad Schultasche".into(),
+            }),
+        )
+        .await
+        .expect("rename passkey");
+        assert_eq!(renamed["label"], "iPad Schultasche");
+
+        // 6. Login with second passkey
+        let Json(login_mb) = login_with_passkey(
+            State(state.clone()),
+            Json(PasskeyLoginRequest {
+                email: Some("teacher_multipass@schule.de".into()),
+                credential_id: "cred_macbook_2".into(),
+            }),
+        )
+        .await
+        .expect("login with macbook passkey");
+        assert_eq!(login_mb.passkey_credential_id, Some("cred_macbook_2".into()));
+        assert_eq!(login_mb.passkey_encrypted_dek, Some(enc_dek_2));
+
+        // 7. Delete first passkey
+        let Json(del_resp) = delete_user_passkey_by_id(
+            State(state.clone()),
+            headers.clone(),
+            Path(ipad_id),
+        )
+        .await
+        .expect("delete passkey by id");
+        assert_eq!(del_resp["success"], true);
+
+        // 8. Verify list has only 1 remaining passkey
+        let Json(list_after) = list_user_passkeys(State(state.clone()), headers.clone())
+            .await
+            .expect("list passkeys after delete");
+        assert_eq!(list_after.len(), 1);
+        assert_eq!(list_after[0]["credential_id"], "cred_macbook_2");
+    }
+
+    #[test]
+    fn test_webauthn_builder_and_origin_configuration() {
+        let webauthn = create_webauthn();
+        assert!(Arc::strong_count(&webauthn) >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_granular_class_envelopes_occ_and_deletion() {
+        use gradus21_core::crypto::generate_vault_bundle;
+
+        let state = create_test_state();
+        let bundle = generate_vault_bundle("GranularSecure2026!").expect("vault bundle");
+        let reg_resp = register_user(
+            State(state.clone()),
+            Json(RegisterRequest {
+                email: "teacher_occ@schule.de".into(),
+                auth_key_b64: bundle.auth_key_b64.clone(),
+                kdf_salt_b64: bundle.kdf_salt_b64.clone(),
+                kdf_params: bundle.kdf_params.clone(),
+                encrypted_dek: bundle.encrypted_dek.clone(),
+                recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
+                recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
+            }),
+        )
+        .await
+        .expect("register_user")
+        .0;
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Bearer {}", reg_resp.token)).unwrap(),
+        );
+
+        let class_a_id = Uuid::new_v4();
+        let class_b_id = Uuid::new_v4();
+
+        // 1. Initial batch sync: save class A and class B
+        let Json(synced) = batch_sync_envelopes(
+            State(state.clone()),
+            headers.clone(),
+            Json(BatchSyncRequest {
+                envelopes: vec![
+                    BatchUpsertItem {
+                        id: class_a_id,
+                        entity_type: "class_dataset".into(),
+                        parent_id: None,
+                        class_id: Some(class_a_id),
+                        encrypted_payload: "v1:nonce:class_a_payload_v1".into(),
+                        expected_version: None,
+                    },
+                    BatchUpsertItem {
+                        id: class_b_id,
+                        entity_type: "class_dataset".into(),
+                        parent_id: None,
+                        class_id: Some(class_b_id),
+                        encrypted_payload: "v1:nonce:class_b_payload_v1".into(),
+                        expected_version: None,
+                    },
+                ],
+            }),
+        )
+        .await
+        .expect("initial batch sync");
+
+        assert_eq!(synced.len(), 2);
+        let rec_a = synced.iter().find(|e| e.id == class_a_id).unwrap();
+        assert_eq!(rec_a.version, 1);
+        assert_eq!(rec_a.entity_type, "class_dataset");
+
+        // 2. Tab 1 updates Class A with expected_version = 1 -> succeeds to version 2
+        let Json(tab1_update) = batch_sync_envelopes(
+            State(state.clone()),
+            headers.clone(),
+            Json(BatchSyncRequest {
+                envelopes: vec![BatchUpsertItem {
+                    id: class_a_id,
+                    entity_type: "class_dataset".into(),
+                    parent_id: None,
+                    class_id: Some(class_a_id),
+                    encrypted_payload: "v1:nonce:class_a_payload_v2".into(),
+                    expected_version: Some(1),
+                }],
+            }),
+        )
+        .await
+        .expect("tab 1 update");
+        assert_eq!(tab1_update[0].version, 2);
+
+        // 3. Tab 2 tries to update Class A with stale expected_version = 1 -> must return 409 Conflict with conflict_envelope!
+        let tab2_conflict = batch_sync_envelopes(
+            State(state.clone()),
+            headers.clone(),
+            Json(BatchSyncRequest {
+                envelopes: vec![BatchUpsertItem {
+                    id: class_a_id,
+                    entity_type: "class_dataset".into(),
+                    parent_id: None,
+                    class_id: Some(class_a_id),
+                    encrypted_payload: "v1:nonce:class_a_tab2_stale".into(),
+                    expected_version: Some(1),
+                }],
+            }),
+        )
+        .await;
+
+        assert!(tab2_conflict.is_err());
+        let (status, err_body) = tab2_conflict.unwrap_err();
+        assert_eq!(status, StatusCode::CONFLICT);
+        let err_json: serde_json::Value = serde_json::from_str(&err_body).expect("valid json error response");
+        assert_eq!(err_json["error"], "conflict");
+        assert_eq!(err_json["server_version"], 2);
+        assert_eq!(err_json["expected_version"], 1);
+        assert_eq!(err_json["conflict_envelope"]["version"], 2);
+        assert_eq!(
+            err_json["conflict_envelope"]["encrypted_payload"],
+            "v1:nonce:class_a_payload_v2"
+        );
+
+        // 4. Tab 2 resolves conflict by submitting with expected_version = 2 -> succeeds to version 3
+        let Json(tab2_resolved) = batch_sync_envelopes(
+            State(state.clone()),
+            headers.clone(),
+            Json(BatchSyncRequest {
+                envelopes: vec![BatchUpsertItem {
+                    id: class_a_id,
+                    entity_type: "class_dataset".into(),
+                    parent_id: None,
+                    class_id: Some(class_a_id),
+                    encrypted_payload: "v1:nonce:class_a_merged_v3".into(),
+                    expected_version: Some(2),
+                }],
+            }),
+        )
+        .await
+        .expect("tab 2 resolved update");
+        assert_eq!(tab2_resolved[0].version, 3);
+
+        // 5. Delete Class B
+        let del_status = delete_envelope(State(state.clone()), headers.clone(), Path(class_b_id))
+            .await
+            .expect("delete class B");
+        assert_eq!(del_status, StatusCode::NO_CONTENT);
+
+        // 6. List envelopes via GET /api/envelopes and GET /api/envelopes/sync
+        let Json(envelopes_list) = list_envelopes(State(state.clone()), headers.clone())
+            .await
+            .expect("list envelopes");
+        assert_eq!(envelopes_list.len(), 1);
+        assert_eq!(envelopes_list[0].id, class_a_id);
+        assert_eq!(envelopes_list[0].version, 3);
+
+        let _ = fs::remove_file(&state.disk_store_path);
     }
 }
 

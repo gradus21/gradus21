@@ -24,6 +24,7 @@ export interface AdminUser {
   is_active: boolean;
   totp_enabled: boolean;
   has_passkey: boolean;
+  passkey_count?: number;
   created_at?: string;
   last_login_at?: string;
 }
@@ -67,7 +68,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
       const data = await res.json();
       setUsers(data);
     } catch (err: any) {
-      setErrorMsg('Fehler beim Laden der Benutzer: ' + (err.message || String(err)));
+      setErrorMsg('Fehler beim Laden der Benutzer:innen: ' + (err.message || String(err)));
     } finally {
       setLoading(false);
     }
@@ -78,7 +79,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
   }, [token]);
 
   const handleToggleAdmin = async (user: AdminUser) => {
-    const actionText = user.is_admin ? 'Admin-Rechte entziehen' : 'zum Administrator ernennen';
+    const actionText = user.is_admin ? 'Admin-Rechte entziehen' : 'zur/zum Administrator:in ernennen';
     if (!window.confirm(`Möchtest du ${user.email} wirklich ${actionText}?`)) {
       return;
     }
@@ -215,10 +216,10 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
         <div>
           <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <UserCheck className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-            <span>Benutzerverwaltung & Berechtigungen</span>
+            <span>Benutzer:innenverwaltung & Berechtigungen</span>
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Übersicht aller registrierten Lehrkräfte und Administratoren. Zero-Knowledge-Datenschutz gewährleistet:
+            Übersicht aller registrierten Lehrkräfte und Administrator:innen. Zero-Knowledge-Datenschutz gewährleistet:
             Noteninhalte und Klassendaten bleiben für Admins strikt unlesbar.
           </p>
         </div>
@@ -241,7 +242,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
             className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
           >
             <Plus className="w-4 h-4" />
-            <span>Nutzer einladen</span>
+            <span>Benutzer:in einladen</span>
           </button>
         </div>
       </div>
@@ -362,10 +363,14 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                           {user.has_passkey ? (
                             <span
                               className="flex items-center gap-1 text-indigo-600 dark:text-indigo-400"
-                              title="Passkey (Fingerabdruck / Face ID) verknüpft"
+                              title={`${user.passkey_count || 1} Passkey(s) verknüpft`}
                             >
                               <KeyRound className="w-3.5 h-3.5" />
-                              <span className="text-[11px]">Passkey</span>
+                              <span className="text-[11px] font-medium">
+                                {user.passkey_count && user.passkey_count > 1
+                                  ? `${user.passkey_count} Passkeys`
+                                  : 'Passkey'}
+                              </span>
                             </span>
                           ) : (
                             <span
@@ -395,7 +400,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                           <button
                             onClick={() => handleToggleAdmin(user)}
                             className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition"
-                            title={user.is_admin ? 'Admin-Rechte entziehen' : 'Zum Administrator ernennen'}
+                            title={user.is_admin ? 'Admin-Rechte entziehen' : 'Zur/zum Administrator:in ernennen'}
                           >
                             <Shield className={`w-3.5 h-3.5 ${user.is_admin ? 'text-purple-600' : ''}`} />
                           </button>
@@ -519,7 +524,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                       onChange={(e) => setInviteIsAdmin(e.target.checked)}
                       className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                     />
-                    <span>Als Administrator berechtigen</span>
+                    <span>Als Administrator:in berechtigen</span>
                   </label>
 
                   <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">

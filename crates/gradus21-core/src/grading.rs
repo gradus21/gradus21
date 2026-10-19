@@ -638,6 +638,7 @@ pub fn simulate_needed_score_for_target(
 
 /// What-If Simulator v2: supports CategoryBuckets, DirectWeights, and TotalPoints modes (Issue #7).
 /// Inverts calculate_class_report for the active weighting mode.
+#[allow(clippy::too_many_arguments)]
 pub fn simulate_needed_score_v2(
     config: &SubjectGradingConfig,
     categories: &[CategoryConfig],

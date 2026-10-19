@@ -6,7 +6,7 @@ interface FlowRibbonLogoProps {
 }
 
 /**
- * BTE NotenFlow Brand Mark: "The Flow Ribbon"
+ * Gradus21 Brand Mark: "The Flow Ribbon"
  * Strictly NO knight shields, NO padlocks, NO mortarboards.
  * Three geometric ribbons starting as structured horizontal layers on the left
  * and flowing into a rising wave / stylized 'N' on the right.

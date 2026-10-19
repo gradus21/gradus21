@@ -21,9 +21,11 @@ import {
   ChevronDown,
   ChevronUp,
   Copy,
+  Edit2,
   Fingerprint,
   KeyRound,
   Lock,
+  Plus,
   Printer,
   RefreshCw,
   Shield,
@@ -73,6 +75,15 @@ interface LocalPasskeyStoreEntry {
   prfSaltB64?: string;
   passkeySecretB64?: string; // Fallback only for non-PRF authenticators
   createdAt: string;
+}
+
+export interface UserPasskeyItem {
+  id: string;
+  label: string;
+  credential_id: string;
+  prf_supported: boolean;
+  created_at: string;
+  last_used_at?: string;
 }
 
 interface LocalRecoveryMetaEntry {
@@ -195,6 +206,26 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   const [localPasskeyForEmail, setLocalPasskeyForEmail] = useState<LocalPasskeyStoreEntry | null>(
     null
   );
+  const [userPasskeys, setUserPasskeys] = useState<UserPasskeyItem[]>([]);
+  const [editingPasskeyId, setEditingPasskeyId] = useState<string | null>(null);
+  const [editingPasskeyLabel, setEditingPasskeyLabel] = useState<string>('');
+
+  const fetchUserPasskeys = async () => {
+    if (!session?.token) return;
+    try {
+      const res = await fetch('/api/auth/passkey/list', {
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUserPasskeys(data);
+      }
+    } catch {
+      // offline / ignore
+    }
+  };
 
   // Registration wizard state
   const [registerStep, setRegisterStep] = useState<RegistrationStep>('credentials');
@@ -214,6 +245,12 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     const entry = store[email.trim().toLowerCase()] || null;
     setLocalPasskeyForEmail(entry);
   }, [email, session?.passkeyCredentialId]);
+
+  useEffect(() => {
+    if (session?.token) {
+      fetchUserPasskeys();
+    }
+  }, [session?.token, session?.passkeyCredentialId]);
 
   // Stelle sicher, dass für die aktive Sitzung ein verschlüsselter Recovery-Umschlag existiert
   useEffect(() => {
@@ -329,6 +366,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     // DEK aus der Session oder aus dem sessionStorage laden
     const dek =
       activeSession.dekB64 ||
+      sessionStorage.getItem(`gradus21_dek_${activeSession.userId}`) ||
       sessionStorage.getItem(`bte_notenflow_dek_${activeSession.userId}`) ||
       '';
     if (!dek) {
@@ -495,6 +533,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         setRegPasskeyDone(true);
       } else {
         onUnlockSuccess(updatedSession);
+        fetchUserPasskeys();
       }
 
       setStatusMsg(
@@ -507,6 +546,88 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       setErrorMsg('Passkey-Einrichtung fehlgeschlagen: ' + String(err));
       setStatusMsg(null);
       return false;
+    }
+  };
+
+  const handleDeletePasskeyById = async (passkeyId: string, credentialId: string) => {
+    if (!session) return;
+    if (!window.confirm('Möchtest du diesen Passkey wirklich von deinem Konto entfernen?')) {
+      return;
+    }
+    setErrorMsg(null);
+    setStatusMsg('Passkey wird entfernt...');
+
+    try {
+      if (session.token) {
+        const res = await fetch(`/api/auth/passkey/${passkeyId}`, {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${session.token}`,
+          },
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          setErrorMsg(errText || 'Passkey konnte nicht auf dem Server gelöscht werden.');
+          setStatusMsg(null);
+          return;
+        }
+      }
+
+      removeLocalPasskey(session.email, credentialId);
+      if (localPasskeyForEmail?.credentialId === credentialId) {
+        setLocalPasskeyForEmail(null);
+      }
+
+      const updatedRemaining = userPasskeys.filter((p) => p.id !== passkeyId);
+      setUserPasskeys(updatedRemaining);
+
+      const nextPrimary = updatedRemaining[0];
+      const updatedSession: ActiveVaultSession = {
+        ...session,
+        passkeyCredentialId: nextPrimary ? nextPrimary.credential_id : undefined,
+        passkeyLabel: nextPrimary ? nextPrimary.label : undefined,
+      };
+
+      onUnlockSuccess(updatedSession);
+      setStatusMsg('Der Passkey wurde erfolgreich von deinem Konto entfernt.');
+    } catch (err: any) {
+      setErrorMsg('Fehler beim Entfernen des Passkeys: ' + String(err));
+      setStatusMsg(null);
+    }
+  };
+
+  const handleRenamePasskey = async (passkeyId: string) => {
+    if (!session?.token) return;
+    const clean = editingPasskeyLabel.trim();
+    if (!clean) return;
+
+    try {
+      const res = await fetch(`/api/auth/passkey/${passkeyId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.token}`,
+        },
+        body: JSON.stringify({ label: clean }),
+      });
+      if (res.ok) {
+        setUserPasskeys((prev) =>
+          prev.map((p) => (p.id === passkeyId ? { ...p, label: clean } : p))
+        );
+        if (
+          session.passkeyCredentialId &&
+          userPasskeys.find((p) => p.id === passkeyId)?.credential_id === session.passkeyCredentialId
+        ) {
+          onUnlockSuccess({ ...session, passkeyLabel: clean });
+        }
+        setEditingPasskeyId(null);
+        setEditingPasskeyLabel('');
+      } else {
+        const errText = await res.text();
+        setErrorMsg(errText || 'Fehler beim Umbenennen des Passkeys.');
+      }
+    } catch (err: any) {
+      setErrorMsg('Fehler beim Umbenennen: ' + String(err));
     }
   };
 
@@ -1343,6 +1464,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     try {
       const dek =
         session.dekB64 ||
+        sessionStorage.getItem(`gradus21_dek_${session.userId}`) ||
         sessionStorage.getItem(`bte_notenflow_dek_${session.userId}`) ||
         '';
       if (!dek) {
@@ -2284,7 +2406,8 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   // ===========================================================================
   if (!session) return null;
 
-  const isPasskeyActive = Boolean(session.passkeyCredentialId || localPasskeyForEmail);
+  const isPasskeyActive =
+    userPasskeys.length > 0 || Boolean(session.passkeyCredentialId || localPasskeyForEmail);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
@@ -2347,9 +2470,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           </div>
         )}
 
-        {/* Karte 1: NEU — Schnell-Anmeldung per Fingerabdruck / Face ID (Passkey) */}
+        {/* Karte 1: NEU — Schnell-Anmeldung per Fingerabdruck / Face ID (Passkeys) */}
         <div
-          className="p-5 rounded-2xl border space-y-3"
+          className="p-5 rounded-2xl border space-y-4"
           style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2357,7 +2480,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               <div className="flex items-center gap-2">
                 <Fingerprint className="w-4 h-4" style={{ color: 'var(--primary-500)' }} />
                 <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
-                  1. Schnell-Anmeldung mit Fingerabdruck / Face ID (Passkey)
+                  1. Schnell-Anmeldung mit Fingerabdruck / Face ID (Passkeys)
                 </span>
                 <span
                   className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
@@ -2366,47 +2489,148 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                       : 'bg-teal-100 text-teal-800'
                   }`}
                 >
-                  {isPasskeyActive ? 'Eingerichtet' : 'Empfohlen'}
+                  {userPasskeys.length > 0
+                    ? `${userPasskeys.length} ${userPasskeys.length === 1 ? 'Passkey' : 'Passkeys'} aktiv`
+                    : isPasskeyActive
+                    ? 'Eingerichtet'
+                    : 'Empfohlen'}
                 </span>
               </div>
               <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                Kein langes Passwort-Tippen mehr im Unterricht: Öffne deine verschlüsselten Notenlisten einfach mit deinem
-                <strong> Fingerabdruck (Touch ID / Windows Hello)</strong> oder <strong>Face ID</strong>.
+                Kein langes Passwort-Tippen mehr im Unterricht: Öffne deine Notenlisten einfach mit deinem
+                <strong> Fingerabdruck (Touch ID / Windows Hello)</strong>, <strong>Face ID</strong> oder <strong>Sicherheitsschlüssel (YubiKey)</strong>.
+                Du kannst mehrere Geräte und Schlüssel verknüpfen (z. B. Schul-iPad, Laptop, Desktop).
               </p>
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              {isPasskeyActive && (
-                <button
-                  type="button"
-                  onClick={handleRemovePasskey}
-                  className="px-3.5 py-2.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition hover:bg-rose-50 hover:text-rose-700"
-                  style={{
-                    backgroundColor: 'var(--bg-surface)',
-                    borderColor: 'var(--border-subtle)',
-                    color: 'var(--text-secondary)',
-                  }}
-                  title="Passkey von diesem Gerät und Benutzerkonto entfernen"
-                >
-                  <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                  <span>Passkey entfernen</span>
-                </button>
-              )}
               <button
                 type="button"
                 onClick={() => handleSetupPasskey()}
                 className="px-4 py-2.5 rounded-xl text-xs font-bold text-white flex items-center gap-2 shadow-sm shrink-0 transition hover:opacity-95"
                 style={{ backgroundColor: 'var(--primary-500)' }}
               >
-                <Fingerprint className="w-4 h-4" />
+                <Plus className="w-4 h-4" />
                 <span>
-                  {isPasskeyActive ? 'Passkey erneuern' : 'Passkey jetzt aktivieren'}
+                  {isPasskeyActive ? 'Weiteren Passkey einrichten' : 'Passkey jetzt aktivieren'}
                 </span>
               </button>
             </div>
           </div>
 
-          {isPasskeyActive && (
+          {/* Liste aller verknüpften Passkeys */}
+          {userPasskeys.length > 0 ? (
+            <div className="space-y-2 pt-1">
+              <div className="text-[11px] font-bold tracking-wider uppercase" style={{ color: 'var(--text-tertiary)' }}>
+                Hinterlegte Geräte & Sicherheitsschlüssel:
+              </div>
+              {userPasskeys.map((pk) => {
+                const isCurrentDevice = localPasskeyForEmail?.credentialId === pk.credential_id;
+                const isEditing = editingPasskeyId === pk.id;
+
+                return (
+                  <div
+                    key={pk.id}
+                    className="p-3 rounded-xl border text-xs flex flex-wrap items-center justify-between gap-2"
+                    style={{
+                      backgroundColor: 'var(--bg-surface)',
+                      borderColor: 'var(--border-subtle)',
+                      color: 'var(--text-secondary)',
+                    }}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <div
+                        className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                        style={{ backgroundColor: 'var(--bg-subtle)' }}
+                      >
+                        <Fingerprint className="w-4 h-4 text-emerald-600" />
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        {isEditing ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={editingPasskeyLabel}
+                              onChange={(e) => setEditingPasskeyLabel(e.target.value)}
+                              className="px-2 py-1 text-xs rounded-lg border flex-1"
+                              style={{
+                                backgroundColor: 'var(--bg-subtle)',
+                                borderColor: 'var(--border-primary)',
+                                color: 'var(--text-primary)',
+                              }}
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleRenamePasskey(pk.id);
+                                if (e.key === 'Escape') setEditingPasskeyId(null);
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleRenamePasskey(pk.id)}
+                              className="px-2.5 py-1 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700"
+                            >
+                              Speichern
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingPasskeyId(null)}
+                              className="px-2 py-1 text-xs"
+                            >
+                              Abbrechen
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
+                              {pk.label}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingPasskeyId(pk.id);
+                                setEditingPasskeyLabel(pk.label);
+                              }}
+                              className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
+                              title="Namen des Passkeys ändern"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </button>
+                            {isCurrentDevice && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                                Dieses Gerät
+                              </span>
+                            )}
+                            {pk.prf_supported && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 inline-flex items-center gap-1">
+                                <Shield className="w-2.5 h-2.5" />
+                                Hardware PRF (Secure Enclave)
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
+                          Registriert am {new Date(pk.created_at).toLocaleDateString('de-DE')}
+                          {pk.last_used_at && ` · Zuletzt genutzt: ${new Date(pk.last_used_at).toLocaleDateString('de-DE')}`}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePasskeyById(pk.id, pk.credential_id)}
+                        className="p-2 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition"
+                        title="Diesen Passkey entfernen"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : isPasskeyActive ? (
             <div
               className="p-2.5 rounded-xl border text-xs flex items-center justify-between"
               style={{
@@ -2429,9 +2653,16 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                   </span>
                 )}
               </span>
-              <span className="text-[11px] shrink-0">Bereit für 1-Klick-Entsperrung</span>
+              <button
+                type="button"
+                onClick={handleRemovePasskey}
+                className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 transition"
+                title="Passkey entfernen"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
             </div>
-          )}
+          ) : null}
         </div>
 
         {/* Karte 2: Persönliches Notfallblatt (falls Passwort vergessen) */}

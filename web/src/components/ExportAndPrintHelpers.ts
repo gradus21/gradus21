@@ -181,7 +181,7 @@ export function printStudentParentReport(
       <body>
         <div class="header">
           <div>
-            <span class="badge">Datenschutzkonformer Einzelbogen (Schüler-360°-Akte)</span>
+            <span class="badge">Datenschutzkonformer Einzelbogen (Schüler:innen-360°-Akte)</span>
             <h1 style="margin: 8px 0 4px;">${escapeHtml(student.name)} ${
     student.level ? `(Niveau ${escapeHtml(student.level)})` : ''
   }</h1>

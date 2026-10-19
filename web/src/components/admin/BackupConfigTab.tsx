@@ -191,7 +191,7 @@ export const BackupConfigTab: React.FC<BackupConfigTabProps> = ({ token, onResto
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       setSuccessMsg(
-        `Wiederherstellung erfolgreich abgeschlossen (${data.restored_users_count} Benutzer, ${data.restored_envelopes_count} Umschläge). Daten werden aktualisiert...`
+        `Wiederherstellung erfolgreich abgeschlossen (${data.restored_users_count} Benutzer:innen, ${data.restored_envelopes_count} Umschläge). Daten werden aktualisiert...`
       );
       await fetchData();
       if (onRestoreSuccess) {

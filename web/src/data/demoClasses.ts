@@ -48,6 +48,7 @@ export interface StudentProfile {
 }
 
 export type ThemePreset = 'teal' | 'indigo' | 'sage' | 'terracotta';
+export type ThemeMode = 'system' | 'light' | 'dark';
 export type CellDisplayFormat = 'combined' | 'percent_only' | 'grade_only';
 
 export interface CustomWeightingTemplate {
@@ -64,6 +65,7 @@ export interface CustomWeightingTemplate {
 export interface UserSyncSettings {
   themePreset: ThemePreset;
   darkMode: boolean;
+  themeMode?: ThemeMode;
   defaultScaleId: GradingScaleId;
   defaultWeightingMode: WeightingMode;
   defaultCellFormat: CellDisplayFormat;
@@ -74,12 +76,38 @@ export interface UserSyncSettings {
   showCategoryAveragesInMatrix: boolean;
   showWhatIfSimulator: boolean;
   showCurveEditorInSpeedGrading: boolean;
+  showGuideButtonInHeader?: boolean;
   customWeightingTemplates: CustomWeightingTemplate[];
+}
+
+export function getEffectiveThemeMode(settings: {
+  themeMode?: ThemeMode;
+  darkMode?: boolean;
+}): ThemeMode {
+  if (settings.themeMode) {
+    return settings.themeMode;
+  }
+  if (settings.darkMode === true) {
+    return 'dark';
+  }
+  return 'system';
+}
+
+export function resolveIsDarkMode(themeMode?: ThemeMode, fallbackDarkMode?: boolean): boolean {
+  const mode = getEffectiveThemeMode({ themeMode, darkMode: fallbackDarkMode });
+  if (mode === 'system') {
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    return false;
+  }
+  return mode === 'dark';
 }
 
 export const DEFAULT_USER_SYNC_SETTINGS: UserSyncSettings = {
   themePreset: 'teal',
   darkMode: false,
+  themeMode: 'system',
   defaultScaleId: 'de_classic_1_to_6',
   defaultWeightingMode: 'category_buckets',
   defaultCellFormat: 'combined',
@@ -90,6 +118,7 @@ export const DEFAULT_USER_SYNC_SETTINGS: UserSyncSettings = {
   showCategoryAveragesInMatrix: true,
   showWhatIfSimulator: true,
   showCurveEditorInSpeedGrading: true,
+  showGuideButtonInHeader: false,
   customWeightingTemplates: [
     {
       id: 'tpl_hauptfach_60_40',
@@ -250,9 +279,44 @@ const ENGLISCH_6_RAW_STUDENTS: Array<{
   { name: 'Agatha', level: 'E', test1Pct: 93 },
 ];
 
+/**
+ * Ensures any class dataset ID is a valid canonical RFC-4122 UUID v4.
+ * Deterministically maps known legacy IDs and arbitrary strings to stable UUIDs.
+ */
+export function ensureValidUuid(id: string): string {
+  if (!id) {
+    return '00000000-0000-4000-8000-000000000000';
+  }
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (uuidRegex.test(id)) {
+    return id.toLowerCase();
+  }
+  if (id === 'class-eng-6-2627') {
+    return 'c1a55000-0000-4000-8000-000000000001';
+  }
+  if (id === 'class-math-9b-2627') {
+    return 'c1a55000-0000-4000-8000-000000000002';
+  }
+  if (id === 'class-inf-q1-2627') {
+    return 'c1a55000-0000-4000-8000-000000000003';
+  }
+  // Deterministic 16-byte UUID from arbitrary string
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57, h3 = 0x7fed211b, h4 = 0x9e3779b9;
+  for (let i = 0; i < id.length; i++) {
+    const ch = id.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+    h3 = Math.imul(h3 ^ ch, 2246822519);
+    h4 = Math.imul(h4 ^ ch, 3266489917);
+  }
+  const toHex = (n: number) => (n >>> 0).toString(16).padStart(8, '0');
+  const hex = toHex(h1) + toHex(h2) + toHex(h3) + toHex(h4);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
 export const INITIAL_CLASS_DATASETS: ClassroomSubjectDataset[] = [
   {
-    id: 'class-eng-6-2627',
+    id: 'c1a55000-0000-4000-8000-000000000001',
     schoolName: 'Gemeinschaftsschule am Park',
     schoolYear: '2026/2027',
     className: 'Klasse 6',
@@ -324,7 +388,7 @@ export const INITIAL_CLASS_DATASETS: ClassroomSubjectDataset[] = [
     },
   },
   {
-    id: 'class-math-9b-2627',
+    id: 'c1a55000-0000-4000-8000-000000000002',
     schoolName: 'Goethe-Gymnasium',
     schoolYear: '2026/2027',
     className: 'Klasse 9b',
@@ -366,7 +430,7 @@ export const INITIAL_CLASS_DATASETS: ClassroomSubjectDataset[] = [
     reportCardOverrides: {},
   },
   {
-    id: 'class-inf-q1-2627',
+    id: 'c1a55000-0000-4000-8000-000000000003',
     schoolName: 'Goethe-Gymnasium',
     schoolYear: '2026/2027',
     className: 'Kursstufe Q1',

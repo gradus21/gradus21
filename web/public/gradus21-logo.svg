@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 110" fill="none">
+  <defs>
+    <!-- Background Gradient for Icon Container -->
+    <linearGradient id="logoIconBg" x1="15" y1="15" x2="95" y2="95" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0F766E"/>
+      <stop offset="60%" stop-color="#082F49"/>
+      <stop offset="100%" stop-color="#031726"/>
+    </linearGradient>
+
+    <!-- Border Glow -->
+    <linearGradient id="logoIconBorder" x1="15" y1="15" x2="95" y2="95" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#5EEAD4" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#38BDF8" stop-opacity="0.3"/>
+    </linearGradient>
+
+    <!-- Ribbons -->
+    <linearGradient id="logoRibTop" x1="30" y1="40" x2="80" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#5EEAD4"/>
+      <stop offset="100%" stop-color="#2DD4BF"/>
+    </linearGradient>
+    <linearGradient id="logoRibMid" x1="30" y1="55" x2="80" y2="55" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2DD4BF"/>
+      <stop offset="100%" stop-color="#14B8A6"/>
+    </linearGradient>
+    <linearGradient id="logoRibBot" x1="30" y1="70" x2="80" y2="45" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#99F6E4"/>
+      <stop offset="100%" stop-color="#38BDF8"/>
+    </linearGradient>
+
+    <!-- Wordmark 21 Gradient -->
+    <linearGradient id="numGrad" x1="285" y1="40" x2="330" y2="70" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2DD4BF"/>
+      <stop offset="100%" stop-color="#0D9488"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Left: Flow Ribbon Icon Mark (80x80) -->
+  <g transform="translate(5, 5)">
+    <rect x="15" y="10" width="80" height="80" rx="20" fill="url(#logoIconBg)"/>
+    <rect x="15" y="10" width="80" height="80" rx="20" stroke="url(#logoIconBorder)" stroke-width="1.5"/>
+
+    <path d="M30 35C40 35 45.5 27.5 56.5 35C67.5 42.5 73 32.5 81 27.5" stroke="url(#logoRibTop)" stroke-width="7.5" stroke-linecap="round"/>
+    <path d="M30 51C42 51 47.5 42 58.5 51C69.5 60 75 44 81 39.5" stroke="url(#logoRibMid)" stroke-width="7.5" stroke-linecap="round"/>
+    <path d="M30 67C44 67 49.5 56 60.5 65C71.5 74 76 58 81 52.5" stroke="url(#logoRibBot)" stroke-width="7.5" stroke-linecap="round"/>
+
+    <circle cx="81" cy="27.5" r="4.5" fill="#F0FDFA"/>
+  </g>
+
+  <!-- Right: Wordmark & Typography -->
+  <g font-family="'Plus Jakarta Sans', system-ui, -apple-system, sans-serif">
+    <!-- "Gradus" (Light/Dark adaptive, crisp) -->
+    <text x="122" y="65" font-size="42" font-weight="800" letter-spacing="-0.03em" fill="#0F172A">
+      Gradus<tspan fill="url(#numGrad)">21</tspan>
+    </text>
+
+    <!-- Security Badge -->
+    <rect x="330" y="38" width="46" height="22" rx="6" fill="#CCFBF1"/>
+    <text x="353" y="53" font-size="11" font-weight="700" fill="#0F766E" text-anchor="middle" letter-spacing="0.05em">
+      E2EE
+    </text>
+
+    <!-- Subtitle / Tagline -->
+    <text x="124" y="88" font-size="14" font-weight="600" fill="#64748B" letter-spacing="-0.01em">
+      Sichere Notenverwaltung &amp; Didaktik
+    </text>
+  </g>
+</svg>

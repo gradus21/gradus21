@@ -126,7 +126,7 @@ export const MailTemplatesTab: React.FC<MailTemplatesTabProps> = ({ token }) => 
   // Mock preview rendering
   const renderPreviewText = (text: string) => {
     return text
-      .replace(/\{\{user_email\}\}/g, 'anna.lehrerin@schule.de')
+      .replace(/\{\{user_email\}\}/g, 'anna.lehrkraft@schule.de')
       .replace(/\{\{invite_url\}\}/g, `${window.location.origin}/#invite=g21_inv_demo12345`)
       .replace(/\{\{school_name\}\}/g, 'Gradus21 Campus')
       .replace(/\{\{days_inactive\}\}/g, '180')
@@ -263,7 +263,7 @@ export const MailTemplatesTab: React.FC<MailTemplatesTabProps> = ({ token }) => 
                 </div>
                 <div>
                   <span className="font-semibold text-slate-500">An:</span>{' '}
-                  <span className="text-slate-800 dark:text-slate-200">anna.lehrerin@schule.de</span>
+                  <span className="text-slate-800 dark:text-slate-200">anna.lehrkraft@schule.de</span>
                 </div>
                 <div>
                   <span className="font-semibold text-slate-500">Betreff:</span>{' '}

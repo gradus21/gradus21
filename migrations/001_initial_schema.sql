@@ -1,5 +1,5 @@
 -- =============================================================================
--- BTE NotenFlow – PostgreSQL Schema (Hybrid Encrypted Envelopes)
+-- Gradus21 – PostgreSQL Schema (Hybrid Encrypted Envelopes)
 -- Zero-Knowledge E2EE Architecture: All sensitive domain fields are stored inside
 -- AES-256-GCM authenticated envelopes (`encrypted_payload`) bound via AAD.
 -- =============================================================================

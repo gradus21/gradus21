@@ -2,6 +2,8 @@
 <html lang="de">
   <head>
     <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/gradus21-app-icon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gradus21 — Sichere Notenverwaltung & Didaktik</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -10,6 +12,28 @@
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem('gradus21_theme_preference');
+          var pref = raw ? JSON.parse(raw) : null;
+          var mode = pref ? pref.themeMode || (pref.darkMode ? 'dark' : 'light') : 'system';
+          var isDark =
+            mode === 'dark' ||
+            (mode === 'system' &&
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (isDark) {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+          if (pref && pref.themePreset) {
+            document.documentElement.setAttribute('data-theme', pref.themePreset);
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body class="antialiased selection:bg-teal-500/20 selection:text-teal-700">
     <div id="root"></div>

@@ -55,7 +55,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Angemeldet als Administrator: <span className="font-semibold text-slate-700 dark:text-slate-300">{session.email}</span>
+                Angemeldet als Administrator:in: <span className="font-semibold text-slate-700 dark:text-slate-300">{session.email}</span>
               </p>
             </div>
           </div>
@@ -82,7 +82,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               }`}
             >
               <UserCheck className="w-4 h-4" />
-              <span>Benutzerverwaltung</span>
+              <span>Benutzer:innenverwaltung</span>
             </button>
 
             <button

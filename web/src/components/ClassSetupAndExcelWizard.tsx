@@ -6,6 +6,7 @@ import {
   GradeEntry,
   GradingScaleId,
   StudentProfile,
+  ensureValidUuid,
 } from '../data/demoClasses';
 import { FileSpreadsheet, FolderPlus, Sparkles, Upload, X, Check } from 'lucide-react';
 import { GlobalTemplateRecord } from './admin/CentralTemplatesTab';
@@ -140,7 +141,7 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
         let role: DetectedExcelColumn['role'] = 'assessment';
         let categoryKey: DetectedExcelColumn['categoryKey'] = 'tests';
 
-        if (idx === 0 || lower.includes('name') || lower.includes('schüler')) {
+        if (idx === 0 || lower.includes('name') || lower.includes('schüler') || lower.includes('schueler') || lower.includes('lernende')) {
           role = 'student_name';
         } else if (lower.includes('niveau') || lower.includes('level') || lower.includes('kurs')) {
           role = 'student_level';
@@ -266,13 +267,13 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
     });
 
     const newDataset: ClassroomSubjectDataset = {
-      id: `class_xlsx_${Date.now()}`,
+      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ensureValidUuid(`class_xlsx_${Date.now()}`),
       schoolName,
       schoolYear,
       className,
       subjectName,
       shortName: `${subjectName.slice(0, 2).toUpperCase()} ${className.replace(/[^0-9a-zA-Z]/g, '')}`,
-      description: `Importiert aus ${excelFileName} (${students.length} Schüler, ${assessments.length} Prüfungen)`,
+      description: `Importiert aus ${excelFileName} (${students.length} Schüler:innen, ${assessments.length} Prüfungen)`,
       config: {
         scale_id: scaleId,
         weighting_mode: 'category_buckets',
@@ -340,7 +341,7 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
     const isOberstufe = chosenTpl.scale_id === 'de_oberstufe_0_to_15';
 
     const newDataset: ClassroomSubjectDataset = {
-      id: `class_wiz_${Date.now()}`,
+      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ensureValidUuid(`class_wiz_${Date.now()}`),
       schoolName,
       schoolYear,
       className,
@@ -369,6 +370,7 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
       <div
+        data-tour="wizard-dialog-card"
         className="max-w-3xl w-full rounded-2xl border p-6 shadow-xl space-y-5 max-h-[90vh] overflow-y-auto"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
@@ -397,6 +399,7 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
         <div className="flex gap-2 p-1 rounded-xl border" style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}>
           <button
             onClick={() => setActiveTab('excel')}
+            data-tour="wizard-excel-tab"
             className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition ${
               activeTab === 'excel' ? 'shadow-sm text-white' : ''
             }`}
@@ -410,6 +413,7 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
           </button>
           <button
             onClick={() => setActiveTab('wizard')}
+            data-tour="wizard-manual-tab"
             className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition ${
               activeTab === 'wizard' ? 'shadow-sm text-white' : ''
             }`}
@@ -491,7 +495,7 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
               <Upload className="w-7 h-7" style={{ color: 'var(--primary-500)' }} />
               <div className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
                 {excelFileName
-                  ? `Geladen: ${excelFileName} (${excelRows.length} Schüler erkannt)`
+                  ? `Geladen: ${excelFileName} (${excelRows.length} Schüler:innen erkannt)`
                   : 'Excel-Datei (.xlsx, .xls, .ods, .csv) hierher ziehen oder klicken'}
               </div>
               <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
@@ -543,7 +547,7 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
                           className="px-2 py-1 rounded border text-xs"
                           style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
                         >
-                          <option value="student_name">Schülername</option>
+                          <option value="student_name">Name der Schüler:in (Schüler:innenname)</option>
                           <option value="student_level">Differenzierungs-Niveau (G/M/E)</option>
                           <option value="assessment">Prüfungs-Spalte (Note / %)</option>
                           <option value="ignore">Ignorieren</option>
@@ -582,7 +586,7 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
                 >
                   <Check className="w-4 h-4" />
                   <span>
-                    Jetzt {excelRows.length} Schüler & Spalten verschlüsselt als Klasse anlegen
+                    Jetzt {excelRows.length} Schüler:innen & Spalten verschlüsselt als Klasse anlegen
                   </span>
                 </button>
               </div>
@@ -626,9 +630,9 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
               </div>
             </div>
 
-            <div>
+            <div data-tour="wizard-students-input">
               <label className="block font-bold mb-1" style={{ color: 'var(--text-secondary)' }}>
-                Schülerliste einfügen (1 Schüler pro Zeile, optional mit <code className="font-mono">, G/M/E</code>):
+                Schüler:innenliste einfügen (1 Schüler:in pro Zeile, optional mit <code className="font-mono">, G/M/E</code>):
               </label>
               <textarea
                 rows={5}

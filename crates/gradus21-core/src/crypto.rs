@@ -345,8 +345,12 @@ pub fn decrypt_entity_envelope(
     entity_id: &str,
     envelope: &str,
 ) -> Result<String, CryptoError> {
-    let aad = format!("v1:{}:{}", owner_user_id, entity_id);
-    let bytes = aes_gcm_decrypt_raw(dek_b64, envelope, aad.as_bytes())?;
+    let aad_v1 = format!("v1:{}:{}", owner_user_id, entity_id);
+    if let Ok(bytes) = aes_gcm_decrypt_raw(dek_b64, envelope, aad_v1.as_bytes()) {
+        return String::from_utf8(bytes).map_err(|_| CryptoError::DecryptionFailed);
+    }
+    let aad_pipe = format!("owner:{}|entity:{}", owner_user_id, entity_id);
+    let bytes = aes_gcm_decrypt_raw(dek_b64, envelope, aad_pipe.as_bytes())?;
     String::from_utf8(bytes).map_err(|_| CryptoError::DecryptionFailed)
 }
 

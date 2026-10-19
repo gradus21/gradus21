@@ -38,7 +38,7 @@ pub fn require_admin(
     if !claims.is_admin {
         return Err((
             StatusCode::FORBIDDEN,
-            "Administrator-Rechte erforderlich.".into(),
+            "Administrator:innen-Rechte erforderlich.".into(),
         ));
     }
     Ok(claims)
@@ -56,6 +56,8 @@ pub struct AdminUserSummary {
     pub is_active: bool,
     pub totp_enabled: bool,
     pub has_passkey: bool,
+    #[serde(default)]
+    pub passkey_count: usize,
     pub created_at: Option<DateTime<Utc>>,
     pub last_login_at: Option<DateTime<Utc>>,
 }
@@ -79,17 +81,29 @@ pub async fn list_users(
 ) -> Result<Json<Vec<AdminUserSummary>>, (StatusCode, String)> {
     require_admin(&state, &headers)?;
     let users = state.mem_users.read().unwrap();
+    let passkeys = state.mem_passkeys.read().unwrap();
     let mut list: Vec<AdminUserSummary> = users
         .values()
-        .map(|u| AdminUserSummary {
-            id: u.id,
-            email: u.email.clone(),
-            is_admin: u.is_admin,
-            is_active: u.is_active,
-            totp_enabled: u.totp_enabled,
-            has_passkey: u.passkey_credential_id.is_some(),
-            created_at: u.created_at,
-            last_login_at: u.last_login_at,
+        .map(|u| {
+            let p_count = passkeys.values().filter(|p| p.user_id == u.id).count();
+            let effective_count = if p_count > 0 {
+                p_count
+            } else if u.passkey_credential_id.is_some() {
+                1
+            } else {
+                0
+            };
+            AdminUserSummary {
+                id: u.id,
+                email: u.email.clone(),
+                is_admin: u.is_admin,
+                is_active: u.is_active,
+                totp_enabled: u.totp_enabled,
+                has_passkey: effective_count > 0,
+                passkey_count: effective_count,
+                created_at: u.created_at,
+                last_login_at: u.last_login_at,
+            }
         })
         .collect();
     list.sort_by(|a, b| a.email.cmp(&b.email));
@@ -118,7 +132,7 @@ pub async fn update_user_status(
                 if admin_count <= 1 {
                     return Err((
                         StatusCode::BAD_REQUEST,
-                        "Der letzte Administrator kann nicht degradiert werden.".into(),
+                        "Die/der letzte Administrator:in kann nicht degradiert werden.".into(),
                     ));
                 }
             }
@@ -147,13 +161,22 @@ pub async fn update_user_status(
             user.is_active = new_active;
         }
 
+        let p_count = state.mem_passkeys.read().unwrap().values().filter(|p| p.user_id == user.id).count();
+        let effective_count = if p_count > 0 {
+            p_count
+        } else if user.passkey_credential_id.is_some() {
+            1
+        } else {
+            0
+        };
         let summary = AdminUserSummary {
             id: user.id,
             email: user.email.clone(),
             is_admin: user.is_admin,
             is_active: user.is_active,
             totp_enabled: user.totp_enabled,
-            has_passkey: user.passkey_credential_id.is_some(),
+            has_passkey: effective_count > 0,
+            passkey_count: effective_count,
             created_at: user.created_at,
             last_login_at: user.last_login_at,
         };
@@ -190,12 +213,12 @@ pub async fn delete_user(
                 if admin_count <= 1 {
                     return Err((
                         StatusCode::BAD_REQUEST,
-                        "Der letzte Administrator kann nicht gelöscht werden.".into(),
+                        "Die/der letzte Administrator:in kann nicht gelöscht werden.".into(),
                     ));
                 }
             }
         } else {
-            return Err((StatusCode::NOT_FOUND, "Benutzer nicht gefunden.".into()));
+            return Err((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden.".into()));
         }
     }
 
@@ -207,6 +230,10 @@ pub async fn delete_user(
     {
         let mut envelopes = state.mem_envelopes.write().unwrap();
         envelopes.retain(|_, env| env.owner_user_id != target_id);
+    }
+    {
+        let mut pks = state.mem_passkeys.write().unwrap();
+        pks.retain(|_, p| p.user_id != target_id);
     }
 
     // 2. Cascade remove from PostgreSQL
@@ -431,11 +458,9 @@ pub fn cleanup_old_backups(state: &AppState, retention_days: u32) -> usize {
                             .or_else(|_| meta.modified())
                             .map(DateTime::from)
                             .unwrap_or_else(|_| Utc::now());
-                        if created < cutoff {
-                            if fs::remove_file(entry.path()).is_ok() {
-                                deleted_count += 1;
-                                tracing::info!("Altes Backup gemäß Retention gelöscht: {}", name);
-                            }
+                        if created < cutoff && fs::remove_file(entry.path()).is_ok() {
+                            deleted_count += 1;
+                            tracing::info!("Altes Backup gemäß Retention gelöscht: {}", name);
                         }
                     }
                 }
@@ -527,7 +552,7 @@ pub async fn list_backups(
         }
     }
 
-    list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    list.sort_by_key(|a| std::cmp::Reverse(a.created_at));
     Ok(Json(list))
 }
 
@@ -598,7 +623,7 @@ pub async fn restore_backup(
 
     let restored_users: std::collections::HashMap<Uuid, UserRecord> =
         serde_json::from_value(users_val.clone())
-            .map_err(|e| (StatusCode::BAD_REQUEST, format!("Fehler beim Parsen der Benutzer: {}", e)))?;
+            .map_err(|e| (StatusCode::BAD_REQUEST, format!("Fehler beim Parsen der Benutzer:innen: {}", e)))?;
 
     let mut restored_envelopes: std::collections::HashMap<Uuid, EncryptedEnvelopeRecord> =
         serde_json::from_value(envelopes_val.clone())
@@ -1381,7 +1406,7 @@ pub struct MailTemplateRecord {
 fn default_invite_template() -> MailTemplateRecord {
     MailTemplateRecord {
         id: "user_invite".into(),
-        title: "Benutzer-Einladung".into(),
+        title: "Benutzer:innen-Einladung".into(),
         subject: "Einladung zu Gradus21 Notenverwaltung".into(),
         body_text: "Hallo,\n\ndu wurdest eingeladen, Gradus21 für deine Notenverwaltung an {{school_name}} zu nutzen.\n\nKlicke auf den folgenden Link, um deinen Zero-Knowledge Vault mit deinem persönlichen Master-Passwort einzurichten:\n{{invite_url}}\n\nWichtig: Dein Passwort verlässt dein Endgerät niemals im Klartext. Bitte notiere dir bei der Einrichtung deinen 24-stelligen Notfall-Schlüssel!\n\nViele Grüße,\n{{school_name}}".into(),
         available_placeholders: vec![
