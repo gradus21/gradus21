@@ -16,6 +16,8 @@
 - 🌐 **Offizielle Website & Informationen:** [https://gradus21.de](https://gradus21.de)
 - 🧮 **Kostenloser IHK & Schul-Notenschlüssel-Rechner:** [https://gradus21.de/notenrechner/](https://gradus21.de/notenrechner/)  
   *(Kostenlos & werbefrei direkt im Browser nutzbar – berechnet lineare & geknickte Schlüssel, Rundungsmodi, IHK-Standard, 16er-Feinstufen und druckfertige A4-Tabellen)*
+- 📑 **Praxis-Ratgeber: Warum Excel für Notenlisten scheitert:** [https://gradus21.de/excel-alternative-fuer-lehrer/](https://gradus21.de/excel-alternative-fuer-lehrer/)  
+  *(Ausführlicher Vergleich zu #DIV/0!, Datenschutz, K-Attest-Automatik und Elterngesprächs-Simulation)*
 
 ---
 
