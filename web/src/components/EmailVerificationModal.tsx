@@ -167,7 +167,7 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
     >
       <div
         className="w-full max-w-md rounded-2xl shadow-2xl border p-6 flex flex-col relative"

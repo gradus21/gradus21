@@ -218,8 +218,9 @@ export function mergeClassroomDatasets(
         // Local was empty, server filled in a grade -> server wins
         mergedGradesMap.set(key, sGrade);
       } else {
-        // True collision: keep local grade in mergedDs and create conflict copy
-        mergedGradesMap.set(key, lGrade);
+        // True collision: updated server grade takes precedence in main merged dataset,
+        // while local entries are preserved in the separate conflict copy!
+        mergedGradesMap.set(key, sGrade);
         hadGradeCollisions = true;
       }
     }
@@ -383,6 +384,9 @@ export function useVaultWorkspaceSync() {
     const userCacheKey = getUserEncryptedCacheKey(userId);
     const legacyUserCacheKey = getLegacyUserEncryptedCacheKey(userId);
 
+    let isCloudSyncActive = false;
+    const cachedLocalClasses: ClassroomSubjectDataset[] = [];
+
     if (!forceServerFetch) {
       const cachedRaw =
         localStorage.getItem(userCacheKey) || localStorage.getItem(legacyUserCacheKey);
@@ -407,6 +411,7 @@ export function useVaultWorkspaceSync() {
                 envelopeVersionsRef.current.set(ds.id, envItem.version || 1);
                 lastSerializedPerClassRef.current.set(ds.id, JSON.stringify(ds));
                 restoredList.push(ds);
+                cachedLocalClasses.push(ds);
               } catch (e) {
                 console.warn(`Cache für Klasse ${classId} konnte nicht entschlüsselt werden:`, e);
               }
@@ -430,15 +435,25 @@ export function useVaultWorkspaceSync() {
                   ...parsedSettings,
                 });
                 setLoadedUserId(userId);
-                setSyncStatus(parsedSettings?.cloudSyncEnabled ? 'synced' : 'local_only');
-                return;
+                if (parsedSettings?.cloudSyncEnabled) {
+                  isCloudSyncActive = true;
+                  setSyncStatus('synced');
+                } else {
+                  setSyncStatus('local_only');
+                  return;
+                }
               } catch {
                 // Keep default settings if corrupted
               }
             }
-            setLoadedUserId(userId);
-            setSyncStatus(userSettings.cloudSyncEnabled ? 'synced' : 'local_only');
-            return;
+            if (!isCloudSyncActive) {
+              setLoadedUserId(userId);
+              setSyncStatus(userSettings.cloudSyncEnabled ? 'synced' : 'local_only');
+              if (!userSettings.cloudSyncEnabled) {
+                return;
+              }
+              isCloudSyncActive = true;
+            }
           } else if (parsed.encryptedDatasetsEnvelope) {
             // Legacy monolithic cache
             const decryptedJson = wasm_decrypt_envelope(
@@ -455,6 +470,7 @@ export function useVaultWorkspaceSync() {
               }));
               setDatasets(withUuids);
               setActiveClassId(withUuids[0].id);
+              cachedLocalClasses.push(...withUuids);
               // Mark dirty to convert on next debounced save
               lastSerializedPerClassRef.current.clear();
               envelopeVersionsRef.current.clear();
@@ -474,15 +490,25 @@ export function useVaultWorkspaceSync() {
                   ...parsedSettings,
                 });
                 setLoadedUserId(userId);
-                setSyncStatus(parsedSettings?.cloudSyncEnabled ? 'synced' : 'local_only');
-                return;
+                if (parsedSettings?.cloudSyncEnabled) {
+                  isCloudSyncActive = true;
+                  setSyncStatus('synced');
+                } else {
+                  setSyncStatus('local_only');
+                  return;
+                }
               } catch {
                 // Keep default settings if corrupted
               }
             }
-            setLoadedUserId(userId);
-            setSyncStatus(userSettings.cloudSyncEnabled ? 'synced' : 'local_only');
-            return;
+            if (!isCloudSyncActive) {
+              setLoadedUserId(userId);
+              setSyncStatus(userSettings.cloudSyncEnabled ? 'synced' : 'local_only');
+              if (!userSettings.cloudSyncEnabled) {
+                return;
+              }
+              isCloudSyncActive = true;
+            }
           }
         } catch (e) {
           console.warn('Lokaler E2EE-Cache konnte nicht entschlüsselt werden:', e);
@@ -490,8 +516,8 @@ export function useVaultWorkspaceSync() {
       }
     }
 
-    // Falls kein lokaler Cache existiert oder forceServerFetch aktiv ist -> Server abfragen (sofern Opt-In aktiv oder erzwungen)
-    if (token && (forceServerFetch || userSettings.cloudSyncEnabled)) {
+    // Falls kein lokaler Cache existiert oder forceServerFetch aktiv ist oder Cloud-Sync aktiv ist -> Server abfragen
+    if (token && (forceServerFetch || userSettings.cloudSyncEnabled || isCloudSyncActive)) {
       try {
         setSyncStatus('syncing');
         const res = await fetch('/api/envelopes/sync', {
@@ -555,6 +581,14 @@ export function useVaultWorkspaceSync() {
               }
             }
             if (restoredList.length > 0) {
+              if (cachedLocalClasses.length > 0) {
+                const serverClassIds = new Set(restoredList.map((c) => c.id));
+                for (const loc of cachedLocalClasses) {
+                  if (!serverClassIds.has(loc.id)) {
+                    restoredList.push(loc);
+                  }
+                }
+              }
               loadedDatasets = restoredList;
               setDatasets(restoredList);
               setActiveClassId((prev) => (restoredList.some((d) => d.id === prev) ? prev : restoredList[0].id));
@@ -600,12 +634,16 @@ export function useVaultWorkspaceSync() {
             }
           }
 
-          // Wenn der Server noch keine Daten für dieses neue Konto hat -> frischen leeren Arbeitsbereich anlegen
+          // Wenn der Server noch keine Daten für dieses neue Konto hat -> frischen leeren Arbeitsbereich anlegen, falls lokal auch nichts da war
           if (!loadedDatasets) {
-            const freshWs = createFreshWorkspaceForNewTeacher(userId);
-            setDatasets(freshWs);
-            setActiveClassId(freshWs[0].id);
-            setUserSettings(DEFAULT_USER_SYNC_SETTINGS);
+            if (cachedLocalClasses.length > 0) {
+              loadedDatasets = cachedLocalClasses;
+            } else {
+              const freshWs = createFreshWorkspaceForNewTeacher(userId);
+              setDatasets(freshWs);
+              setActiveClassId(freshWs[0].id);
+              setUserSettings(DEFAULT_USER_SYNC_SETTINGS);
+            }
           }
 
           setLoadedUserId(userId);
@@ -902,6 +940,7 @@ export function useVaultWorkspaceSync() {
         const userCacheKey = getUserEncryptedCacheKey(vaultSession.userId);
         const existingCacheRaw = localStorage.getItem(userCacheKey);
         let mergedClassEnvelopes = cachedClassEnvelopes;
+        let preservedSettingsEnvelope = '';
         if (existingCacheRaw) {
           try {
             const parsedOld = JSON.parse(existingCacheRaw);
@@ -909,10 +948,21 @@ export function useVaultWorkspaceSync() {
               ...(parsedOld.classEnvelopes || {}),
               ...cachedClassEnvelopes,
             };
+            preservedSettingsEnvelope = parsedOld.encryptedSettingsEnvelope || '';
           } catch {
             // ignore
           }
         }
+
+        const effectiveSettingsEnvelope =
+          encryptedSettingsStr ||
+          preservedSettingsEnvelope ||
+          wasm_encrypt_envelope(
+            vaultSession.dekB64,
+            vaultSession.userId,
+            'user_sync_settings_v1',
+            serializedSettings
+          );
 
         const userCacheBundle = {
           userId: vaultSession.userId,
@@ -925,7 +975,7 @@ export function useVaultWorkspaceSync() {
           },
           kdfParams: vaultSession.kdfParams || { m_cost: 65536, t_cost: 3, p_cost: 1 },
           classEnvelopes: mergedClassEnvelopes,
-          encryptedSettingsEnvelope: encryptedSettingsStr || undefined,
+          encryptedSettingsEnvelope: effectiveSettingsEnvelope,
           isLocked: isVaultLocked,
           updatedAt: new Date().toISOString(),
         };
@@ -1006,63 +1056,17 @@ export function useVaultWorkspaceSync() {
         if (batchRes.status === 409) {
           // OCC Conflict detected: Another tab or device updated one of the envelopes!
           const conflictData = await batchRes.json().catch(() => null);
-          if (conflictData?.conflict_envelope) {
-            const conflictEnv = conflictData.conflict_envelope;
-            try {
-              if (conflictEnv.entity_type === 'class_dataset') {
-                const decConflict = wasm_decrypt_envelope(
-                  vaultSession.dekB64,
-                  vaultSession.userId,
-                  conflictEnv.id,
-                  conflictEnv.encrypted_payload
-                );
-                const serverDs = JSON.parse(decConflict) as ClassroomSubjectDataset;
-                serverDs.id = ensureValidUuid(serverDs.id || conflictEnv.id);
+          const conflictEnv = conflictData?.conflict_envelope;
 
-                const localDs = datasets.find((d) => d.id === serverDs.id);
-                if (localDs) {
-                  const { mergedDs, hadGradeCollisions, conflictCopy } =
-                    mergeClassroomDatasets(localDs, serverDs);
+          setReconciliationMeta({
+            localClassCount: datasets.length,
+            remoteClassCount: datasets.length,
+            remoteLastUpdated: conflictEnv?.updated_at || new Date().toISOString(),
+          });
+          setIsReconciliationOpen(true);
 
-                  envelopeVersionsRef.current.set(mergedDs.id, conflictEnv.version);
-                  lastSerializedPerClassRef.current.set(mergedDs.id, JSON.stringify(mergedDs));
-
-                  setDatasets((prev) => {
-                    const updated = prev.map((d) => (d.id === mergedDs.id ? mergedDs : d));
-                    if (conflictCopy) {
-                      return [...updated, conflictCopy];
-                    }
-                    return updated;
-                  });
-
-                  if (hadGradeCollisions) {
-                    setSyncConflictNotice(
-                      `Synchronisations-Konflikt erkannt: Die Klasse „${serverDs.className}“ wurde auf einem anderen Gerät geändert. Lokale Noten wurden zusammengeführt und zur Sicherheit als separate Kopie „${conflictCopy?.className}“ hinterlegt, damit keine Eingaben verloren gehen.`
-                    );
-                  } else {
-                    setSyncConflictNotice(
-                      `Synchronisations-Konflikt gelöst: Die Klasse „${serverDs.className}“ wurde von einem anderen Gerät aktualisiert (v${conflictEnv.version}). Lokale und serverseitige Noten/Schüler wurden ohne Verlust zusammengeführt.`
-                    );
-                  }
-                } else {
-                  envelopeVersionsRef.current.set(serverDs.id, conflictEnv.version);
-                  lastSerializedPerClassRef.current.set(serverDs.id, JSON.stringify(serverDs));
-                  setDatasets((prev) => [...prev, serverDs]);
-                  setSyncConflictNotice(
-                    `Klasse „${serverDs.className}“ von anderem Gerät synchronisiert (v${conflictEnv.version}).`
-                  );
-                }
-
-                setSyncStatus('synced');
-                return;
-              }
-            } catch (e) {
-              console.warn('Fehler beim Entschlüsseln des Konflikt-Envelopes:', e);
-            }
-          }
-          await loadIsolatedUserWorkspace(vaultSession, true);
           setSyncConflictNotice(
-            'Synchronisations-Konflikt erkannt: Daten wurden von einem anderen Gerät aktualisiert und synchronisiert.'
+            'Synchronisations-Konflikt erkannt: Daten wurden auf einem anderen Gerät geändert. Bitte wähle im Abgleichs-Dialog, wie zusammengeführt werden soll.'
           );
           setSyncStatus('synced');
           return;
@@ -1346,35 +1350,40 @@ export function useVaultWorkspaceSync() {
         // Overwrite remote with local
         finalClasses = datasets;
       } else {
-        // Smart Merge: combine both, resolving collisions by newer timestamp
-        const mergedMap = new Map<string, ClassroomSubjectDataset>();
+        // Smart Merge: combine both datasets using fine-grained grade reconciliation
+        const finalMap = new Map<string, ClassroomSubjectDataset>();
+        const conflictCopies: ClassroomSubjectDataset[] = [];
 
-        // Add all remote classes first
+        // Map remote classes by ID
+        const remoteMap = new Map<string, ClassroomSubjectDataset>();
         decryptedRemoteClasses.forEach((cls) => {
-          mergedMap.set(cls.id, cls);
+          remoteMap.set(cls.id, cls);
         });
 
         // Merge local classes
         datasets.forEach((localCls) => {
-          const remoteCls = mergedMap.get(localCls.id);
+          const remoteCls = remoteMap.get(localCls.id);
           if (!remoteCls) {
-            mergedMap.set(localCls.id, localCls);
+            finalMap.set(localCls.id, localCls);
           } else {
-            const localTime = new Date(
-              (localCls as any).lastModified || (localCls as any).updatedAt || 0
-            ).getTime();
-            const remoteTime = new Date(
-              (remoteCls as any).lastModified || (remoteCls as any).updatedAt || 0
-            ).getTime();
-            if (localTime >= remoteTime) {
-              mergedMap.set(localCls.id, localCls);
-            } else {
-              mergedMap.set(localCls.id, remoteCls);
+            const { mergedDs, hadGradeCollisions, conflictCopy } = mergeClassroomDatasets(
+              localCls,
+              remoteCls
+            );
+            finalMap.set(mergedDs.id, mergedDs);
+            if (hadGradeCollisions && conflictCopy) {
+              conflictCopies.push(conflictCopy);
             }
+            remoteMap.delete(localCls.id);
           }
         });
 
-        finalClasses = Array.from(mergedMap.values());
+        // Add remaining remote classes that only exist on server
+        remoteMap.forEach((remoteCls) => {
+          finalMap.set(remoteCls.id, remoteCls);
+        });
+
+        finalClasses = [...Array.from(finalMap.values()), ...conflictCopies];
       }
 
       if (finalClasses.length > 0) {
@@ -1424,12 +1433,42 @@ export function useVaultWorkspaceSync() {
       lastSerializedPerClassRef.current.clear();
       lastSerializedSettingsRef.current = '';
       setSyncStatus('synced');
+      setSyncConflictNotice(null);
       setIsReconciliationOpen(false);
       alert('Synchronisations-Abgleich erfolgreich abgeschlossen!');
     } catch (err) {
       console.error('Fehler bei der Reconciliation:', err);
       alert('Fehler beim Ausführen des Datenabgleichs.');
     }
+  };
+
+  const openReconciliationModal = async () => {
+    try {
+      const token = vaultSession?.token;
+      if (token) {
+        const sumRes = await fetch('/api/envelopes/summary', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (sumRes.ok) {
+          const summary = await sumRes.json();
+          setReconciliationMeta({
+            localClassCount: datasets.length,
+            remoteClassCount: summary.class_count ?? summary.envelope_count ?? datasets.length,
+            remoteLastUpdated: summary.last_updated_at || undefined,
+          });
+          setIsReconciliationOpen(true);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Fehler beim Abrufen der Summary für Abgleichs-Dialog:', e);
+    }
+    setReconciliationMeta({
+      localClassCount: datasets.length,
+      remoteClassCount: datasets.length,
+      remoteLastUpdated: new Date().toISOString(),
+    });
+    setIsReconciliationOpen(true);
   };
 
   const handlePurgeCloudData = async () => {
@@ -1649,6 +1688,7 @@ export function useVaultWorkspaceSync() {
     handleEmailVerificationCancel,
     isReconciliationOpen,
     reconciliationMeta,
+    openReconciliationModal,
     handleResolveReconciliation: executeReconciliation,
     handleCancelReconciliation,
   };
