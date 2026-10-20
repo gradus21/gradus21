@@ -1,6 +1,6 @@
 # Product Marketing Context: Gradus21 (ehemals BTE NotenFlow)
 
-**Document version:** v1.1.0  
+**Document version:** v1.1.1  
 **Last updated:** 2026-10-19  
 **Rebranding Note:** Von Entwicklungsarbeitstitel „BTE NotenFlow“ erfolgreich repositioniert zu **Gradus21** (von lat. *gradus* = Stufe, Rang, Grad, Fortschritt + 21. Jahrhundert).
 

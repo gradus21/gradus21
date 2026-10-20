@@ -3,6 +3,34 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - 2026-10-20
+
+### Security & Hardening
+- **WebAuthn Handshake Enforcement & Legacy Bypass Elimination (#8)**:
+  - Decommissioned unauthenticated passkey login route (`POST /api/auth/passkey/login`).
+  - Strict two-stage WebAuthn cryptographic verification using `webauthn-rs` (`/start` with server challenge + `/finish` verifying assertion response).
+  - Cross-device Passkey Onboarding: Passkey login start response delivers `passkey_prf_salt_b64` to newly added devices to allow hardware-bound PRF key unwrapping for synced passkeys (iCloud Keychain, 1Password, Google Password Manager) without password prompts.
+- **CORS Hardening & Whitelist Fallback (#11)**:
+  - Removed insecure wildcard `allow_origin(Any)` fallback on unconfigured servers.
+  - CORS origin now defaults to `WEBAUTHN_RP_ORIGIN` and `WEBAUTHN_ALLOWED_ORIGINS` alongside explicit localhost origins.
+  - Documented `CORS_ALLOWED_ORIGIN` in `.env.example` and `docker-compose.yml`.
+
+### Architecture & Data Integrity
+- **Optimistic Concurrency Control (OCC 409) 3-Way Merge & Zero-Loss Guarantee (#9)**:
+  - Resolved silent grade overwrite on concurrency conflict.
+  - Implemented field-granular 3-way merge (`mergeClassroomDatasets`) across students, categories, assessments, and grade entries.
+  - Automatic Conflict Vault Copy: On true grade collisions between two active devices, the local version is retained and a separate conflict snapshot (`<Klasse> (Lokale Noten-Kopie)`) is created to ensure zero data loss.
+
+### Performance & Storage
+- **School Drive Mirroring Optimization & Retention Rotation (#10)**:
+  - Harmonized local backup filename to `gradus21_vault_backup_<userId>.gradus21` (matching architectural documentation and README).
+  - Debounced auto-save (350 ms) exclusively updates the atomic `latest` mirror, shifting timestamped snapshots to a 15-minute interval or manual export to relieve slow school network shares (SMB/NFS) and USB drives.
+  - Automated retention rotation: Cleans up historical backup files exceeding a threshold of 20 snapshots per vault.
+
+### Documentation & Consistency
+- **Unified Release Versioning v1.1.1 (#12)**:
+  - Synchronized documentation, handbooks, mock window titles, and workspace configurations across `README.md`, `ARCHITECTURE_AND_REVIEW_GUIDE.md`, and `gradus21-website`.
+
 ## [1.1.0] - 2026-10-20
 
 ### Added
