@@ -790,52 +790,80 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         }
       }
 
-      if (window.PublicKeyCredential && navigator.credentials?.get) {
-        try {
-          const challenge = crypto.getRandomValues(new Uint8Array(32));
-          const credIdBytes = base64ToBytes(localEntry.credentialId);
-          const getExtensions = prfSaltToUse
-            ? {
-                prf: {
-                  eval: {
-                    first: prfSaltToUse,
-                  },
-                },
-              }
-            : undefined;
-
-          const assertion = (await navigator.credentials.get({
-            publicKey: {
-              challenge,
-              allowCredentials: [
-                {
-                  type: 'public-key',
-                  id: credIdBytes.buffer as ArrayBuffer,
-                },
-              ],
-              userVerification: 'preferred',
-              timeout: 60000,
-              extensions: getExtensions as any,
-            },
-          })) as PublicKeyCredential | null;
-
-          if (assertion) {
-            const extResults = (assertion.getClientExtensionResults() as any)?.prf?.results?.first;
-            if (extResults) {
-              derivedSecretB64 = bytesToBase64(new Uint8Array(extResults));
-            }
-          }
-        } catch (webauthnErr: any) {
-          if (webauthnErr?.name === 'NotAllowedError') {
-            setStatusMsg(null);
-            setErrorMsg('Die Anmeldung mit Fingerabdruck / Face ID wurde abgebrochen.');
-            return;
-          }
-        }
+      if (!window.PublicKeyCredential || !navigator.credentials?.get) {
+        setStatusMsg(null);
+        setErrorMsg(
+          'Dieser Browser unterstützt keine Passkey-Authentifizierung (WebAuthn). Bitte melde dich mit deinem Passwort an.'
+        );
+        return;
       }
 
-      // Fallback für Geräte/Browser ohne native WebAuthn PRF Extension
-      if (!derivedSecretB64 && localEntry.passkeySecretB64) {
+      let assertion: PublicKeyCredential | null = null;
+      try {
+        const challenge = crypto.getRandomValues(new Uint8Array(32));
+        const credIdBytes = base64ToBytes(localEntry.credentialId);
+        const getExtensions = prfSaltToUse
+          ? {
+              prf: {
+                eval: {
+                  first: prfSaltToUse,
+                },
+              },
+            }
+          : undefined;
+
+        assertion = (await navigator.credentials.get({
+          publicKey: {
+            challenge,
+            allowCredentials: [
+              {
+                type: 'public-key',
+                id: credIdBytes.buffer as ArrayBuffer,
+              },
+            ],
+            userVerification: 'preferred',
+            timeout: 60000,
+            extensions: getExtensions as any,
+          },
+        })) as PublicKeyCredential | null;
+      } catch (webauthnErr: any) {
+        setStatusMsg(null);
+        const errName = webauthnErr?.name || '';
+        const errMsg = String(webauthnErr?.message || '');
+        const isCancelled =
+          errName === 'NotAllowedError' ||
+          errName === 'AbortError' ||
+          errName === 'SecurityError' ||
+          errMsg.toLowerCase().includes('cancel') ||
+          errMsg.toLowerCase().includes('abort') ||
+          errMsg.toLowerCase().includes('abgebrochen') ||
+          errMsg.toLowerCase().includes('close') ||
+          errMsg.toLowerCase().includes('dismiss');
+
+        if (isCancelled) {
+          setErrorMsg('Die Anmeldung mit Fingerabdruck / Face ID wurde abgebrochen.');
+        } else {
+          setErrorMsg(
+            `Passkey-Anmeldung fehlgeschlagen: ${errMsg || errName || String(webauthnErr)}`
+          );
+        }
+        return;
+      }
+
+      // Falls der Passwortmanager oder Browser den Dialog ohne Fehler schließt (assertion = null), nicht fortfahren!
+      if (!assertion) {
+        setStatusMsg(null);
+        setErrorMsg('Die Anmeldung mit Fingerabdruck / Face ID wurde abgebrochen.');
+        return;
+      }
+
+      // WebAuthn Assertion war erfolgreich! Prüfe PRF Extension oder Fallback-Schlüssel
+      const extResults = (assertion.getClientExtensionResults() as any)?.prf?.results?.first;
+      if (extResults) {
+        derivedSecretB64 = bytesToBase64(new Uint8Array(extResults));
+      } else if (localEntry.passkeySecretB64) {
+        // Authenticator hat den Benutzer via WebAuthn erfolgreich authentifiziert,
+        // aber das Gerät unterstützt keine native PRF-Extension.
         derivedSecretB64 = localEntry.passkeySecretB64;
       }
 
