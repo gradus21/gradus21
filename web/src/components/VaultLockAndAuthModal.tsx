@@ -24,7 +24,9 @@ import {
   Copy,
   Edit2,
   ExternalLink,
+  FileCheck,
   Fingerprint,
+  GraduationCap,
   KeyRound,
   Lock,
   Plus,
@@ -271,6 +273,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   const [legalModalOpen, setLegalModalOpen] = useState(false);
   const [legalTab, setLegalTab] = useState<LegalTab>('impressum');
   const [optInCloudSync, setOptInCloudSync] = useState(false);
+  const [showAvvConfirmation, setShowAvvConfirmation] = useState(false);
   const [isTogglingSync, setIsTogglingSync] = useState(false);
   const [isPurgingCloud, setIsPurgingCloud] = useState(false);
 
@@ -2484,9 +2487,10 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                   checked={optInCloudSync}
                   onChange={(e) => {
                     const checked = e.target.checked;
-                    setOptInCloudSync(checked);
                     if (checked) {
-                      handleOpenLegal('school_guide');
+                      setShowAvvConfirmation(true);
+                    } else {
+                      setOptInCloudSync(false);
                     }
                   }}
                   className="mt-0.5 rounded cursor-pointer accent-teal-600"
@@ -3174,22 +3178,18 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                   type="button"
                   disabled={isTogglingSync}
                   onClick={async () => {
+                    if (!cloudSyncEnabled) {
+                      setShowAvvConfirmation(true);
+                      return;
+                    }
                     setIsTogglingSync(true);
                     setErrorMsg(null);
                     setStatusMsg(null);
                     try {
-                      const nextState = !cloudSyncEnabled;
-                      await onToggleCloudSync(nextState);
-                      if (nextState) {
-                        handleOpenLegal('school_guide');
-                      }
-                      setStatusMsg(
-                        nextState
-                          ? 'E2EE Cloud-Synchronisation wurde aktiviert.'
-                          : 'Cloud-Synchronisation deaktiviert. Deine Daten verbleiben ausschließlich lokal.'
-                      );
+                      await onToggleCloudSync(false);
+                      setStatusMsg('Cloud-Synchronisation deaktiviert. Deine Daten verbleiben ausschließlich lokal.');
                     } catch (err: any) {
-                      setErrorMsg('Fehler beim Ändern der Cloud-Einstellung: ' + String(err));
+                      setErrorMsg('Fehler beim Deaktivieren des Cloud-Syncs: ' + String(err));
                     } finally {
                       setIsTogglingSync(false);
                     }
@@ -3332,6 +3332,88 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* AVV Vorhanden Bestätigungs-Modal */}
+      {showAvvConfirmation && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div
+            className="max-w-md w-full rounded-2xl border p-6 shadow-2xl space-y-4 animate-scale-up"
+            style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
+          >
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0">
+                <FileCheck className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+                  Liegt für deine Schule bereits ein AVV vor?
+                </h4>
+                <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                  Gemäß Art. 28 DSGVO und den Schuldatenschutzgesetzen ist für die verschlüsselte Cloud-Synchronisation
+                  von Noten- und Schülerdaten ein <strong>Auftragsverarbeitungsvertrag (AVV)</strong> zwischen deiner Schule
+                  und Gradus21 erforderlich.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
+              Falls deine Schulleitung oder der Datenschutzbeauftragte (bDSB) noch nicht zugestimmt hat, leiten wir dich
+              gerne direkt zum vorgefertigten Mustervertrag weiter.
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAvvConfirmation(false);
+                  setOptInCloudSync(false);
+                }}
+                className="px-3.5 py-2 rounded-xl border text-xs font-semibold hover:opacity-80 transition"
+                style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
+              >
+                Abbrechen
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAvvConfirmation(false);
+                  setOptInCloudSync(false);
+                  handleOpenLegal('school_guide');
+                }}
+                className="px-3.5 py-2 rounded-xl border border-teal-500/30 bg-teal-500/10 text-teal-700 dark:text-teal-300 text-xs font-bold hover:bg-teal-500/20 transition flex items-center justify-center gap-1.5"
+              >
+                <GraduationCap className="w-3.5 h-3.5" />
+                <span>Nein, Vorlage &amp; Leitfaden öffnen</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  setShowAvvConfirmation(false);
+                  setOptInCloudSync(true);
+                  if (onToggleCloudSync) {
+                    setIsTogglingSync(true);
+                    try {
+                      await onToggleCloudSync(true);
+                      setStatusMsg('E2EE Cloud-Synchronisation wurde aktiviert.');
+                    } catch (err: any) {
+                      setErrorMsg('Fehler beim Aktivieren der Synchronisation: ' + String(err));
+                    } finally {
+                      setIsTogglingSync(false);
+                    }
+                  }
+                }}
+                className="px-3.5 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition hover:opacity-95 flex items-center justify-center gap-1.5"
+                style={{ backgroundColor: 'var(--primary-500)' }}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Ja, AVV liegt vor / genehmigt</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Interaktives Rechts- & Compliance-Modal */}
       <LegalModal

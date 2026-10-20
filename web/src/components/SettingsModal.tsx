@@ -88,6 +88,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [activeSection, setActiveSection] = useState<
     'favorites' | 'visibility' | 'appearance' | 'storage' | 'help'
   >('favorites');
+  const [showAvvConfirmation, setShowAvvConfirmation] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [savedIndicator, setSavedIndicator] = useState(false);
   const [systemIsDark, setSystemIsDark] = useState<boolean>(() => {
@@ -191,72 +192,77 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Section Tabs */}
         <div
-          className="flex gap-1 p-1 rounded-xl border text-xs font-bold shrink-0"
+          className="flex items-center gap-1.5 p-1 rounded-2xl border text-xs font-semibold shrink-0"
           style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
         >
           <button
             onClick={() => setActiveSection('favorites')}
-            className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 transition ${
-              activeSection === 'favorites' ? 'text-white shadow-sm' : ''
+            className={`flex-1 py-2 px-2.5 rounded-xl flex items-center justify-center gap-1.5 transition text-center min-h-[38px] ${
+              activeSection === 'favorites' ? 'text-white shadow-sm font-bold' : 'hover:opacity-85'
             }`}
             style={{
               backgroundColor: activeSection === 'favorites' ? 'var(--primary-500)' : 'transparent',
+              color: activeSection === 'favorites' ? '#fff' : 'var(--text-primary)',
             }}
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Favoriten & Standard-Vorschläge</span>
+            <Sparkles className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Vorschläge</span>
           </button>
           <button
             onClick={() => setActiveSection('visibility')}
-            className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 transition ${
-              activeSection === 'visibility' ? 'text-white shadow-sm' : ''
+            className={`flex-1 py-2 px-2.5 rounded-xl flex items-center justify-center gap-1.5 transition text-center min-h-[38px] ${
+              activeSection === 'visibility' ? 'text-white shadow-sm font-bold' : 'hover:opacity-85'
             }`}
             style={{
               backgroundColor:
                 activeSection === 'visibility' ? 'var(--primary-500)' : 'transparent',
+              color: activeSection === 'visibility' ? '#fff' : 'var(--text-primary)',
             }}
           >
-            <Eye className="w-3.5 h-3.5" />
-            <span>Ansicht & Einblendungen</span>
+            <Eye className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Ansicht</span>
           </button>
           <button
             onClick={() => setActiveSection('appearance')}
-            className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 transition ${
-              activeSection === 'appearance' ? 'text-white shadow-sm' : ''
+            className={`flex-1 py-2 px-2.5 rounded-xl flex items-center justify-center gap-1.5 transition text-center min-h-[38px] ${
+              activeSection === 'appearance' ? 'text-white shadow-sm font-bold' : 'hover:opacity-85'
             }`}
             style={{
               backgroundColor:
                 activeSection === 'appearance' ? 'var(--primary-500)' : 'transparent',
+              color: activeSection === 'appearance' ? '#fff' : 'var(--text-primary)',
             }}
           >
-            <Palette className="w-3.5 h-3.5" />
-            <span>Farbwelt</span>
+            <Palette className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Farbwelt</span>
           </button>
           <button
             onClick={() => setActiveSection('storage')}
-            className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 transition ${
-              activeSection === 'storage' ? 'text-white shadow-sm' : ''
+            className={`flex-1 py-2 px-2.5 rounded-xl flex items-center justify-center gap-1.5 transition text-center min-h-[38px] ${
+              activeSection === 'storage' ? 'text-white shadow-sm font-bold' : 'hover:opacity-85'
             }`}
             style={{
               backgroundColor:
                 activeSection === 'storage' ? 'var(--primary-500)' : 'transparent',
+              color: activeSection === 'storage' ? '#fff' : 'var(--text-primary)',
             }}
           >
-            <Shield className="w-3.5 h-3.5" />
-            <span>Datenschutz & Speicher</span>
+            <Shield className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Datenschutz &amp; Speicher</span>
           </button>
           <button
             onClick={() => setActiveSection('help')}
-            className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 transition ${
-              activeSection === 'help' ? 'text-white shadow-sm' : ''
+            className={`flex-1 py-2 px-2.5 rounded-xl flex items-center justify-center gap-1.5 transition text-center min-h-[38px] ${
+              activeSection === 'help' ? 'text-white shadow-sm font-bold' : 'hover:opacity-85'
             }`}
             style={{
               backgroundColor:
                 activeSection === 'help' ? 'var(--primary-500)' : 'transparent',
+              color: activeSection === 'help' ? '#fff' : 'var(--text-primary)',
             }}
           >
-            <Compass className="w-3.5 h-3.5" />
-            <span>Hilfe & Guide</span>
+            <Compass className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Hilfe &amp; Guide</span>
           </button>
         </div>
 
@@ -793,15 +799,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       checked={Boolean(settings.cloudSyncEnabled)}
                       onChange={(e) => {
                         const nextVal = e.target.checked;
-                        if (nextVal && onOpenSchoolGuide) {
-                          onOpenSchoolGuide();
-                        }
-                        if (onToggleCloudSync) {
-                          onToggleCloudSync(nextVal);
+                        if (nextVal) {
+                          // Activating -> prompt AVV confirmation question first!
+                          setShowAvvConfirmation(true);
                         } else {
-                          onUpdateSettings((s) => ({ ...s, cloudSyncEnabled: nextVal }));
+                          // Deactivating
+                          if (onToggleCloudSync) {
+                            onToggleCloudSync(false);
+                          } else {
+                            onUpdateSettings((s) => ({ ...s, cloudSyncEnabled: false }));
+                          }
+                          triggerSaved();
                         }
-                        triggerSaved();
                       }}
                       className="sr-only peer"
                     />
@@ -1084,6 +1093,80 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           )}
         </div>
       </div>
+
+      {/* AVV Vorhanden Bestätigungs-Modal */}
+      {showAvvConfirmation && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div
+            className="max-w-md w-full rounded-2xl border p-6 shadow-2xl space-y-4 animate-scale-up"
+            style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
+          >
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0">
+                <FileCheck className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+                  Liegt für deine Schule bereits ein AVV vor?
+                </h4>
+                <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                  Gemäß Art. 28 DSGVO und den Schuldatenschutzgesetzen ist für die verschlüsselte Cloud-Synchronisation
+                  von Noten- und Schülerdaten ein <strong>Auftragsverarbeitungsvertrag (AVV)</strong> zwischen deiner Schule
+                  und Gradus21 erforderlich.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
+              Falls deine Schulleitung oder der Datenschutzbeauftragte (bDSB) noch nicht zugestimmt hat, leiten wir dich
+              gerne direkt zum vorgefertigten Mustervertrag weiter.
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowAvvConfirmation(false)}
+                className="px-3.5 py-2 rounded-xl border text-xs font-semibold hover:opacity-80 transition"
+                style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
+              >
+                Abbrechen
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAvvConfirmation(false);
+                  if (onOpenSchoolGuide) {
+                    onOpenSchoolGuide();
+                  }
+                }}
+                className="px-3.5 py-2 rounded-xl border border-teal-500/30 bg-teal-500/10 text-teal-700 dark:text-teal-300 text-xs font-bold hover:bg-teal-500/20 transition flex items-center justify-center gap-1.5"
+              >
+                <GraduationCap className="w-3.5 h-3.5" />
+                <span>Nein, Vorlage &amp; Leitfaden öffnen</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAvvConfirmation(false);
+                  if (onToggleCloudSync) {
+                    onToggleCloudSync(true);
+                  } else {
+                    onUpdateSettings((s) => ({ ...s, cloudSyncEnabled: true }));
+                  }
+                  triggerSaved();
+                }}
+                className="px-3.5 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition hover:opacity-95 flex items-center justify-center gap-1.5"
+                style={{ backgroundColor: 'var(--primary-500)' }}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Ja, AVV liegt vor / genehmigt</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
