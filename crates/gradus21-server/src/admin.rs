@@ -1225,7 +1225,7 @@ pub struct SmtpConfig {
     pub from_name: String,
 }
 
-fn get_smtp_config_internal(state: &AppState) -> Option<SmtpConfig> {
+pub fn get_smtp_config_internal(state: &AppState) -> Option<SmtpConfig> {
     let settings = state.mem_settings.read().unwrap();
     settings
         .get("smtp_config")
@@ -1290,7 +1290,7 @@ pub async fn update_smtp_config(
     Ok(Json(serde_json::to_value(&response).unwrap()))
 }
 
-async fn send_email_internal(
+pub async fn send_email_internal(
     cfg: &SmtpConfig,
     to_email: &str,
     subject: &str,

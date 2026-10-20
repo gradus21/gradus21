@@ -30,6 +30,8 @@ use tower_http::cors::{Any, CorsLayer};
 use url::Url;
 use uuid::Uuid;
 use webauthn_rs::prelude::*;
+use subtle::ConstantTimeEq;
+use rand::Rng;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserPasskeyRecord {
@@ -85,6 +87,18 @@ impl Default for LegalConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmailVerificationEntry {
+    pub email: String,
+    pub code: String,
+    pub expires_at: DateTime<Utc>,
+    pub attempts: u32,
+    pub cooldown_until: DateTime<Utc>,
+}
+
+type RegChallengeMap = Arc<RwLock<HashMap<String, (Instant, PasskeyRegistration, Uuid)>>>;
+type AuthChallengeMap = Arc<RwLock<HashMap<String, (Instant, PasskeyAuthentication, Option<Uuid>)>>>;
+
 #[derive(Clone)]
 pub struct AppState {
     pub db: Option<PgPool>,
@@ -100,9 +114,10 @@ pub struct AppState {
     pub admin_emails: Vec<String>,
     pub enable_admin_panel: bool,
     pub webauthn: Arc<Webauthn>,
-    pub reg_challenges: Arc<RwLock<HashMap<String, (Instant, PasskeyRegistration, Uuid)>>>,
-    pub auth_challenges: Arc<RwLock<HashMap<String, (Instant, PasskeyAuthentication, Option<Uuid>)>>>,
+    pub reg_challenges: RegChallengeMap,
+    pub auth_challenges: AuthChallengeMap,
     pub legal_config: LegalConfig,
+    pub mem_email_verifications: Arc<RwLock<HashMap<String, EmailVerificationEntry>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -151,6 +166,16 @@ pub struct UserRecord {
     pub created_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub last_login_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub email_verified: bool,
+    #[serde(default)]
+    pub email_verification_code: Option<String>,
+    #[serde(default)]
+    pub email_verification_expires_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub email_verification_attempts: i32,
+    #[serde(default)]
+    pub email_verification_cooldown_until: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,6 +210,8 @@ struct RegisterRequest {
     recovery_encrypted_dek: String,
     #[serde(default)]
     recovery_auth_key_b64: Option<String>,
+    #[serde(default)]
+    user_id: Option<Uuid>,
 }
 
 #[derive(Serialize, Debug)]
@@ -403,6 +430,11 @@ async fn ensure_pg_schema_and_load(
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )"#,
         "ALTER TABLE grading_templates ALTER COLUMN owner_user_id DROP NOT NULL",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_code TEXT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_expires_at TIMESTAMPTZ",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_attempts INT NOT NULL DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_cooldown_until TIMESTAMPTZ",
     ];
 
     for q in schema_queries {
@@ -412,7 +444,7 @@ async fn ensure_pg_schema_and_load(
     }
 
     if let Ok(rows) = sqlx::query(
-        "SELECT id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek, recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted, totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek, passkey_prf_salt, ui_preferences, is_admin, is_active, created_at, last_login_at FROM users",
+        "SELECT id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek, recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted, totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek, passkey_prf_salt, ui_preferences, is_admin, is_active, created_at, last_login_at, email_verified, email_verification_code, email_verification_expires_at, email_verification_attempts, email_verification_cooldown_until FROM users",
     )
     .fetch_all(pool)
     .await
@@ -440,6 +472,11 @@ async fn ensure_pg_schema_and_load(
                 is_active: row.try_get("is_active").unwrap_or(true),
                 created_at: row.try_get("created_at").ok(),
                 last_login_at: row.try_get("last_login_at").ok(),
+                email_verified: row.try_get("email_verified").unwrap_or(false),
+                email_verification_code: row.try_get("email_verification_code").ok().flatten(),
+                email_verification_expires_at: row.try_get("email_verification_expires_at").ok().flatten(),
+                email_verification_attempts: row.try_get("email_verification_attempts").unwrap_or(0),
+                email_verification_cooldown_until: row.try_get("email_verification_cooldown_until").ok().flatten(),
             };
             users_map.insert(id, user);
         }
@@ -584,8 +621,10 @@ pub async fn sync_user_to_pg(state: &AppState, user: &UserRecord) {
             id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek,
             recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted,
             totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek,
-            passkey_prf_salt, ui_preferences, is_admin, is_active, last_login_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW())
+            passkey_prf_salt, ui_preferences, is_admin, is_active, last_login_at,
+            email_verified, email_verification_code, email_verification_expires_at,
+            email_verification_attempts, email_verification_cooldown_until, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NOW())
         ON CONFLICT (id) DO UPDATE SET
             email = EXCLUDED.email,
             auth_key_hash = EXCLUDED.auth_key_hash,
@@ -604,6 +643,11 @@ pub async fn sync_user_to_pg(state: &AppState, user: &UserRecord) {
             is_admin = EXCLUDED.is_admin,
             is_active = EXCLUDED.is_active,
             last_login_at = EXCLUDED.last_login_at,
+            email_verified = EXCLUDED.email_verified,
+            email_verification_code = EXCLUDED.email_verification_code,
+            email_verification_expires_at = EXCLUDED.email_verification_expires_at,
+            email_verification_attempts = EXCLUDED.email_verification_attempts,
+            email_verification_cooldown_until = EXCLUDED.email_verification_cooldown_until,
             updated_at = NOW()"#,
     )
     .bind(user.id)
@@ -624,6 +668,11 @@ pub async fn sync_user_to_pg(state: &AppState, user: &UserRecord) {
     .bind(user.is_admin)
     .bind(user.is_active)
     .bind(user.last_login_at)
+    .bind(user.email_verified)
+    .bind(&user.email_verification_code)
+    .bind(user.email_verification_expires_at)
+    .bind(user.email_verification_attempts)
+    .bind(user.email_verification_cooldown_until)
     .execute(pool)
     .await
     {
@@ -686,6 +735,32 @@ async fn delete_all_envelopes_from_pg(state: &AppState, owner_id: Uuid) {
         .await
     {
         tracing::error!("Failed to delete all envelopes for user {} from PostgreSQL: {}", owner_id, e);
+    }
+}
+
+async fn delete_user_from_pg(state: &AppState, user_id: Uuid) {
+    let Some(pool) = &state.db else {
+        return;
+    };
+    if let Err(e) = sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(user_id)
+        .execute(pool)
+        .await
+    {
+        tracing::error!("Failed to delete user {} from PostgreSQL: {}", user_id, e);
+    }
+}
+
+async fn delete_all_passkeys_for_user_from_pg(state: &AppState, user_id: Uuid) {
+    let Some(pool) = &state.db else {
+        return;
+    };
+    if let Err(e) = sqlx::query("DELETE FROM user_passkeys WHERE user_id = $1")
+        .bind(user_id)
+        .execute(pool)
+        .await
+    {
+        tracing::error!("Failed to delete passkeys for user {} from PostgreSQL: {}", user_id, e);
     }
 }
 
@@ -906,6 +981,7 @@ async fn main() {
         reg_challenges: Arc::new(RwLock::new(HashMap::new())),
         auth_challenges: Arc::new(RwLock::new(HashMap::new())),
         legal_config,
+        mem_email_verifications: Arc::new(RwLock::new(HashMap::new())),
     };
 
     // Spawn background tasks (Automated snapshot scheduler & retention)
@@ -974,6 +1050,8 @@ async fn main() {
         .route("/api/auth/passkey/register", post(register_passkey))
         .route("/api/auth/passkey/login", post(legacy_passkey_login_disabled))
         .route("/api/auth/passkey", delete(delete_passkey))
+        .route("/api/auth/verify-email/start", post(verify_email_start))
+        .route("/api/auth/verify-email/confirm", post(verify_email_confirm))
         .route("/api/auth/2fa/setup", get(get_2fa_setup_info))
         .route("/api/auth/2fa/verify", post(verify_and_enable_2fa))
         .route("/api/auth/2fa/reconfigure", post(reconfigure_2fa))
@@ -984,6 +1062,7 @@ async fn main() {
                 .post(upsert_envelope)
                 .delete(delete_all_user_envelopes),
         )
+        .route("/api/envelopes/summary", get(get_envelopes_summary))
         .route("/api/envelopes/sync", get(list_envelopes))
         .route("/api/envelopes/batch", post(batch_sync_envelopes))
         .route("/api/envelopes/:id", delete(delete_envelope))
@@ -1170,7 +1249,7 @@ async fn register_user(
         None => String::new(),
     };
 
-    let user_id = Uuid::new_v4();
+    let user_id = req.user_id.unwrap_or_else(Uuid::new_v4);
     let totp_secret_b32 = totp::generate_totp_secret_base32();
     let totp_uri = totp::build_otpauth_uri(&email, &totp_secret_b32);
 
@@ -1191,6 +1270,11 @@ async fn register_user(
     let is_admin = is_first_user || state.admin_emails.contains(&email);
     let is_active = true;
     let now = Utc::now();
+
+    let was_verified = {
+        let verifs = state.mem_email_verifications.read().unwrap();
+        verifs.get(&email).map(|v| v.code.is_empty()).unwrap_or(false)
+    };
 
     let new_user = {
         let mut users = state.mem_users.write().unwrap();
@@ -1217,6 +1301,11 @@ async fn register_user(
             is_active,
             created_at: Some(now),
             last_login_at: Some(now),
+            email_verified: was_verified,
+            email_verification_code: None,
+            email_verification_expires_at: None,
+            email_verification_attempts: 0,
+            email_verification_cooldown_until: None,
         };
         users.insert(user_id, record.clone());
         record
@@ -1681,13 +1770,22 @@ async fn passkey_login_start(
     State(state): State<AppState>,
     Json(req): Json<PasskeyLoginStartRequest>,
 ) -> Result<Json<PasskeyLoginStartResponse>, (StatusCode, String)> {
-    let user_opt = if let Some(e) = req.email.as_deref().filter(|s| !s.trim().is_empty()) {
-        let clean = e.trim().to_lowercase();
+    let has_requested_email = req.email.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false);
+    let user_opt = if has_requested_email {
+        let clean = req.email.as_deref().unwrap().trim().to_lowercase();
+        check_auth_rate_limit(&state, &format!("passkey_start:{}", clean))?;
         let users = state.mem_users.read().unwrap();
         users.values().find(|u| u.email.to_lowercase() == clean).cloned()
     } else {
         None
     };
+
+    if has_requested_email && user_opt.is_none() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Kein passender Passkey für diesen Benutzer hinterlegt. Bitte melde dich mit deinem Passwort an.".into(),
+        ));
+    }
 
     let (passkeys_to_allow, prf_salt_opt) = {
         let pks = state.mem_passkeys.read().unwrap();
@@ -1728,11 +1826,21 @@ async fn passkey_login_start(
         (pk_objs, prf_salt)
     };
 
-    if passkeys_to_allow.is_empty() {
+    if has_requested_email && passkeys_to_allow.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
             "Kein passender Passkey für diesen Benutzer hinterlegt. Bitte melde dich mit deinem Passwort an.".into(),
         ));
+    }
+
+    if !has_requested_email && passkeys_to_allow.is_empty() {
+        let pks = state.mem_passkeys.read().unwrap();
+        if pks.is_empty() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Es sind noch keine Passkeys im System hinterlegt. Bitte melde dich mit deinem Passwort an.".into(),
+            ));
+        }
     }
 
     let (request_challenge, auth_state) = state
@@ -1887,7 +1995,7 @@ async fn list_user_passkeys(
 
     let pks = state.mem_passkeys.read().unwrap();
     let mut user_pks: Vec<_> = pks.values().filter(|p| p.user_id == user_id).cloned().collect();
-    user_pks.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    user_pks.sort_by_key(|a| std::cmp::Reverse(a.created_at));
 
     let list = user_pks
         .into_iter()
@@ -2132,6 +2240,11 @@ async fn register_passkey(
                 is_active: true,
                 created_at: Some(Utc::now()),
                 last_login_at: Some(Utc::now()),
+                email_verified: false,
+                email_verification_code: None,
+                email_verification_expires_at: None,
+                email_verification_attempts: 0,
+                email_verification_cooldown_until: None,
             };
             users.insert(user_id, new_user.clone());
             new_user
@@ -2291,6 +2404,11 @@ async fn get_2fa_setup_info(
                 is_active: true,
                 created_at: Some(Utc::now()),
                 last_login_at: Some(Utc::now()),
+                email_verified: false,
+                email_verification_code: None,
+                email_verification_expires_at: None,
+                email_verification_attempts: 0,
+                email_verification_cooldown_until: None,
             };
             users.insert(user_id, new_user.clone());
             (false, claims.email.clone(), secret, Some(new_user))
@@ -2660,21 +2778,283 @@ async fn delete_envelope(
     Err((StatusCode::NOT_FOUND, "Nicht gefunden".into()))
 }
 
-async fn delete_all_user_envelopes(
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DeleteCloudDataResponse {
+    pub user_deleted: bool,
+    pub is_admin: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EnvelopesSummaryResponse {
+    pub envelope_count: usize,
+    pub class_count: usize,
+    pub class_ids: Vec<Uuid>,
+    pub last_updated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VerifyEmailStartRequest {
+    pub email: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VerifyEmailStartResponse {
+    pub status: String,
+    pub smtp_configured: bool,
+    pub cooldown_seconds: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dev_code: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VerifyEmailConfirmRequest {
+    pub email: String,
+    pub code: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VerifyEmailConfirmResponse {
+    pub verified: bool,
+    pub message: String,
+}
+
+async fn verify_email_start(
+    State(state): State<AppState>,
+    Json(req): Json<VerifyEmailStartRequest>,
+) -> Result<Json<VerifyEmailStartResponse>, (StatusCode, String)> {
+    let email = req.email.trim().to_lowercase();
+    if !email.contains('@') || email.len() < 5 {
+        return Err((StatusCode::BAD_REQUEST, "Ungültige E-Mail-Adresse".into()));
+    }
+
+    // Rate-limiting: max 3 requests per 15 minutes
+    check_auth_rate_limit(&state, &format!("verify_start:{}", email))?;
+
+    let now = Utc::now();
+
+    // Check cooldown
+    {
+        let verifs = state.mem_email_verifications.read().unwrap();
+        if let Some(entry) = verifs.get(&email) {
+            if entry.cooldown_until > now {
+                let wait_secs = (entry.cooldown_until - now).num_seconds().max(1) as u64;
+                return Err((
+                    StatusCode::TOO_MANY_REQUESTS,
+                    format!("Bitte warte noch {} Sekunden vor einer erneuten Code-Anforderung.", wait_secs),
+                ));
+            }
+        }
+    }
+
+    let code = format!("{:06}", rand::thread_rng().gen_range(100000..=999999));
+    let expires_at = now + chrono::Duration::minutes(15);
+    let cooldown_until = now + chrono::Duration::seconds(60);
+
+    let entry = EmailVerificationEntry {
+        email: email.clone(),
+        code: code.clone(),
+        expires_at,
+        attempts: 0,
+        cooldown_until,
+    };
+
+    {
+        let mut verifs = state.mem_email_verifications.write().unwrap();
+        verifs.insert(email.clone(), entry);
+    }
+
+    // Also update user record if user exists
+    {
+        let mut users = state.mem_users.write().unwrap();
+        if let Some(user) = users.values_mut().find(|u| u.email == email) {
+            user.email_verification_code = Some(code.clone());
+            user.email_verification_expires_at = Some(expires_at);
+            user.email_verification_attempts = 0;
+            user.email_verification_cooldown_until = Some(cooldown_until);
+        }
+    }
+
+    let smtp_cfg = admin::get_smtp_config_internal(&state);
+    let smtp_configured = smtp_cfg.is_some() && !smtp_cfg.as_ref().unwrap().host.is_empty();
+
+    let mut dev_code = None;
+
+    if let Some(cfg) = smtp_cfg {
+        if !cfg.host.is_empty() {
+            let subject = "Gradus21: Bestätigungscode für Cloud-Synchronisation";
+            let body = format!(
+                "Hallo,\n\ndein 6-stelliger Bestätigungscode für die Aktivierung der Gradus21 Cloud-Synchronisation lautet:\n\n    {}\n\nDieser Code ist 15 Minuten gültig.\nFalls du diese Anfrage nicht gestellt hast, kannst du diese Nachricht ignorieren.\n\nMit freundlichen Grüßen,\nDein Gradus21 System",
+                code
+            );
+            if let Err(e) = admin::send_email_internal(&cfg, &email, subject, &body).await {
+                tracing::warn!("Fehler beim SMTP-Versand des Verifikations-Codes an {}: {}", email, e);
+                tracing::info!("Verifikationscode für {}: {}", email, code);
+                dev_code = Some(code);
+            }
+        } else {
+            tracing::info!("SMTP nicht konfiguriert. Verifikationscode für {}: {}", email, code);
+            dev_code = Some(code);
+        }
+    } else {
+        tracing::info!("SMTP nicht konfiguriert. Verifikationscode für {}: {}", email, code);
+        dev_code = Some(code);
+    }
+
+    Ok(Json(VerifyEmailStartResponse {
+        status: "code_sent".into(),
+        smtp_configured,
+        cooldown_seconds: 60,
+        dev_code,
+    }))
+}
+
+async fn verify_email_confirm(
+    State(state): State<AppState>,
+    Json(req): Json<VerifyEmailConfirmRequest>,
+) -> Result<Json<VerifyEmailConfirmResponse>, (StatusCode, String)> {
+    let email = req.email.trim().to_lowercase();
+    let submitted_code = req.code.trim();
+
+    check_auth_rate_limit(&state, &format!("verify_confirm:{}", email))?;
+
+    let now = Utc::now();
+    let (is_valid, remaining) = {
+        let mut verifs = state.mem_email_verifications.write().unwrap();
+        let entry = verifs.get_mut(&email).ok_or((
+            StatusCode::BAD_REQUEST,
+            "Kein aktiver Bestätigungscode für diese E-Mail gefunden. Bitte fordere einen neuen Code an.".into(),
+        ))?;
+
+        if entry.expires_at < now {
+            verifs.remove(&email);
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Der Bestätigungscode ist abgelaufen. Bitte fordere einen neuen Code an.".into(),
+            ));
+        }
+
+        entry.attempts += 1;
+        if entry.attempts > 5 {
+            verifs.remove(&email);
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                "Zu viele Fehlversuche. Der Code wurde aus Sicherheitsgründen gesperrt. Bitte fordere einen neuen Code an.".into(),
+            ));
+        }
+
+        let valid: bool = entry.code.as_bytes().ct_eq(submitted_code.as_bytes()).into();
+        let remaining = 5usize.saturating_sub(entry.attempts as usize);
+        if valid {
+            entry.code.clear();
+        }
+        (valid, remaining)
+    };
+
+    if !is_valid {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("Ungültiger Bestätigungscode. Noch {} Versuch(e) übrig.", remaining),
+        ));
+    }
+
+    // Update user record if existing
+    let user_to_sync = {
+        let mut users = state.mem_users.write().unwrap();
+        if let Some(user) = users.values_mut().find(|u| u.email == email) {
+            user.email_verified = true;
+            user.email_verification_code = None;
+            user.email_verification_expires_at = None;
+            Some(user.clone())
+        } else {
+            None
+        }
+    };
+
+    if let Some(u) = user_to_sync {
+        sync_user_to_pg(&state, &u).await;
+        persist_to_disk(&state);
+    }
+
+    Ok(Json(VerifyEmailConfirmResponse {
+        verified: true,
+        message: "E-Mail-Adresse erfolgreich verifiziert.".into(),
+    }))
+}
+
+async fn get_envelopes_summary(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<Json<EnvelopesSummaryResponse>, (StatusCode, String)> {
     let claims = authenticate_request(&state, &headers)?;
     let owner_id = Uuid::parse_str(&claims.sub)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
 
+    let store = state.mem_envelopes.read().unwrap();
+    let user_envs: Vec<_> = store.values().filter(|e| e.owner_user_id == owner_id).collect();
+
+    let envelope_count = user_envs.len();
+    let class_envs: Vec<_> = user_envs.iter().filter(|e| e.entity_type == "class_dataset").collect();
+    let class_count = class_envs.len();
+    let class_ids: Vec<Uuid> = class_envs.iter().map(|e| e.id).collect();
+    let last_updated_at = user_envs.iter().map(|e| e.updated_at).max();
+
+    Ok(Json(EnvelopesSummaryResponse {
+        envelope_count,
+        class_count,
+        class_ids,
+        last_updated_at,
+    }))
+}
+
+async fn delete_all_user_envelopes(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<DeleteCloudDataResponse>, (StatusCode, String)> {
+    let claims = authenticate_request(&state, &headers)?;
+    let owner_id = Uuid::parse_str(&claims.sub)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
+
+    // 1. Delete all envelopes for this user
     {
         let mut store = state.mem_envelopes.write().unwrap();
         store.retain(|_, env| env.owner_user_id != owner_id);
     }
     delete_all_envelopes_from_pg(&state, owner_id).await;
+
+    // 2. If non-admin: cascade delete passkeys and user account completely
+    let user_deleted = if !claims.is_admin {
+        // Remove passkeys from memory and PG
+        {
+            let mut pks = state.mem_passkeys.write().unwrap();
+            pks.retain(|_, p| p.user_id != owner_id);
+        }
+        delete_all_passkeys_for_user_from_pg(&state, owner_id).await;
+
+        // Remove user from memory and PG
+        {
+            let mut users = state.mem_users.write().unwrap();
+            users.remove(&owner_id);
+        }
+        delete_user_from_pg(&state, owner_id).await;
+        true
+    } else {
+        false
+    };
+
     persist_to_disk(&state);
-    Ok(StatusCode::NO_CONTENT)
+
+    let message = if user_deleted {
+        "Alle Cloud-Daten und dein Benutzerkonto wurden vollständig vom Server gelöscht. Gradus21 arbeitet nun rein lokal.".to_string()
+    } else {
+        "Alle verschlüsselten Cloud-Datensätze wurden gelöscht. Dein Administratorkonto bleibt zur Verwaltung aktiv.".to_string()
+    };
+
+    Ok(Json(DeleteCloudDataResponse {
+        user_deleted,
+        is_admin: claims.is_admin,
+        message,
+    }))
 }
 
 async fn update_preferences(
@@ -2716,7 +3096,7 @@ async fn find_user_by_email(state: &AppState, email: &str) -> Option<UserRecord>
 
     if let Some(pool) = &state.db {
         if let Ok(Some(row)) = sqlx::query(
-            "SELECT id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek, recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted, totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek, passkey_prf_salt, ui_preferences, is_admin, is_active, created_at, last_login_at FROM users WHERE email = $1",
+            "SELECT id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek, recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted, totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek, passkey_prf_salt, ui_preferences, is_admin, is_active, created_at, last_login_at, email_verified, email_verification_code, email_verification_expires_at, email_verification_attempts, email_verification_cooldown_until FROM users WHERE email = $1",
         )
         .bind(email)
         .fetch_optional(pool)
@@ -2744,6 +3124,11 @@ async fn find_user_by_email(state: &AppState, email: &str) -> Option<UserRecord>
                 is_active: row.try_get("is_active").unwrap_or(true),
                 created_at: row.try_get("created_at").ok(),
                 last_login_at: row.try_get("last_login_at").ok(),
+                email_verified: row.try_get("email_verified").unwrap_or(false),
+                email_verification_code: row.try_get("email_verification_code").ok().flatten(),
+                email_verification_expires_at: row.try_get("email_verification_expires_at").ok().flatten(),
+                email_verification_attempts: row.try_get("email_verification_attempts").unwrap_or(0),
+                email_verification_cooldown_until: row.try_get("email_verification_cooldown_until").ok().flatten(),
             };
             state.mem_users.write().unwrap().insert(id, user.clone());
             return Some(user);
@@ -2837,6 +3222,7 @@ mod tests {
             reg_challenges: Arc::new(RwLock::new(HashMap::new())),
             auth_challenges: Arc::new(RwLock::new(HashMap::new())),
             legal_config: LegalConfig::default(),
+            mem_email_verifications: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -2869,6 +3255,7 @@ mod tests {
                 encrypted_dek: bundle.encrypted_dek.clone(),
                 recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
                 recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
+                user_id: None,
             }),
         )
         .await
@@ -2985,6 +3372,7 @@ mod tests {
                 encrypted_dek: bundle.encrypted_dek,
                 recovery_encrypted_dek: bundle.recovery_encrypted_dek,
                 recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64),
+                user_id: None,
             }),
         )
         .await
@@ -3135,6 +3523,7 @@ mod tests {
                 encrypted_dek: bundle.encrypted_dek.clone(),
                 recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
                 recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
+                user_id: None,
             }),
         )
         .await
@@ -3244,6 +3633,7 @@ mod tests {
                 encrypted_dek: bundle1.encrypted_dek.clone(),
                 recovery_encrypted_dek: bundle1.recovery_encrypted_dek.clone(),
                 recovery_auth_key_b64: None,
+                user_id: None,
             }),
         )
         .await
@@ -3261,6 +3651,7 @@ mod tests {
                 encrypted_dek: bundle2.encrypted_dek.clone(),
                 recovery_encrypted_dek: bundle2.recovery_encrypted_dek.clone(),
                 recovery_auth_key_b64: None,
+                user_id: None,
             }),
         )
         .await
@@ -3382,6 +3773,7 @@ mod tests {
                 encrypted_dek: bundle.encrypted_dek.clone(),
                 recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
                 recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
+                user_id: None,
             }),
         )
         .await
@@ -3616,6 +4008,7 @@ mod tests {
                 encrypted_dek: bundle.encrypted_dek.clone(),
                 recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
                 recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
+                user_id: None,
             }),
         )
         .await
@@ -3780,6 +4173,7 @@ mod tests {
                 encrypted_dek: bundle.encrypted_dek.clone(),
                 recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
                 recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
+                user_id: None,
             }),
         )
         .await
@@ -3931,6 +4325,7 @@ mod tests {
                 encrypted_dek: bundle1.encrypted_dek.clone(),
                 recovery_encrypted_dek: bundle1.recovery_encrypted_dek.clone(),
                 recovery_auth_key_b64: Some(bundle1.recovery_auth_key_b64.clone()),
+                user_id: None,
             }),
         )
         .await
@@ -3947,6 +4342,7 @@ mod tests {
                 encrypted_dek: bundle2.encrypted_dek.clone(),
                 recovery_encrypted_dek: bundle2.recovery_encrypted_dek.clone(),
                 recovery_auth_key_b64: Some(bundle2.recovery_auth_key_b64.clone()),
+                user_id: None,
             }),
         )
         .await
@@ -4010,18 +4406,219 @@ mod tests {
         let Json(t2_before) = list_envelopes(State(state.clone()), headers2.clone()).await.unwrap();
         assert_eq!(t2_before.len(), 1);
 
-        // Teacher 1 deletes all their cloud envelopes (opting out of cloud sync)
-        let status = delete_all_user_envelopes(State(state.clone()), headers1.clone()).await.unwrap();
-        assert_eq!(status, StatusCode::NO_CONTENT);
+        // Teacher 2 (standard non-admin) deletes all their cloud envelopes (opting out of cloud sync)
+        let Json(del_resp) = delete_all_user_envelopes(State(state.clone()), headers2.clone()).await.unwrap();
+        assert!(del_resp.user_deleted);
+        assert!(!del_resp.is_admin);
 
-        // Teacher 1 now has 0 envelopes
+        // Teacher 2 now has 0 envelopes
+        let t2_store = state.mem_envelopes.read().unwrap();
+        assert_eq!(t2_store.values().filter(|e| e.owner_user_id == reg2.user_id).count(), 0);
+
+        // Teacher 2 user account is completely deleted from memory! (GDPR Art. 17)
+        let users_store = state.mem_users.read().unwrap();
+        assert!(!users_store.contains_key(&reg2.user_id));
+
+        // Teacher 1 still has their 1 envelope and user record intact!
         let Json(t1_after) = list_envelopes(State(state.clone()), headers1.clone()).await.unwrap();
-        assert_eq!(t1_after.len(), 0);
+        assert_eq!(t1_after.len(), 1);
+        assert_eq!(t1_after[0].id, env1_id);
+        assert!(users_store.contains_key(&reg1.user_id));
 
-        // Teacher 2 still has their 1 envelope intact!
-        let Json(t2_after) = list_envelopes(State(state.clone()), headers2.clone()).await.unwrap();
-        assert_eq!(t2_after.len(), 1);
-        assert_eq!(t2_after[0].id, env2_id);
+        let _ = fs::remove_file(&state.disk_store_path);
+    }
+
+    #[tokio::test]
+    async fn test_admin_cloud_purge_preserves_admin_account() {
+        use gradus21_core::crypto::generate_vault_bundle;
+
+        let state = create_test_state();
+        let bundle = generate_vault_bundle("PasswordAdmin123!").expect("vault bundle admin");
+
+        // The first user registered in test state is admin
+        let reg = register_user(
+            State(state.clone()),
+            Json(RegisterRequest {
+                email: "admin@example.com".into(),
+                auth_key_b64: bundle.auth_key_b64.clone(),
+                kdf_salt_b64: bundle.kdf_salt_b64.clone(),
+                kdf_params: bundle.kdf_params.clone(),
+                encrypted_dek: bundle.encrypted_dek.clone(),
+                recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
+                recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
+                user_id: None,
+            }),
+        )
+        .await
+        .expect("admin reg")
+        .0;
+
+        assert!(reg.is_admin);
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Bearer {}", reg.token)).unwrap(),
+        );
+
+        let env_id = Uuid::new_v4();
+        let _ = batch_sync_envelopes(
+            State(state.clone()),
+            headers.clone(),
+            Json(BatchSyncRequest {
+                envelopes: vec![BatchUpsertItem {
+                    id: env_id,
+                    entity_type: "class_dataset".into(),
+                    parent_id: None,
+                    class_id: Some(env_id),
+                    encrypted_payload: "admin_class_data".into(),
+                    expected_version: None,
+                }],
+            }),
+        )
+        .await
+        .unwrap();
+
+        // Admin purges cloud data
+        let Json(del_resp) = delete_all_user_envelopes(State(state.clone()), headers.clone()).await.unwrap();
+        assert!(!del_resp.user_deleted, "Admin account must NOT be deleted");
+        assert!(del_resp.is_admin);
+
+        // Envelopes are purged
+        let Json(after_envs) = list_envelopes(State(state.clone()), headers.clone()).await.unwrap();
+        assert_eq!(after_envs.len(), 0);
+
+        // Admin account still exists in state
+        let users = state.mem_users.read().unwrap();
+        assert!(users.contains_key(&reg.user_id));
+
+        let _ = fs::remove_file(&state.disk_store_path);
+    }
+
+    #[tokio::test]
+    async fn test_email_verification_flow_and_brute_force_limits() {
+        let state = create_test_state();
+        let test_email = "test_teacher_verify@schule.de".to_string();
+
+        // 1. Request verification code
+        let Json(start_resp) = verify_email_start(
+            State(state.clone()),
+            Json(VerifyEmailStartRequest {
+                email: test_email.clone(),
+            }),
+        )
+        .await
+        .expect("start verify");
+
+        assert_eq!(start_resp.status, "code_sent");
+        let dev_code = start_resp.dev_code.expect("dev_code present in test env");
+        assert_eq!(dev_code.len(), 6);
+
+        // 2. Cooldown check: Immediate second request within 60s is rejected with 429
+        let cooldown_err = verify_email_start(
+            State(state.clone()),
+            Json(VerifyEmailStartRequest {
+                email: test_email.clone(),
+            }),
+        )
+        .await;
+        assert!(cooldown_err.is_err());
+        assert_eq!(cooldown_err.unwrap_err().0, StatusCode::TOO_MANY_REQUESTS);
+
+        // 3. Failed attempts counter test: Try wrong codes
+        for _ in 1..=4 {
+            let res = verify_email_confirm(
+                State(state.clone()),
+                Json(VerifyEmailConfirmRequest {
+                    email: test_email.clone(),
+                    code: "000000".into(),
+                }),
+            )
+            .await;
+            assert!(res.is_err());
+            assert_eq!(res.unwrap_err().0, StatusCode::BAD_REQUEST);
+        }
+
+        // 4. Correct code verification succeeds
+        let Json(confirm_resp) = verify_email_confirm(
+            State(state.clone()),
+            Json(VerifyEmailConfirmRequest {
+                email: test_email.clone(),
+                code: dev_code,
+            }),
+        )
+        .await
+        .expect("confirm code");
+
+        assert!(confirm_resp.verified);
+
+        let _ = fs::remove_file(&state.disk_store_path);
+    }
+
+    #[tokio::test]
+    async fn test_envelopes_summary_endpoint() {
+        use gradus21_core::crypto::generate_vault_bundle;
+
+        let state = create_test_state();
+        let bundle = generate_vault_bundle("PasswordSummary!").expect("vault bundle");
+        let reg = register_user(
+            State(state.clone()),
+            Json(RegisterRequest {
+                email: "summary_user@schule.de".into(),
+                auth_key_b64: bundle.auth_key_b64.clone(),
+                kdf_salt_b64: bundle.kdf_salt_b64.clone(),
+                kdf_params: bundle.kdf_params.clone(),
+                encrypted_dek: bundle.encrypted_dek.clone(),
+                recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
+                recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
+                user_id: None,
+            }),
+        )
+        .await
+        .unwrap()
+        .0;
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Bearer {}", reg.token)).unwrap(),
+        );
+
+        let c1_id = Uuid::new_v4();
+        let c2_id = Uuid::new_v4();
+        let _ = batch_sync_envelopes(
+            State(state.clone()),
+            headers.clone(),
+            Json(BatchSyncRequest {
+                envelopes: vec![
+                    BatchUpsertItem {
+                        id: c1_id,
+                        entity_type: "class_dataset".into(),
+                        parent_id: None,
+                        class_id: Some(c1_id),
+                        encrypted_payload: "payload_1".into(),
+                        expected_version: None,
+                    },
+                    BatchUpsertItem {
+                        id: c2_id,
+                        entity_type: "class_dataset".into(),
+                        parent_id: None,
+                        class_id: Some(c2_id),
+                        encrypted_payload: "payload_2".into(),
+                        expected_version: None,
+                    },
+                ],
+            }),
+        )
+        .await
+        .unwrap();
+
+        let Json(summary) = get_envelopes_summary(State(state.clone()), headers.clone()).await.unwrap();
+        assert_eq!(summary.envelope_count, 2);
+        assert_eq!(summary.class_count, 2);
+        assert!(summary.class_ids.contains(&c1_id));
+        assert!(summary.class_ids.contains(&c2_id));
+        assert!(summary.last_updated_at.is_some());
 
         let _ = fs::remove_file(&state.disk_store_path);
     }

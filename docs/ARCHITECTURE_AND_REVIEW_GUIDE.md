@@ -1,6 +1,6 @@
-# Architektur- & Review-Handbuch (`v1.1.1`)
+# Architektur- & Review-Handbuch (`v1.1.2`)
 
-Dieses Dokument richtet sich an Entwicklerinnen, Entwickler, Datenschutzbeauftragte und Fachlehrkräfte, die die Version `1.1.1` von **Gradus21** begutachten, testen und weiterentwickeln.
+Dieses Dokument richtet sich an Entwicklerinnen, Entwickler, Datenschutzbeauftragte und Fachlehrkräfte, die die Version `1.1.2` von **Gradus21** begutachten, testen und weiterentwickeln.
 
 ---
 
@@ -120,9 +120,18 @@ Gradus21 setzt das Prinzip der **Datensparsamkeit (Art. 5 Abs. 1 lit. c DSGVO)**
     Argon2id berechnet den Master Key im WebAssembly-Modul und entschlüsselt den lokal gespeicherten DEK.
   - Auch hinterlegte Passkeys (Touch ID, Windows Hello, Face ID) können offline entsperrt werden, da der passkey-gewrappte DEK im lokalen Gerätespeicher vorgehalten wird.
 
+### 5.5 Multi-Device Real-Time Synchronisation & Silent Auto-Renewal
+- **Reconciliation & Zero-Loss Sync**:
+  - Klassenbezogene 3-Wege-Zusammenführung (`mergeClassroomDatasets`) verhindert Datenverluste, falls auf unterschiedlichen Endgeräten parallel Noten erfasst wurden.
+  - Echte Kollisionen lösen die Erstellung einer lokalen Sicherheitskopie (`<Klasse> (Lokale Noten-Kopie)`) aus.
+- **Hintergrund-Synchronisation**:
+  - Ereignisbasiertes Nachladen bei Tab-Aktivierung (`visibilitychange` und `focus`) sowie ein schonendes 12-Sekunden-Polling bei aktivem Browser-Fenster halten den Notenstand geräteübergreifend synchron.
+- **Stille Sitzungserneuerung**:
+  - Läuft ein JWT-Sitzungstoken nach Inaktivität ab (HTTP 401), erneuert der Client die Sitzung transparent im Hintergrund über den aus dem Master Key abgeleiteten `AuthKey`, ohne den Lehrenden durch Anmeldedialoge aus dem Arbeitsfluss zu reißen.
+
 ---
 
-## 6. Checkliste für das Audit & Review (`v1.1.1`)
+## 6. Checkliste für das Audit & Review (`v1.1.2`)
 
 ### A. Fachlich-Pädagogisches Review
 - [x] **Rundungsregeln je Bundesland / Schulordnung**: Exakte Weiterberechnung via IEEE-754 `f64`, Rundung bei der Anzeige auf `0.1 %` bzw. `0.01` Notenwert.
@@ -133,6 +142,9 @@ Gradus21 setzt das Prinzip der **Datensparsamkeit (Art. 5 Abs. 1 lit. c DSGVO)**
 - [x] **PostgreSQL-Persistenz & Atomares Backup**: `DATABASE_URL` PostgreSQL-Anbindung und transaktionales JSON-Write-and-Rename.
 - [x] **Granulare E2EE-Envelopes & OCC**: Klassen-Granularität und Versionsprüfung mit `409 Conflict`-Handling.
 - [x] **Cloud-Sync Opt-In & Server-Purge**: Standardmäßig rein lokaler Betrieb, Server-Datenlöschung via `DELETE /api/envelopes`.
+- [x] **Art. 17 DSGVO Account-Selbstlöschung**: Vollständige Server-Löschung aller Benutzerdaten via `DELETE /api/users/me`.
+- [x] **E-Mail-Verifikationsschutz**: Kryptografischer Constant-Time-Vergleich und Brute-Force Rate Limiting.
+- [x] **Multi-Device Real-Time Sync & Stille Erneuerung**: Tab-Focus-Sync und transparente 401-Re-Auth ohne Klartext-Passwortspeicherung.
 - [x] **Lokale Schullaufwerk-Spiegelung**: File System Access API & IndexedDB Handle Persistence.
 - [x] **PWA & Offline-Resilienz**: Service Worker Caching und vollständig netzwerkunabhängige Entsperrung.
 - [x] **Passkey PRF Hardware-Verschlüsselung**: W3C WebAuthn Level 3 PRF Extension und lokaler Fallback.

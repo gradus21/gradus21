@@ -718,7 +718,7 @@ dependencies = [
 
 [[package]]
 name = "gradus21-core"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -737,7 +737,7 @@ dependencies = [
 
 [[package]]
 name = "gradus21-server"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -754,6 +754,7 @@ dependencies = [
  "sha1",
  "sha2",
  "sqlx",
+ "subtle",
  "tokio",
  "tower-http",
  "tracing",

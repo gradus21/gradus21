@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, ExternalLink, X } from 'lucide-react';
+import { AlertTriangle, ExternalLink, GitMerge, X } from 'lucide-react';
 import { AppHeader } from './components/AppHeader';
 import { ClassSetupAndExcelWizard } from './components/ClassSetupAndExcelWizard';
 import { ClassManagementModal } from './components/ClassManagementModal';
@@ -7,6 +7,8 @@ import { SettingsModal, SettingsSection } from './components/SettingsModal';
 import { VaultLockAndAuthModal } from './components/VaultLockAndAuthModal';
 import { AdminModal } from './components/admin/AdminModal';
 import { LegalModal, LegalTab } from './components/LegalModal';
+import { EmailVerificationModal } from './components/EmailVerificationModal';
+import { SyncReconciliationModal } from './components/SyncReconciliationModal';
 import { CellDisplayFormat, TermFilterId, INITIAL_CLASS_DATASETS } from './data/demoClasses';
 import { useVaultWorkspaceSync } from './hooks/useVaultWorkspaceSync';
 import { useClassroomCalculations } from './hooks/useClassroomCalculations';
@@ -54,6 +56,15 @@ export const App: React.FC = () => {
     handleImportEncryptedBackup,
     handleConnectBackupDirectory,
     handleDisconnectBackupDirectory,
+    isEmailVerificationOpen,
+    emailForVerification,
+    handleEmailVerificationSuccess,
+    handleEmailVerificationCancel,
+    isReconciliationOpen,
+    reconciliationMeta,
+    openReconciliationModal,
+    handleResolveReconciliation,
+    handleCancelReconciliation,
   } = useVaultWorkspaceSync();
 
   // Navigation & Workspace State
@@ -191,17 +202,37 @@ export const App: React.FC = () => {
   // Vault Lock Screen (Fullscreen)
   if (isVaultLocked) {
     return (
-      <VaultLockAndAuthModal
-        isLockedScreen={true}
-        session={vaultSession}
-        sampleEnvelope={sampleEnvelope}
-        onUnlockSuccess={handleUnlockVault}
-        onLockVault={handleLockVault}
-        cloudSyncEnabled={userSettings.cloudSyncEnabled ?? false}
-        onToggleCloudSync={handleToggleCloudSync}
-        onPurgeCloudData={handlePurgeCloudData}
-        onImportEncryptedBackup={handleImportEncryptedBackup}
-      />
+      <>
+        <VaultLockAndAuthModal
+          isLockedScreen={true}
+          session={vaultSession}
+          sampleEnvelope={sampleEnvelope}
+          onUnlockSuccess={handleUnlockVault}
+          onLockVault={handleLockVault}
+          cloudSyncEnabled={userSettings.cloudSyncEnabled ?? false}
+          onToggleCloudSync={handleToggleCloudSync}
+          onPurgeCloudData={handlePurgeCloudData}
+          onImportEncryptedBackup={handleImportEncryptedBackup}
+        />
+
+        {/* E-MAIL VERIFICATION MODAL */}
+        <EmailVerificationModal
+          isOpen={isEmailVerificationOpen}
+          email={emailForVerification}
+          onSuccess={handleEmailVerificationSuccess}
+          onCancel={handleEmailVerificationCancel}
+        />
+
+        {/* SYNC-RECONCILIATION MODAL (RICHTUNGSBASIERTER ABGLEICH) */}
+        <SyncReconciliationModal
+          isOpen={isReconciliationOpen}
+          localClassCount={reconciliationMeta?.localClassCount ?? 0}
+          remoteClassCount={reconciliationMeta?.remoteClassCount ?? 0}
+          remoteLastUpdated={reconciliationMeta?.remoteLastUpdated}
+          onResolve={handleResolveReconciliation}
+          onCancel={handleCancelReconciliation}
+        />
+      </>
     );
   }
 
@@ -262,18 +293,29 @@ export const App: React.FC = () => {
         }`}
       >
         {syncConflictNotice && (
-          <div className="mb-4 p-3.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200 flex items-center justify-between text-xs font-medium shadow-sm">
-            <div className="flex items-center gap-2.5">
+          <div className="mb-4 p-3.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200 flex items-center justify-between text-xs font-medium shadow-sm gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
               <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-              <span>{syncConflictNotice}</span>
+              <span className="leading-relaxed">{syncConflictNotice}</span>
             </div>
-            <button
-              onClick={clearConflictNotice}
-              className="p-1 rounded-lg hover:bg-amber-500/20 transition opacity-80 hover:opacity-100"
-              title="Schließen"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={openReconciliationModal}
+                className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-medium shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <GitMerge className="w-3.5 h-3.5" />
+                Abgleichs-Dialog öffnen
+              </button>
+              <button
+                type="button"
+                onClick={clearConflictNotice}
+                className="p-1.5 rounded-lg hover:bg-amber-500/20 transition opacity-80 hover:opacity-100 cursor-pointer"
+                title="Schließen"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         )}
 
@@ -540,6 +582,24 @@ export const App: React.FC = () => {
         isOpen={showLegalModal}
         initialTab={legalTab}
         onClose={() => setShowLegalModal(false)}
+      />
+
+      {/* E-MAIL VERIFIKATION (VOR CLOUD-SYNC AKTIVIERUNG) */}
+      <EmailVerificationModal
+        isOpen={isEmailVerificationOpen}
+        email={emailForVerification}
+        onSuccess={handleEmailVerificationSuccess}
+        onCancel={handleEmailVerificationCancel}
+      />
+
+      {/* SYNC-RECONCILIATION MODAL (RICHTUNGSBASIERTER ABGLEICH) */}
+      <SyncReconciliationModal
+        isOpen={isReconciliationOpen}
+        localClassCount={reconciliationMeta?.localClassCount ?? 0}
+        remoteClassCount={reconciliationMeta?.remoteClassCount ?? 0}
+        remoteLastUpdated={reconciliationMeta?.remoteLastUpdated}
+        onResolve={handleResolveReconciliation}
+        onCancel={handleCancelReconciliation}
       />
     </div>
   );
