@@ -2,8 +2,20 @@
 
 > **Gradus21** — Zero-Knowledge E2EE & 100 % Client-Side Rust/WebAssembly Notenverwaltung & pädagogische Didaktik für Lehrkräfte.
 >
-> 🚀 **Status: Version `1.1.1` (Production Bugfix Release)**  
+> 🌐 **Website:** [gradus21.de](https://gradus21.de) &nbsp;|&nbsp; 🧮 **Kostenloser Notenschlüssel-Rechner:** [gradus21.de/notenrechner](https://gradus21.de/notenrechner/)  
+> 🚀 **Status: Version `1.1.1` (Production Release)**  
 > Vollständig DSGVO-konform, Zero-Knowledge verschlüsselt, FIDO2/Passkey-gesichert und bereit für den produktiven Schuleinsatz.
+
+[![Website](https://img.shields.io/badge/Website-gradus21.de-0d9488?style=for-the-badge&logo=googlechrome&logoColor=white)](https://gradus21.de)
+[![Notenrechner](https://img.shields.io/badge/Notenschl%C3%BCssel--Rechner-gradus21.de%2Fnotenrechner-3b82f6?style=for-the-badge&logo=calculator&logoColor=white)](https://gradus21.de/notenrechner/)
+
+---
+
+### 🔗 Direktlinks & Online-Tools
+
+- 🌐 **Offizielle Website & Informationen:** [https://gradus21.de](https://gradus21.de)
+- 🧮 **Kostenloser IHK & Schul-Notenschlüssel-Rechner:** [https://gradus21.de/notenrechner/](https://gradus21.de/notenrechner/)  
+  *(Kostenlos & werbefrei direkt im Browser nutzbar – berechnet lineare & geknickte Schlüssel, Rundungsmodi, IHK-Standard, 16er-Feinstufen und druckfertige A4-Tabellen)*
 
 ---
 
