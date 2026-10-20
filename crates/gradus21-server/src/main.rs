@@ -1681,13 +1681,21 @@ async fn passkey_login_start(
     State(state): State<AppState>,
     Json(req): Json<PasskeyLoginStartRequest>,
 ) -> Result<Json<PasskeyLoginStartResponse>, (StatusCode, String)> {
-    let user_opt = if let Some(e) = req.email.as_deref().filter(|s| !s.trim().is_empty()) {
-        let clean = e.trim().to_lowercase();
+    let has_requested_email = req.email.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false);
+    let user_opt = if has_requested_email {
+        let clean = req.email.as_deref().unwrap().trim().to_lowercase();
         let users = state.mem_users.read().unwrap();
         users.values().find(|u| u.email.to_lowercase() == clean).cloned()
     } else {
         None
     };
+
+    if has_requested_email && user_opt.is_none() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Kein passender Passkey für diesen Benutzer hinterlegt. Bitte melde dich mit deinem Passwort an.".into(),
+        ));
+    }
 
     let (passkeys_to_allow, prf_salt_opt) = {
         let pks = state.mem_passkeys.read().unwrap();
@@ -1728,11 +1736,21 @@ async fn passkey_login_start(
         (pk_objs, prf_salt)
     };
 
-    if passkeys_to_allow.is_empty() {
+    if has_requested_email && passkeys_to_allow.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
             "Kein passender Passkey für diesen Benutzer hinterlegt. Bitte melde dich mit deinem Passwort an.".into(),
         ));
+    }
+
+    if !has_requested_email && passkeys_to_allow.is_empty() {
+        let pks = state.mem_passkeys.read().unwrap();
+        if pks.is_empty() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Es sind noch keine Passkeys im System hinterlegt. Bitte melde dich mit deinem Passwort an.".into(),
+            ));
+        }
     }
 
     let (request_challenge, auth_state) = state

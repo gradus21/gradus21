@@ -495,9 +495,18 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             const startData = await startRes.json();
             serverSessionId = startData.session_id;
             creationPublicKey = startData.publicKey;
+          } else {
+            const errText = await startRes.text().catch(() => '');
+            setStatusMsg(null);
+            setErrorMsg(
+              `Fehler bei der Vorbereitung der Passkey-Registrierung: ${errText || startRes.statusText}`
+            );
+            return false;
           }
-        } catch {
-          // offline: passkey works locally
+        } catch (e: any) {
+          setStatusMsg(null);
+          setErrorMsg(`Server nicht erreichbar für Passkey-Registrierung: ${String(e)}`);
+          return false;
         }
       }
 
@@ -561,7 +570,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         cred = (await navigator.credentials.create(createOptions)) as PublicKeyCredential | null;
 
         if (cred) {
-          credentialIdB64 = bytesToBase64(new Uint8Array(cred.rawId));
+          credentialIdB64 = cred.id || bytesToBase64Url(new Uint8Array(cred.rawId));
           const extResults = (cred.getClientExtensionResults() as any)?.prf;
           const prfFirst = extResults?.results?.first;
           if (prfFirst) {
@@ -596,12 +605,13 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       }
 
       const passkeySecretB64 = bytesToBase64(passkeySecretBytes);
+      const canonicalCredentialId = cred.id || credentialIdB64;
 
       // Verschlüssele den persönlichen Hauptschlüssel (DEK) mit dem Passkey-Geheimnis via Rust/WASM
       const passkeyEncryptedDek = wasm_wrap_dek_with_passkey(
         dek,
         passkeySecretB64,
-        credentialIdB64
+        canonicalCredentialId
       );
 
       const recoveryAuthKeyB64 = activeSession.recoveryKeyFormatted
@@ -648,6 +658,13 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             if (finishRes.ok) {
               const data = await finishRes.json();
               if (data.token) dataToken = data.token;
+            } else {
+              const errText = await finishRes.text().catch(() => '');
+              setStatusMsg(null);
+              setErrorMsg(
+                `Passkey-Registrierung auf dem Server fehlgeschlagen: ${errText || finishRes.statusText}`
+              );
+              return false;
             }
           } else {
             const res = await fetch('/api/auth/passkey/register', {
@@ -657,7 +674,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 Authorization: `Bearer ${activeSession.token}`,
               },
               body: JSON.stringify({
-                credential_id: credentialIdB64,
+                credential_id: canonicalCredentialId,
                 label: deviceLabel,
                 passkey_encrypted_dek: passkeyEncryptedDek,
                 passkey_prf_salt_b64: isPrfEnabled ? prfSaltB64 : undefined,
@@ -671,15 +688,24 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             if (res.ok) {
               const data = await res.json();
               if (data.token) dataToken = data.token;
+            } else {
+              const errText = await res.text().catch(() => '');
+              setStatusMsg(null);
+              setErrorMsg(
+                `Passkey-Registrierung fehlgeschlagen: ${errText || res.statusText}`
+              );
+              return false;
             }
           }
-        } catch {
-          // offline: passkey works locally
+        } catch (serverErr: any) {
+          setStatusMsg(null);
+          setErrorMsg(`Verbindungsfehler bei der Passkey-Registrierung: ${String(serverErr)}`);
+          return false;
         }
       }
 
       const entry: LocalPasskeyStoreEntry = {
-        credentialId: credentialIdB64,
+        credentialId: canonicalCredentialId,
         email: activeSession.email.trim().toLowerCase(),
         label: deviceLabel,
         prfSupported: isPrfEnabled,
@@ -851,10 +877,19 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     try {
       const store = loadLocalPasskeys();
       const enteredEmail = email.trim().toLowerCase();
-      let localEntry = (enteredEmail ? store[enteredEmail] : null) || Object.values(store)[0] || null;
-      const targetEmail = localEntry?.email || enteredEmail;
+      // Only match specific email if entered; do not fall back to another user's entry
+      let localEntry: LocalPasskeyStoreEntry | null = null;
+      if (enteredEmail) {
+        localEntry = store[enteredEmail] || null;
+      } else {
+        const storedEntries = Object.values(store);
+        if (storedEntries.length > 0) {
+          localEntry = storedEntries[0];
+        }
+      }
+      const targetEmail = enteredEmail || localEntry?.email || undefined;
 
-      if (!targetEmail) {
+      if (!targetEmail && (!localEntry || !localEntry.credentialId)) {
         setStatusMsg(null);
         setErrorMsg(
           'Bitte gib zuerst deine E-Mail-Adresse ein, um dich auf diesem Gerät per Passkey anzumelden.'
@@ -898,7 +933,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             prfSaltToUse = base64ToBytes(startData.passkey_prf_salt_b64);
             prfSaltB64Used = startData.passkey_prf_salt_b64;
           }
-        } else if (!localEntry) {
+        } else {
           const errText = await startRes.text().catch(() => '');
           setStatusMsg(null);
           setErrorMsg(
@@ -960,7 +995,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         }
 
         if ((!allowCredentialsList || allowCredentialsList.length === 0) && localEntry?.credentialId) {
-          const credIdBytes = base64ToBytes(localEntry.credentialId);
+          const credIdBytes = base64UrlToBytes(localEntry.credentialId);
           allowCredentialsList = [
             {
               type: 'public-key',
@@ -1096,13 +1131,31 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       const effectiveCredentialId =
         loginData?.passkey_credential_id ||
         localEntry?.credentialId ||
-        bytesToBase64(new Uint8Array(assertion.rawId));
+        assertion.id ||
+        bytesToBase64Url(new Uint8Array(assertion.rawId));
 
-      const unwrappedDekB64 = wasm_unwrap_dek_with_passkey(
-        derivedSecretB64,
-        effectiveCredentialId,
-        passkeyEncryptedDek
-      );
+      let unwrappedDekB64: string;
+      try {
+        unwrappedDekB64 = wasm_unwrap_dek_with_passkey(
+          derivedSecretB64,
+          effectiveCredentialId,
+          passkeyEncryptedDek
+        );
+      } catch (firstUnwrapErr) {
+        // Fallback: in case DEK was originally wrapped using standard base64 vs base64url or vice versa
+        try {
+          const altCredId = effectiveCredentialId.includes('-') || effectiveCredentialId.includes('_')
+            ? bytesToBase64(base64UrlToBytes(effectiveCredentialId))
+            : bytesToBase64Url(base64ToBytes(effectiveCredentialId));
+          unwrappedDekB64 = wasm_unwrap_dek_with_passkey(
+            derivedSecretB64,
+            altCredId,
+            passkeyEncryptedDek
+          );
+        } catch {
+          throw firstUnwrapErr;
+        }
+      }
 
       const effectiveEmail = loginData?.email || localEntry?.email || targetEmail;
       const effectiveLabel = loginData?.passkey_label || localEntry?.label || 'Passkey';
