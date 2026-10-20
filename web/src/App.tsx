@@ -193,6 +193,7 @@ export const App: React.FC = () => {
         cloudSyncEnabled={userSettings.cloudSyncEnabled ?? false}
         onToggleCloudSync={handleToggleCloudSync}
         onPurgeCloudData={handlePurgeCloudData}
+        onImportEncryptedBackup={handleImportEncryptedBackup}
       />
     );
   }

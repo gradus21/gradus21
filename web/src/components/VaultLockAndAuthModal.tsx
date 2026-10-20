@@ -36,6 +36,7 @@ import {
   Smartphone,
   Trash2,
   Unlock,
+  Upload,
   X,
 } from 'lucide-react';
 
@@ -72,6 +73,7 @@ interface VaultLockAndAuthModalProps {
   cloudSyncEnabled?: boolean;
   onToggleCloudSync?: (enable: boolean) => Promise<boolean>;
   onPurgeCloudData?: () => Promise<boolean>;
+  onImportEncryptedBackup?: (file: File) => Promise<void>;
 }
 
 interface LocalPasskeyStoreEntry {
@@ -251,6 +253,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   cloudSyncEnabled = false,
   onToggleCloudSync,
   onPurgeCloudData,
+  onImportEncryptedBackup,
 }) => {
   const [authTab, setAuthTab] = useState<'login' | 'register' | 'recover'>('login');
   const [email, setEmail] = useState(session?.email || '');
@@ -2667,6 +2670,30 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 <span>Mit Passwort öffnen</span>
               </button>
             </form>
+          )}
+
+          {/* OFFLINE RESTORE: AUS NOTEN-BACKUP WIEDERHERSTELLEN */}
+          {onImportEncryptedBackup && !isRegisterWizard && (
+            <div
+              className="pt-3 border-t text-center"
+              style={{ borderColor: 'var(--border-subtle)' }}
+            >
+              <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-teal-600 dark:text-teal-400 hover:underline cursor-pointer">
+                <Upload className="w-3.5 h-3.5" />
+                <span>Aus verschlüsseltem Noten-Backup (.gradus21) wiederherstellen</span>
+                <input
+                  type="file"
+                  accept=".gradus21,.json"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      onImportEncryptedBackup(file);
+                    }
+                  }}
+                />
+              </label>
+            </div>
           )}
         </div>
       </div>
