@@ -988,13 +988,19 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             prfSaltB64Used = startData.passkey_prf_salt_b64;
           }
         } else {
-          const errText = await startRes.text().catch(() => '');
-          setStatusMsg(null);
-          setErrorMsg(
-            errText ||
-              'Für dieses Konto ist noch kein Passkey hinterlegt. Bitte melde dich mit deinem Passwort an.'
-          );
-          return;
+          // Falls das Konto auf dem Server nicht existiert (z. B. rein lokaler Offline-Tresor ohne Cloud-Konto),
+          // aber ein lokaler Passkey hinterlegt ist, schalte nahtlos auf lokalen Offline-Modus um:
+          if (localEntry?.passkeyEncryptedDek) {
+            console.info('Konto auf dem Server nicht registriert – fahre im lokalen Offline-Tresor-Modus fort.');
+          } else {
+            const errText = await startRes.text().catch(() => '');
+            setStatusMsg(null);
+            setErrorMsg(
+              errText ||
+                'Für dieses Konto ist noch kein Passkey hinterlegt. Bitte melde dich mit deinem Passwort an.'
+            );
+            return;
+          }
         }
       } catch {
         // Server unreachable / offline
