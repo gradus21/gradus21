@@ -1684,6 +1684,7 @@ async fn passkey_login_start(
     let has_requested_email = req.email.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false);
     let user_opt = if has_requested_email {
         let clean = req.email.as_deref().unwrap().trim().to_lowercase();
+        check_auth_rate_limit(&state, &format!("passkey_start:{}", clean))?;
         let users = state.mem_users.read().unwrap();
         users.values().find(|u| u.email.to_lowercase() == clean).cloned()
     } else {

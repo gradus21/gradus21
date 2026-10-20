@@ -176,13 +176,23 @@ function removeLocalPasskey(email: string, credentialId?: string) {
   try {
     const store = loadLocalPasskeys();
     const normalizedEmail = email.trim().toLowerCase();
-    delete store[normalizedEmail];
     if (credentialId) {
       delete store[credentialId];
-    }
-    for (const [key, value] of Object.entries(store)) {
-      if (value.email?.toLowerCase() === normalizedEmail || (credentialId && value.credentialId === credentialId)) {
-        delete store[key];
+      if (store[normalizedEmail]?.credentialId === credentialId) {
+        delete store[normalizedEmail];
+        const otherEntry = Object.values(store).find(
+          (v) => v.email?.toLowerCase() === normalizedEmail && v.credentialId !== credentialId
+        );
+        if (otherEntry) {
+          store[normalizedEmail] = otherEntry;
+        }
+      }
+    } else {
+      delete store[normalizedEmail];
+      for (const [key, value] of Object.entries(store)) {
+        if (value.email?.toLowerCase() === normalizedEmail) {
+          delete store[key];
+        }
       }
     }
     localStorage.setItem(PASSKEY_STORAGE_KEY, JSON.stringify(store));
