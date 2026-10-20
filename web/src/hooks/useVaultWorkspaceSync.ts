@@ -5,6 +5,7 @@ import initWasm, {
 } from '../wasm-pkg/gradus21_core';
 import { ActiveVaultSession } from '../components/VaultLockAndAuthModal';
 import { GlobalTemplateRecord } from '../components/admin/CentralTemplatesTab';
+import { SyncReconciliationStrategy } from '../components/SyncReconciliationModal';
 import {
   ClassroomSubjectDataset,
   DEFAULT_USER_SYNC_SETTINGS,
@@ -303,6 +304,17 @@ export function useVaultWorkspaceSync() {
     plaintext: string;
     ciphertext: string;
     decryptedVerify: string;
+  } | null>(null);
+
+  // Email verification & reconciliation states
+  const [isEmailVerificationOpen, setIsEmailVerificationOpen] = useState(false);
+  const [emailForVerification, setEmailForVerification] = useState('');
+  const [isEmailVerified, setIsEmailVerified] = useState(false);
+  const [isReconciliationOpen, setIsReconciliationOpen] = useState(false);
+  const [reconciliationMeta, setReconciliationMeta] = useState<{
+    localClassCount: number;
+    remoteClassCount: number;
+    remoteLastUpdated?: string;
   } | null>(null);
 
   // Global School Templates from Server (Zentral bereitgestellt)
@@ -908,8 +920,10 @@ export function useVaultWorkspaceSync() {
             ...vaultSession,
             dekB64: '',
             token: '',
+            authKeyB64: undefined,
             recoveryKeyFormatted: undefined,
           },
+          kdfParams: vaultSession.kdfParams || { m_cost: 65536, t_cost: 3, p_cost: 1 },
           classEnvelopes: mergedClassEnvelopes,
           encryptedSettingsEnvelope: encryptedSettingsStr || undefined,
           isLocked: isVaultLocked,
@@ -1136,15 +1150,285 @@ export function useVaultWorkspaceSync() {
     }
   };
 
-  const handleToggleCloudSync = (enabled: boolean) => {
-    setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: enabled }));
+  const handleToggleCloudSync = async (enabled: boolean) => {
     if (!enabled) {
+      setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: false }));
       setSyncStatus('local_only');
-    } else {
-      // Mark dirty so debounced save uploads envelopes immediately
+      return;
+    }
+
+    if (!vaultSession?.email) {
+      alert('Bitte entsperre oder erstelle zuerst einen Tresor mit einer E-Mail-Adresse.');
+      return;
+    }
+
+    // Require E-Mail verification before enabling cloud sync
+    if (!isEmailVerified) {
+      setEmailForVerification(vaultSession.email);
+      setIsEmailVerificationOpen(true);
+      return;
+    }
+
+    await proceedToCloudSyncActivation();
+  };
+
+  const handleEmailVerificationCancel = () => {
+    setIsEmailVerificationOpen(false);
+    setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: false }));
+    setSyncStatus('local_only');
+  };
+
+  const proceedToCloudSyncActivation = async (authToken?: string) => {
+    const token = authToken || vaultSession?.token;
+    if (!token) {
+      alert('Keine gültige Server-Sitzung. Bitte melde dich an.');
+      return;
+    }
+
+    try {
+      setSyncStatus('syncing');
+      const sumRes = await fetch('/api/envelopes/summary', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!sumRes.ok) {
+        throw new Error('Summary konnte nicht abgerufen werden');
+      }
+      const summary = await sumRes.json();
+      const remoteClassCount = summary.class_envelopes?.length || 0;
+      const realLocalClasses = datasets.filter((d) => d.id !== 'demo-class-initial');
+
+      if (remoteClassCount > 0 && realLocalClasses.length > 0) {
+        // Both local and remote exist -> open reconciliation modal
+        setReconciliationMeta({
+          localClassCount: realLocalClasses.length,
+          remoteClassCount,
+          remoteLastUpdated: summary.last_updated_at || undefined,
+        });
+        setIsReconciliationOpen(true);
+      } else if (remoteClassCount > 0 && realLocalClasses.length === 0) {
+        // Cloud has classes, local is empty -> download from cloud directly
+        await executeReconciliation('download_remote', token);
+      } else {
+        // Cloud is empty -> upload local directly
+        setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: true }));
+        lastSerializedPerClassRef.current.clear();
+        lastSerializedSettingsRef.current = '';
+        setSyncStatus('synced');
+      }
+    } catch (err) {
+      console.error('Fehler bei der Cloud-Aktivierung:', err);
+      setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: false }));
+      setSyncStatus('local_only');
+    }
+  };
+
+  const handleEmailVerificationSuccess = async () => {
+    setIsEmailVerified(true);
+    setIsEmailVerificationOpen(false);
+
+    let token = vaultSession?.token;
+
+    // If offline vault or purged account, register or log in on server using existing userId
+    if (!token && vaultSession && vaultSession.authKeyB64) {
+      try {
+        const regRes = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: vaultSession.email,
+            auth_key_b64: vaultSession.authKeyB64,
+            kdf_salt_b64: vaultSession.kdfSaltB64,
+            kdf_params: JSON.stringify(
+              vaultSession.kdfParams || { m_cost: 65536, t_cost: 3, p_cost: 1 }
+            ),
+            encrypted_dek: vaultSession.encryptedDek,
+            recovery_encrypted_dek: vaultSession.recoveryEncryptedDek,
+            recovery_auth_key_b64: null,
+            user_id: vaultSession.userId,
+          }),
+        });
+        if (regRes.ok) {
+          const regData = await regRes.json();
+          token = regData.token;
+          setVaultSession((prev) =>
+            prev ? { ...prev, token: regData.token, isAdmin: regData.is_admin } : null
+          );
+        } else {
+          // If already registered, attempt login
+          const logRes = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: vaultSession.email,
+              auth_key_b64: vaultSession.authKeyB64,
+            }),
+          });
+          if (logRes.ok) {
+            const logData = await logRes.json();
+            token = logData.token;
+            setVaultSession((prev) =>
+              prev ? { ...prev, token: logData.token, isAdmin: logData.is_admin } : null
+            );
+          }
+        }
+      } catch (err) {
+        console.error('Konnte Sitzung nicht mit Server verknüpfen:', err);
+      }
+    }
+
+    await proceedToCloudSyncActivation(token);
+  };
+
+  const handleCancelReconciliation = () => {
+    setIsReconciliationOpen(false);
+    setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: false }));
+    setSyncStatus('local_only');
+  };
+
+  const executeReconciliation = async (
+    strategy: SyncReconciliationStrategy,
+    authToken?: string
+  ) => {
+    const token = authToken || vaultSession?.token;
+    if (!token || !vaultSession?.dekB64) {
+      setIsReconciliationOpen(false);
+      return;
+    }
+
+    try {
+      setSyncStatus('syncing');
+
+      // 1. Fetch remote envelopes
+      const res = await fetch('/api/envelopes/sync', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Fehler beim Abruf der Cloud-Daten.');
+      const remoteEnvelopes: Array<{
+        id: string;
+        entity_type: string;
+        encrypted_payload: string;
+        version: number;
+        updated_at: string;
+      }> = await res.json();
+
+      // Populate server versions for OCC
+      remoteEnvelopes.forEach((env) => {
+        envelopeVersionsRef.current.set(env.id, env.version);
+      });
+
+      // Decrypt remote class envelopes
+      const decryptedRemoteClasses: ClassroomSubjectDataset[] = [];
+      for (const env of remoteEnvelopes) {
+        if (env.entity_type === 'class_dataset') {
+          try {
+            const decJson = wasm_decrypt_envelope(
+              vaultSession.dekB64,
+              vaultSession.userId,
+              env.id,
+              env.encrypted_payload
+            );
+            const parsed = JSON.parse(decJson);
+            if (parsed && parsed.id) {
+              decryptedRemoteClasses.push(parsed);
+            }
+          } catch (e) {
+            console.warn('Envelope konnte nicht entschlüsselt werden:', env.id, e);
+          }
+        }
+      }
+
+      let finalClasses: ClassroomSubjectDataset[] = [];
+
+      if (strategy === 'download_remote') {
+        // Overwrite local with remote
+        finalClasses = decryptedRemoteClasses;
+      } else if (strategy === 'upload_local') {
+        // Overwrite remote with local
+        finalClasses = datasets;
+      } else {
+        // Smart Merge: combine both, resolving collisions by newer timestamp
+        const mergedMap = new Map<string, ClassroomSubjectDataset>();
+
+        // Add all remote classes first
+        decryptedRemoteClasses.forEach((cls) => {
+          mergedMap.set(cls.id, cls);
+        });
+
+        // Merge local classes
+        datasets.forEach((localCls) => {
+          const remoteCls = mergedMap.get(localCls.id);
+          if (!remoteCls) {
+            mergedMap.set(localCls.id, localCls);
+          } else {
+            const localTime = new Date(
+              (localCls as any).lastModified || (localCls as any).updatedAt || 0
+            ).getTime();
+            const remoteTime = new Date(
+              (remoteCls as any).lastModified || (remoteCls as any).updatedAt || 0
+            ).getTime();
+            if (localTime >= remoteTime) {
+              mergedMap.set(localCls.id, localCls);
+            } else {
+              mergedMap.set(localCls.id, remoteCls);
+            }
+          }
+        });
+
+        finalClasses = Array.from(mergedMap.values());
+      }
+
+      if (finalClasses.length > 0) {
+        setDatasets(finalClasses);
+        setActiveClassId(finalClasses[0].id);
+      }
+
+      // If uploading local or smart merging, immediately push all classes to remote
+      if (strategy === 'upload_local' || strategy === 'merge') {
+        const batchItems = finalClasses.map((cls) => {
+          const serialized = JSON.stringify(cls);
+          const encryptedPayload = wasm_encrypt_envelope(
+            vaultSession.dekB64,
+            vaultSession.userId,
+            cls.id,
+            serialized
+          );
+          const expectedVersion = envelopeVersionsRef.current.get(cls.id) || null;
+          return {
+            id: cls.id,
+            entity_type: 'class_dataset',
+            parent_id: null,
+            class_id: cls.id,
+            encrypted_payload: encryptedPayload,
+            expected_version: expectedVersion,
+          };
+        });
+
+        const batchRes = await fetch('/api/envelopes/batch', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ envelopes: batchItems }),
+        });
+
+        if (batchRes.ok) {
+          const updatedEnvs: Array<{ id: string; version: number }> = await batchRes.json();
+          updatedEnvs.forEach((env) => {
+            envelopeVersionsRef.current.set(env.id, env.version);
+          });
+        }
+      }
+
+      setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: true }));
       lastSerializedPerClassRef.current.clear();
       lastSerializedSettingsRef.current = '';
-      setSyncStatus('syncing');
+      setSyncStatus('synced');
+      setIsReconciliationOpen(false);
+      alert('Synchronisations-Abgleich erfolgreich abgeschlossen!');
+    } catch (err) {
+      console.error('Fehler bei der Reconciliation:', err);
+      alert('Fehler beim Ausführen des Datenabgleichs.');
     }
   };
 
@@ -1156,7 +1440,7 @@ export function useVaultWorkspaceSync() {
       return;
     }
     const confirmed = window.confirm(
-      'Möchtest du wirklich alle verschlüsselten Datensätze vom Server löschen? Deine lokalen Daten im Browser bleiben vollständig erhalten. Gradus21 arbeitet danach zu 100% lokal offline.'
+      'Möchtest du wirklich alle verschlüsselten Datensätze vom Server löschen?\n\nDeine lokalen Daten im Browser bleiben vollständig erhalten. Gradus21 arbeitet danach zu 100% lokal offline.'
     );
     if (!confirmed) return;
 
@@ -1168,10 +1452,20 @@ export function useVaultWorkspaceSync() {
         },
       });
       if (res.ok || res.status === 204) {
+        const body = await res.json().catch(() => null);
         envelopeVersionsRef.current.clear();
         setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: false }));
         setSyncStatus('local_only');
-        alert('Alle Server-Kopien wurden unwiderruflich gelöscht. Gradus21 arbeitet nun rein lokal.');
+        setIsEmailVerified(false);
+        if (body?.user_deleted) {
+          // Account completely purged from server (GDPR Art. 17)
+          setVaultSession((prev) => (prev ? { ...prev, token: '', isAdmin: false } : null));
+          alert(
+            'Alle Cloud-Daten und dein Benutzerkonto wurden gemäß DSGVO Art. 17 vollständig vom Server gelöscht.\n\nDein Tresor bleibt auf diesem Gerät uneingeschränkt lokal nutzbar.'
+          );
+        } else {
+          alert('Alle Server-Kopien deiner Datensätze wurden unwiderruflich gelöscht. Dein Admin-Konto bleibt erhalten.');
+        }
       } else {
         alert('Serverfehler beim Löschen der Cloud-Kopien.');
       }
@@ -1191,6 +1485,12 @@ export function useVaultWorkspaceSync() {
     }
     try {
       const parsed = JSON.parse(cachedRaw);
+      if (vaultSession.kdfParams) {
+        parsed.kdfParams = vaultSession.kdfParams;
+        if (parsed.session) {
+          parsed.session.kdfParams = vaultSession.kdfParams;
+        }
+      }
       exportVaultToFileDownload(parsed);
     } catch (e) {
       console.error('Fehler beim Exportieren des Backups:', e);
@@ -1207,7 +1507,22 @@ export function useVaultWorkspaceSync() {
       const targetKey = getUserEncryptedCacheKey(parsed.userId);
       localStorage.setItem(targetKey, JSON.stringify(parsed));
       localStorage.setItem(ACTIVE_USER_ID_STORAGE_KEY, parsed.userId);
-      alert('Das Tresor-Backup wurde erfolgreich in den Browser importiert! Bitte entsperre den Tresor mit deinem Master-Passwort.');
+
+      // Pre-populate locked vaultSession from imported bundle
+      if (parsed.session) {
+        setVaultSession({
+          ...parsed.session,
+          dekB64: '',
+          token: '',
+          recoveryKeyFormatted: undefined,
+        });
+      }
+      setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: false }));
+      setSyncStatus('local_only');
+
+      alert(
+        'Das Tresor-Backup wurde erfolgreich in den Browser importiert! Bitte entsperre den Tresor mit deinem Master-Passwort.'
+      );
       handleLockVault();
     } catch (err: any) {
       alert(err.message || 'Fehler beim Einlesen der Backup-Datei.');
@@ -1328,5 +1643,13 @@ export function useVaultWorkspaceSync() {
     handleImportEncryptedBackup,
     handleConnectBackupDirectory,
     handleDisconnectBackupDirectory,
+    isEmailVerificationOpen,
+    emailForVerification,
+    handleEmailVerificationSuccess,
+    handleEmailVerificationCancel,
+    isReconciliationOpen,
+    reconciliationMeta,
+    handleResolveReconciliation: executeReconciliation,
+    handleCancelReconciliation,
   };
 }

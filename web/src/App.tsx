@@ -7,6 +7,8 @@ import { SettingsModal, SettingsSection } from './components/SettingsModal';
 import { VaultLockAndAuthModal } from './components/VaultLockAndAuthModal';
 import { AdminModal } from './components/admin/AdminModal';
 import { LegalModal, LegalTab } from './components/LegalModal';
+import { EmailVerificationModal } from './components/EmailVerificationModal';
+import { SyncReconciliationModal } from './components/SyncReconciliationModal';
 import { CellDisplayFormat, TermFilterId, INITIAL_CLASS_DATASETS } from './data/demoClasses';
 import { useVaultWorkspaceSync } from './hooks/useVaultWorkspaceSync';
 import { useClassroomCalculations } from './hooks/useClassroomCalculations';
@@ -54,6 +56,14 @@ export const App: React.FC = () => {
     handleImportEncryptedBackup,
     handleConnectBackupDirectory,
     handleDisconnectBackupDirectory,
+    isEmailVerificationOpen,
+    emailForVerification,
+    handleEmailVerificationSuccess,
+    handleEmailVerificationCancel,
+    isReconciliationOpen,
+    reconciliationMeta,
+    handleResolveReconciliation,
+    handleCancelReconciliation,
   } = useVaultWorkspaceSync();
 
   // Navigation & Workspace State
@@ -540,6 +550,24 @@ export const App: React.FC = () => {
         isOpen={showLegalModal}
         initialTab={legalTab}
         onClose={() => setShowLegalModal(false)}
+      />
+
+      {/* E-MAIL VERIFIKATION (VOR CLOUD-SYNC AKTIVIERUNG) */}
+      <EmailVerificationModal
+        isOpen={isEmailVerificationOpen}
+        email={emailForVerification}
+        onSuccess={handleEmailVerificationSuccess}
+        onCancel={handleEmailVerificationCancel}
+      />
+
+      {/* SYNC-RECONCILIATION MODAL (RICHTUNGSBASIERTER ABGLEICH) */}
+      <SyncReconciliationModal
+        isOpen={isReconciliationOpen}
+        localClassCount={reconciliationMeta?.localClassCount ?? 0}
+        remoteClassCount={reconciliationMeta?.remoteClassCount ?? 0}
+        remoteLastUpdated={reconciliationMeta?.remoteLastUpdated}
+        onResolve={handleResolveReconciliation}
+        onCancel={handleCancelReconciliation}
       />
     </div>
   );

@@ -46,6 +46,8 @@ export interface ActiveVaultSession {
   email: string;
   isAdmin?: boolean;
   kdfSaltB64: string;
+  kdfParams?: { m_cost: number; t_cost: number; p_cost: number };
+  authKeyB64?: string;
   dekB64: string;
   encryptedDek: string;
   recoveryEncryptedDek: string;
@@ -105,15 +107,50 @@ export interface LocalCachedVaultMeta {
   userId: string;
   email: string;
   kdfSaltB64: string;
+  kdfParams?: { m_cost: number; t_cost: number; p_cost: number };
   encryptedDek: string;
   recoveryEncryptedDek?: string;
   totpEnabled?: boolean;
 }
 
-export function findLocalCachedVault(targetEmail?: string): LocalCachedVaultMeta | null {
+export function findLocalCachedVault(targetEmail?: string, targetUserId?: string): LocalCachedVaultMeta | null {
   try {
     const normalized = targetEmail ? targetEmail.trim().toLowerCase() : null;
     let fallback: LocalCachedVaultMeta | null = null;
+
+    // Check targetUserId or active user ID storage key first
+    const activeUserId =
+      targetUserId ||
+      localStorage.getItem('gradus21_active_user_id_v3') ||
+      localStorage.getItem('bte_notenflow_active_user_id_v3');
+    if (activeUserId) {
+      const activeRaw =
+        localStorage.getItem(`gradus21_e2ee_user_vault_v3_${activeUserId}`) ||
+        localStorage.getItem(`bte_notenflow_e2ee_user_vault_v3_${activeUserId}`);
+      if (activeRaw) {
+        try {
+          const parsed = JSON.parse(activeRaw);
+          const s = parsed.session;
+          if (s && s.userId && s.encryptedDek && s.kdfSaltB64) {
+            const activeMeta: LocalCachedVaultMeta = {
+              userId: s.userId,
+              email: s.email || 'lokal@schule.intern',
+              kdfSaltB64: s.kdfSaltB64,
+              kdfParams: s.kdfParams || parsed.kdfParams,
+              encryptedDek: s.encryptedDek,
+              recoveryEncryptedDek: s.recoveryEncryptedDek,
+              totpEnabled: s.totpEnabled,
+            };
+            if (!normalized || (s.email && s.email.trim().toLowerCase() === normalized)) {
+              return activeMeta;
+            }
+          }
+        } catch {
+          // ignore corrupted entry
+        }
+      }
+    }
+
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       if (!key) continue;
@@ -131,6 +168,7 @@ export function findLocalCachedVault(targetEmail?: string): LocalCachedVaultMeta
               userId: s.userId,
               email: s.email || 'lokal@schule.intern',
               kdfSaltB64: s.kdfSaltB64,
+              kdfParams: s.kdfParams || parsed.kdfParams,
               encryptedDek: s.encryptedDek,
               recoveryEncryptedDek: s.recoveryEncryptedDek,
               totpEnabled: s.totpEnabled,
@@ -286,6 +324,12 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   const [authTab, setAuthTab] = useState<'login' | 'register' | 'recover'>('login');
   const [email, setEmail] = useState(session?.email || '');
   const [password, setPassword] = useState('');
+
+  useEffect(() => {
+    if (session?.email) {
+      setEmail(session.email);
+    }
+  }, [session?.email]);
   const [totpCode, setTotpCode] = useState('');
   const [recoveryKeyInput, setRecoveryKeyInput] = useState('');
   const [newPasswordInput, setNewPasswordInput] = useState('');
@@ -1617,12 +1661,14 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           if (saltRes.ok) {
             saltData = await saltRes.json();
           } else if (saltRes.status === 404) {
-            const localCached = findLocalCachedVault(email);
+            const localCached = findLocalCachedVault(email, session?.userId);
             if (!localCached) {
               setErrorMsg('Kein Gradus21-Konto für diese E-Mail-Adresse gefunden. Bitte prüfe deine Eingabe oder erstelle einen lokalen Tresor.');
               setStatusMsg(null);
               return;
             }
+            // User does not exist on server (purged or purely offline vault)
+            isServerOffline = true;
           } else {
             isServerOffline = true;
           }
@@ -1638,7 +1684,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         return;
       }
 
-      const localCached = findLocalCachedVault(email);
+      const localCached = findLocalCachedVault(email, session?.userId);
 
       // Versuche zuerst den aktuellen verschlüsselten Schlüssel vom Server, dann den lokalen Cache
       const candidateEncryptedDeks = [
@@ -1657,7 +1703,10 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       let usedEncryptedDek = '';
       let usedSalt = '';
 
-      const kdfParams = saltData?.kdf_params || { m_cost: 65536, t_cost: 3, p_cost: 1 };
+      const kdfParams =
+        saltData?.kdf_params ||
+        localCached?.kdfParams ||
+        session?.kdfParams || { m_cost: 65536, t_cost: 3, p_cost: 1 };
 
       for (const s of candidateSalts) {
         for (const encDek of candidateEncryptedDeks) {
@@ -1724,9 +1773,11 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       onUnlockSuccess({
         token: loginData?.token || '',
         userId: effectiveUserId,
-        email: loginData?.email || email,
+        email: loginData?.email || localCached?.email || email,
         isAdmin: loginData?.is_admin ?? false,
         kdfSaltB64: usedSalt || loginData?.kdf_salt_b64 || session?.kdfSaltB64 || '',
+        kdfParams,
+        authKeyB64: unlocked.auth_key_b64,
         dekB64: unlocked.dek_b64,
         encryptedDek: usedEncryptedDek || loginData?.encrypted_dek || session?.encryptedDek || '',
         recoveryEncryptedDek:
