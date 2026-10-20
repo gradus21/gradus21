@@ -57,6 +57,50 @@ export function removeStoredDek(userId: string): void {
   sessionStorage.removeItem(`bte_notenflow_dek_${userId}`);
 }
 
+export function getStoredToken(userId: string): string {
+  return (
+    sessionStorage.getItem(`gradus21_token_${userId}`) ||
+    sessionStorage.getItem(`bte_notenflow_token_${userId}`) ||
+    ''
+  );
+}
+
+export function setStoredToken(userId: string, token: string): void {
+  if (token) {
+    sessionStorage.setItem(`gradus21_token_${userId}`, token);
+    sessionStorage.setItem(`bte_notenflow_token_${userId}`, token);
+  } else {
+    removeStoredToken(userId);
+  }
+}
+
+export function removeStoredToken(userId: string): void {
+  sessionStorage.removeItem(`gradus21_token_${userId}`);
+  sessionStorage.removeItem(`bte_notenflow_token_${userId}`);
+}
+
+export function getStoredAuthKey(userId: string): string {
+  return (
+    sessionStorage.getItem(`gradus21_authkey_${userId}`) ||
+    sessionStorage.getItem(`bte_notenflow_authkey_${userId}`) ||
+    ''
+  );
+}
+
+export function setStoredAuthKey(userId: string, authKey: string): void {
+  if (authKey) {
+    sessionStorage.setItem(`gradus21_authkey_${userId}`, authKey);
+    sessionStorage.setItem(`bte_notenflow_authkey_${userId}`, authKey);
+  } else {
+    removeStoredAuthKey(userId);
+  }
+}
+
+export function removeStoredAuthKey(userId: string): void {
+  sessionStorage.removeItem(`gradus21_authkey_${userId}`);
+  sessionStorage.removeItem(`bte_notenflow_authkey_${userId}`);
+}
+
 export function createFreshWorkspaceForNewTeacher(userId: string): ClassroomSubjectDataset[] {
   const starterId = ensureValidUuid(`class_starter_${userId}`);
   return [
@@ -693,12 +737,23 @@ export function useVaultWorkspaceSync() {
       }
     }
     // Bereinige im gesperrten Zustand auch die entschlüsselten Daten aus dem Arbeitsspeicher (RAM)
+    removeStoredDek(vaultSession?.userId || '');
+    removeStoredToken(vaultSession?.userId || '');
+    removeStoredAuthKey(vaultSession?.userId || '');
     const emptyLocked = createFreshWorkspaceForNewTeacher('locked');
     setDatasets(emptyLocked);
     setActiveClassId(emptyLocked[0].id);
     setLoadedUserId(null);
     setVaultSession((prev) =>
-      prev ? { ...prev, dekB64: '', token: '', recoveryKeyFormatted: undefined } : null
+      prev
+        ? {
+            ...prev,
+            dekB64: '',
+            token: '',
+            authKeyB64: undefined,
+            recoveryKeyFormatted: undefined,
+          }
+        : null
     );
     setIsVaultLocked(true);
   };
@@ -709,6 +764,12 @@ export function useVaultWorkspaceSync() {
     localStorage.setItem(ACTIVE_USER_ID_STORAGE_KEY, unlockedSession.userId);
     if (unlockedSession.dekB64) {
       setStoredDek(unlockedSession.userId, unlockedSession.dekB64);
+    }
+    if (unlockedSession.token) {
+      setStoredToken(unlockedSession.userId, unlockedSession.token);
+    }
+    if (unlockedSession.authKeyB64) {
+      setStoredAuthKey(unlockedSession.userId, unlockedSession.authKeyB64);
     }
     setVaultSession(unlockedSession);
     if (unlockedSession.dekB64) {
@@ -779,6 +840,8 @@ export function useVaultWorkspaceSync() {
             const parsed = JSON.parse(cachedRaw);
             if (parsed.session) {
               const sessionDek = getStoredDek(lastActiveUserId);
+              const sessionToken = getStoredToken(lastActiveUserId);
+              const sessionAuthKey = getStoredAuthKey(lastActiveUserId);
               if (lockedFlag || parsed.isLocked || !sessionDek) {
                 const emptyLocked = createFreshWorkspaceForNewTeacher('locked');
                 setDatasets(emptyLocked);
@@ -786,6 +849,8 @@ export function useVaultWorkspaceSync() {
                 setVaultSession({
                   ...parsed.session,
                   dekB64: '',
+                  token: '',
+                  authKeyB64: undefined,
                   recoveryKeyFormatted: undefined,
                 });
                 setIsVaultLocked(true);
@@ -795,6 +860,8 @@ export function useVaultWorkspaceSync() {
               const restoredSession: ActiveVaultSession = {
                 ...parsed.session,
                 dekB64: sessionDek,
+                token: sessionToken || parsed.session.token || '',
+                authKeyB64: sessionAuthKey || parsed.session.authKeyB64 || undefined,
                 recoveryKeyFormatted: undefined,
               };
               setVaultSession(restoredSession);
@@ -837,6 +904,12 @@ export function useVaultWorkspaceSync() {
     const timer = window.setTimeout(async () => {
       try {
         setStoredDek(vaultSession.userId, vaultSession.dekB64);
+        if (vaultSession.token) {
+          setStoredToken(vaultSession.userId, vaultSession.token);
+        }
+        if (vaultSession.authKeyB64) {
+          setStoredAuthKey(vaultSession.userId, vaultSession.authKeyB64);
+        }
 
         // Find which class datasets were modified
         const dirtyEnvelopes: Array<{
@@ -1183,9 +1256,48 @@ export function useVaultWorkspaceSync() {
   };
 
   const proceedToCloudSyncActivation = async (authToken?: string) => {
-    const token = authToken || vaultSession?.token;
+    let token =
+      authToken ||
+      vaultSession?.token ||
+      (vaultSession?.userId ? getStoredToken(vaultSession.userId) : '');
+
+    // Auto-login if we have authKey but no active token (e.g. after page reload or unlocking offline)
+    if (
+      !token &&
+      vaultSession?.email &&
+      (vaultSession?.authKeyB64 || (vaultSession?.userId && getStoredAuthKey(vaultSession.userId)))
+    ) {
+      const authKey =
+        vaultSession.authKeyB64 || (vaultSession?.userId ? getStoredAuthKey(vaultSession.userId) : '');
+      try {
+        const logRes = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: vaultSession.email,
+            auth_key_b64: authKey,
+          }),
+        });
+        if (logRes.ok) {
+          const logData = await logRes.json();
+          token = logData.token;
+          if (token && vaultSession.userId) {
+            setStoredToken(vaultSession.userId, token);
+          }
+          setVaultSession((prev) =>
+            prev ? { ...prev, token: logData.token, isAdmin: logData.is_admin } : null
+          );
+        }
+      } catch (err) {
+        console.warn('Auto-Login vor Cloud-Aktivierung fehlgeschlagen:', err);
+      }
+    }
+
     if (!token) {
-      alert('Keine gültige Server-Sitzung. Bitte melde dich an.');
+      alert(
+        'Für den Cloud-Sync ist eine aktive Anmeldung am Server erforderlich. Bitte melde dich an.'
+      );
+      setIsVaultLocked(true);
       return;
     }
 
@@ -1230,17 +1342,22 @@ export function useVaultWorkspaceSync() {
     setIsEmailVerified(true);
     setIsEmailVerificationOpen(false);
 
-    let token = vaultSession?.token;
+    let token =
+      vaultSession?.token ||
+      (vaultSession?.userId ? getStoredToken(vaultSession.userId) : '');
+    const authKey =
+      vaultSession?.authKeyB64 ||
+      (vaultSession?.userId ? getStoredAuthKey(vaultSession.userId) : '');
 
     // If offline vault or purged account, register or log in on server using existing userId
-    if (!token && vaultSession && vaultSession.authKeyB64) {
+    if (!token && vaultSession && authKey) {
       try {
         const regRes = await fetch('/api/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             email: vaultSession.email,
-            auth_key_b64: vaultSession.authKeyB64,
+            auth_key_b64: authKey,
             kdf_salt_b64: vaultSession.kdfSaltB64,
             kdf_params: JSON.stringify(
               vaultSession.kdfParams || { m_cost: 65536, t_cost: 3, p_cost: 1 }
@@ -1254,6 +1371,9 @@ export function useVaultWorkspaceSync() {
         if (regRes.ok) {
           const regData = await regRes.json();
           token = regData.token;
+          if (token && vaultSession.userId) {
+            setStoredToken(vaultSession.userId, token);
+          }
           setVaultSession((prev) =>
             prev ? { ...prev, token: regData.token, isAdmin: regData.is_admin } : null
           );
@@ -1264,12 +1384,15 @@ export function useVaultWorkspaceSync() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               email: vaultSession.email,
-              auth_key_b64: vaultSession.authKeyB64,
+              auth_key_b64: authKey,
             }),
           });
           if (logRes.ok) {
             const logData = await logRes.json();
             token = logData.token;
+            if (token && vaultSession.userId) {
+              setStoredToken(vaultSession.userId, token);
+            }
             setVaultSession((prev) =>
               prev ? { ...prev, token: logData.token, isAdmin: logData.is_admin } : null
             );
@@ -1389,6 +1512,9 @@ export function useVaultWorkspaceSync() {
       if (finalClasses.length > 0) {
         setDatasets(finalClasses);
         setActiveClassId(finalClasses[0].id);
+        for (const cls of finalClasses) {
+          lastSerializedPerClassRef.current.set(cls.id, JSON.stringify(cls));
+        }
       }
 
       // If uploading local or smart merging, immediately push all classes to remote
@@ -1430,7 +1556,6 @@ export function useVaultWorkspaceSync() {
       }
 
       setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: true }));
-      lastSerializedPerClassRef.current.clear();
       lastSerializedSettingsRef.current = '';
       setSyncStatus('synced');
       setSyncConflictNotice(null);
@@ -1443,8 +1568,10 @@ export function useVaultWorkspaceSync() {
   };
 
   const openReconciliationModal = async () => {
+    let token =
+      vaultSession?.token ||
+      (vaultSession?.userId ? getStoredToken(vaultSession.userId) : '');
     try {
-      const token = vaultSession?.token;
       if (token) {
         const sumRes = await fetch('/api/envelopes/summary', {
           headers: { Authorization: `Bearer ${token}` },
