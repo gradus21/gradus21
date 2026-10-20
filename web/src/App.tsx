@@ -20,6 +20,7 @@ import { GuideChapterSelectModal } from './components/guide/GuideChapterSelectMo
 import { WelcomeGuideBanner } from './components/guide/WelcomeGuideBanner';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useInteractiveGuide } from './hooks/useInteractiveGuide';
+import { APP_VERSION } from './version';
 
 export const App: React.FC = () => {
   const {
@@ -387,7 +388,7 @@ export const App: React.FC = () => {
       {/* APP FOOTER / LEGAL COMPLIANCE LINKS */}
       <footer className="mt-auto py-3 px-6 border-t border-slate-200/60 dark:border-slate-800/60 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500 dark:text-slate-400">
         <div className="flex items-center gap-2 font-medium">
-          <span className="font-bold text-slate-700 dark:text-slate-300">Gradus21 v1.0.1</span>
+          <span className="font-bold text-slate-700 dark:text-slate-300">Gradus21 v{APP_VERSION}</span>
           <span>·</span>
           <span>Zero-Knowledge E2EE & Client-Side Rust/WASM</span>
         </div>
