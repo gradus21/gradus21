@@ -3,6 +3,41 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-10-20
+
+### Added
+- **Opt-In Cloud Sync & School Privacy First Architecture**:
+  - Cloud synchronisation is now strictly **Opt-In** and disabled by default. All teacher, class, and grade data remain 100% locally on the device unless explicitly activated.
+  - Interactive **AVV-Confirmation Modal**: When opting into cloud sync, a confirmation dialog verifies whether an Auftragsverarbeitungsvertrag (AVV gem. Art. 28 DSGVO) is already in place. If not, the interactive school privacy guide and prefilled AVV contract are automatically opened.
+  - Granular Cloud Purge: When deactivating cloud sync, teachers can immediately purge all remote encrypted envelopes via `DELETE /api/envelopes` with a single click.
+- **Automated Local School Share Mirror (HTML5 Directory Handle API)**:
+  - Added support for persistent local folder mirroring (`localBackupStorage.ts`). Teachers can connect a dedicated folder on their school network share (Netzlaufwerk) or encrypted USB drive.
+  - Gradus21 automatically writes an encrypted, zero-knowledge backup mirror (`.gradus21`) to the connected directory upon every grade modification.
+  - Automated browser storage persistence request (`navigator.storage.persist()`) prevents browser cache eviction across system restarts.
+- **Full PWA Offline Support & Service Worker Caching**:
+  - Implemented offline Service Worker (`sw.js`) and PWA web app manifest (`manifest.json`).
+  - Gradus21 caches the entire application shell, WebAssembly calculation core, and local fonts, allowing full offline usage in network-dead classrooms without WLAN.
+- **Direct Offline Backup Restore on Lock & Login Screen**:
+  - Added a one-click restore link (*„Aus verschlüsseltem Noten-Backup (.gradus21) wiederherstellen“*) directly to the lock and login modal.
+  - Allows seamless device migration in pure offline mode without prior server setup.
+- **Interactive Demo Guide v2**:
+  - Updated Chapter 6 with offline resilience, school storage mirror configuration, and opt-in steps.
+  - 1-Click Demo Class: Added instant demo class creation (English 6 with 12 students and sample grades) directly inside the setup wizard.
+  - Non-blocking guide overlays (`pointer-events-none` on backdrop) so teachers can freely interact with wizard modals during the walkthrough.
+
+### Security & Hardening
+- **Passkey WebAuthn Abort & Cancellation Safeguard**:
+  - Fixed an authentication bypass where cancelling or closing a third-party password manager dialog (Bitwarden, 1Password, etc.) fell back to cached local secrets.
+  - Strict abort handling for `AbortError`, `NotAllowedError`, `SecurityError`, and dismissed modals (`assertion === null`), guaranteeing that the vault stays locked unless biometrics or PIN are confirmed.
+- **Identical Legal & AVV Documentation**:
+  - Synchronized legal agreement text, contract clauses (§ 1–6), technical and organizational measures (TOMs), and Leipzig server specs 1:1 between `LegalModal.tsx`, server templates, and `gradus21-website/avv.html`.
+
+### Changed & Polished
+- **Branding Alignment**:
+  - Replaced legacy developer badge `BTE v2` in the application header with the official `E2EE` badge matching the website.
+- **Settings UI Polish**:
+  - Standardized tab bar heights, icons (`shrink-0`), padding, and visual hierarchy across all configuration sections.
+
 ## [1.0.1] - 2026-10-20
 
 ### Added
