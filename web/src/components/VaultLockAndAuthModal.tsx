@@ -71,8 +71,8 @@ interface VaultLockAndAuthModalProps {
   onLockVault: () => void;
   onCloseInspector?: () => void;
   cloudSyncEnabled?: boolean;
-  onToggleCloudSync?: (enable: boolean) => Promise<boolean>;
-  onPurgeCloudData?: () => Promise<boolean>;
+  onToggleCloudSync?: (enable: boolean) => void | Promise<void | boolean>;
+  onPurgeCloudData?: () => void | Promise<void | boolean>;
   onImportEncryptedBackup?: (file: File) => Promise<void>;
 }
 
@@ -842,6 +842,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
   // ===========================================================================
   // MIT PASSKEY ÖFFNEN (1-Klick Entsperrung per Fingerabdruck / Face ID & PRF)
+  // Unterstützt sowohl bestehende Geräte als auch Erstanmeldung auf Neugeräten
   // ===========================================================================
   const handleUnlockWithPasskey = async () => {
     setErrorMsg(null);
@@ -849,40 +850,17 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
     try {
       const store = loadLocalPasskeys();
-      const targetEmail = email.trim().toLowerCase();
-      let localEntry = store[targetEmail] || Object.values(store)[0] || null;
+      const enteredEmail = email.trim().toLowerCase();
+      let localEntry = (enteredEmail ? store[enteredEmail] : null) || Object.values(store)[0] || null;
+      const targetEmail = localEntry?.email || enteredEmail;
 
-      if (!localEntry) {
+      if (!targetEmail) {
         setStatusMsg(null);
         setErrorMsg(
-          'Auf diesem Gerät ist noch kein Passkey hinterlegt. Bitte melde dich einmal mit deinem Passwort an und richte den Passkey unter „Konto & Schutz“ ein.'
+          'Bitte gib zuerst deine E-Mail-Adresse ein, um dich auf diesem Gerät per Passkey anzumelden.'
         );
+        document.getElementById('login-email')?.focus();
         return;
-      }
-
-      let derivedSecretB64 = '';
-      let prfSaltToUse: Uint8Array | null = null;
-
-      if (localEntry.prfSaltB64) {
-        prfSaltToUse = base64ToBytes(localEntry.prfSaltB64);
-      } else if (localEntry.email) {
-        try {
-          const sRes = await fetch('/api/auth/salt', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: localEntry.email }),
-          });
-          if (sRes.ok) {
-            const sData = await sRes.json();
-            if (sData.passkey_prf_salt_b64) {
-              prfSaltToUse = base64ToBytes(sData.passkey_prf_salt_b64);
-              localEntry.prfSaltB64 = sData.passkey_prf_salt_b64;
-              saveLocalPasskey(localEntry);
-            }
-          }
-        } catch {
-          // ignore prefetch salt error
-        }
       }
 
       if (!window.PublicKeyCredential || !navigator.credentials?.get) {
@@ -893,6 +871,15 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         return;
       }
 
+      let derivedSecretB64 = '';
+      let prfSaltToUse: Uint8Array | null = null;
+      let prfSaltB64Used: string | undefined = undefined;
+
+      if (localEntry?.prfSaltB64) {
+        prfSaltToUse = base64ToBytes(localEntry.prfSaltB64);
+        prfSaltB64Used = localEntry.prfSaltB64;
+      }
+
       let serverSessionId: string | null = null;
       let serverPublicKey: any = null;
       try {
@@ -900,16 +887,58 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            email: localEntry.email,
+            email: targetEmail,
           }),
         });
         if (startRes.ok) {
           const startData = await startRes.json();
           serverSessionId = startData.session_id;
           serverPublicKey = startData.publicKey;
+          if (startData.passkey_prf_salt_b64) {
+            prfSaltToUse = base64ToBytes(startData.passkey_prf_salt_b64);
+            prfSaltB64Used = startData.passkey_prf_salt_b64;
+          }
+        } else if (!localEntry) {
+          const errText = await startRes.text().catch(() => '');
+          setStatusMsg(null);
+          setErrorMsg(
+            errText ||
+              'Für dieses Konto ist noch kein Passkey hinterlegt. Bitte melde dich mit deinem Passwort an.'
+          );
+          return;
         }
       } catch {
         // Server unreachable / offline
+        if (!localEntry) {
+          setStatusMsg(null);
+          setErrorMsg(
+            'Der Server ist offline oder nicht erreichbar. Auf einem neuen Gerät ist für die Erstanmeldung eine Verbindung zum Server erforderlich.'
+          );
+          return;
+        }
+      }
+
+      if (!prfSaltToUse && targetEmail) {
+        try {
+          const sRes = await fetch('/api/auth/salt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: targetEmail }),
+          });
+          if (sRes.ok) {
+            const sData = await sRes.json();
+            if (sData.passkey_prf_salt_b64) {
+              prfSaltToUse = base64ToBytes(sData.passkey_prf_salt_b64);
+              prfSaltB64Used = sData.passkey_prf_salt_b64;
+              if (localEntry) {
+                localEntry.prfSaltB64 = sData.passkey_prf_salt_b64;
+                saveLocalPasskey(localEntry);
+              }
+            }
+          }
+        } catch {
+          // ignore prefetch salt error
+        }
       }
 
       let assertion: PublicKeyCredential | null = null;
@@ -919,7 +948,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
         if (serverPublicKey?.challenge) {
           challengeBuffer = base64UrlToBytes(serverPublicKey.challenge).buffer as ArrayBuffer;
-          if (Array.isArray(serverPublicKey.allowCredentials)) {
+          if (Array.isArray(serverPublicKey.allowCredentials) && serverPublicKey.allowCredentials.length > 0) {
             allowCredentialsList = serverPublicKey.allowCredentials.map((c: any) => ({
               type: c.type || 'public-key',
               id: base64UrlToBytes(c.id).buffer as ArrayBuffer,
@@ -930,7 +959,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           challengeBuffer = crypto.getRandomValues(new Uint8Array(32)).buffer as ArrayBuffer;
         }
 
-        if (!allowCredentialsList || allowCredentialsList.length === 0) {
+        if ((!allowCredentialsList || allowCredentialsList.length === 0) && localEntry?.credentialId) {
           const credIdBytes = base64ToBytes(localEntry.credentialId);
           allowCredentialsList = [
             {
@@ -995,9 +1024,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       const extResults = (assertion.getClientExtensionResults() as any)?.prf?.results?.first;
       if (extResults) {
         derivedSecretB64 = bytesToBase64(new Uint8Array(extResults));
-      } else if (localEntry.passkeySecretB64) {
+      } else if (localEntry?.passkeySecretB64) {
         // Authenticator hat den Benutzer via WebAuthn erfolgreich authentifiziert,
-        // aber das Gerät unterstützt keine native PRF-Extension.
+        // aber das Gerät unterstützt keine native PRF-Extension (Fallback nur lokal).
         derivedSecretB64 = localEntry.passkeySecretB64;
       }
 
@@ -1038,37 +1067,62 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           if (finishRes.ok) {
             loginData = await finishRes.json();
           } else {
-            console.warn('Passkey finish error / reject:', await finishRes.text().catch(() => ''));
+            const errText = await finishRes.text().catch(() => '');
+            setStatusMsg(null);
+            setErrorMsg(`Passkey-Anmeldung abgelehnt: ${errText || 'Ungültige Signatur'}`);
+            return;
           }
         } catch (e) {
           // Server unreachable / offline
         }
       }
 
-      const passkeyEncryptedDek = loginData?.passkey_encrypted_dek || localEntry.passkeyEncryptedDek;
+      const passkeyEncryptedDek = loginData?.passkey_encrypted_dek || localEntry?.passkeyEncryptedDek;
 
       if (!passkeyEncryptedDek) {
         setStatusMsg(null);
-        setErrorMsg('Für diesen Passkey wurde noch kein Schlüssel hinterlegt.');
+        setErrorMsg('Für diesen Passkey wurde noch kein verschlüsselter Tresorschlüssel hinterlegt.');
         return;
       }
 
       if (!derivedSecretB64) {
         setStatusMsg(null);
         setErrorMsg(
-          'Der kryptografische Passkey-Schlüssel konnte nicht abgeleitet werden. Bitte melde dich mit deinem Passwort an.'
+          'Dieser Passkey unterstützt keine geräteübergreifende Hardware-Schlüsselableitung (PRF). Bitte melde dich auf diesem neuen Gerät einmalig mit deinem Passwort an.'
         );
         return;
       }
 
+      const effectiveCredentialId =
+        loginData?.passkey_credential_id ||
+        localEntry?.credentialId ||
+        bytesToBase64(new Uint8Array(assertion.rawId));
+
       const unwrappedDekB64 = wasm_unwrap_dek_with_passkey(
         derivedSecretB64,
-        localEntry.credentialId,
+        effectiveCredentialId,
         passkeyEncryptedDek
       );
 
-      const localCached = findLocalCachedVault(localEntry.email);
-      const cachedMeta = loadLocalRecoveryMeta(loginData?.email || localEntry.email);
+      const effectiveEmail = loginData?.email || localEntry?.email || targetEmail;
+      const effectiveLabel = loginData?.passkey_label || localEntry?.label || 'Passkey';
+
+      // Automatisch auf diesem Neugerät für zukünftige Offline-/Schnellstarts cachen
+      const entryToSave: LocalPasskeyStoreEntry = {
+        credentialId: effectiveCredentialId,
+        email: effectiveEmail,
+        label: effectiveLabel,
+        prfSupported: Boolean(extResults),
+        prfSaltB64: prfSaltB64Used || localEntry?.prfSaltB64,
+        passkeyEncryptedDek: passkeyEncryptedDek,
+        passkeySecretB64: localEntry?.passkeySecretB64,
+        createdAt: localEntry?.createdAt || new Date().toLocaleDateString('de-DE'),
+      };
+      saveLocalPasskey(entryToSave);
+      setLocalPasskeyForEmail(entryToSave);
+
+      const localCached = findLocalCachedVault(effectiveEmail);
+      const cachedMeta = loadLocalRecoveryMeta(effectiveEmail);
       let recoveryKeyFormatted = session?.recoveryKeyFormatted;
       let recoveryEncryptedDek =
         loginData?.recovery_encrypted_dek ||
@@ -1085,7 +1139,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           recoveryKeyFormatted = wrapped.recovery_key_formatted;
           recoveryEncryptedDek = wrapped.recovery_encrypted_dek;
           saveLocalRecoveryMeta({
-            email: loginData?.email || localEntry.email,
+            email: effectiveEmail,
             recoveryEncryptedDek,
           });
         } catch {
@@ -1098,7 +1152,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       onUnlockSuccess({
         token: loginData?.token || '',
         userId: effectiveUserId,
-        email: loginData?.email || localEntry.email,
+        email: effectiveEmail,
         isAdmin: loginData?.is_admin ?? false,
         kdfSaltB64: loginData?.kdf_salt_b64 || localCached?.kdfSaltB64 || session?.kdfSaltB64 || '',
         dekB64: unwrappedDekB64,
@@ -1109,8 +1163,8 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         recoveryEncryptedDek,
         recoveryKeyFormatted,
         totpEnabled: loginData?.totp_enabled ?? false,
-        passkeyCredentialId: loginData?.passkey_credential_id || localEntry.credentialId,
-        passkeyLabel: loginData?.passkey_label || localEntry.label,
+        passkeyCredentialId: effectiveCredentialId,
+        passkeyLabel: effectiveLabel,
         serverSyncedCount: session?.serverSyncedCount || 0,
       });
       setStatusMsg(null);
@@ -1990,9 +2044,13 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 style={{ backgroundColor: 'var(--primary-500)' }}
               >
                 <Fingerprint className="w-5 h-5" />
-                <span>Mit Fingerabdruck / Face ID öffnen (Passkey)</span>
+                <span>
+                  {localPasskeyForEmail
+                    ? 'Mit Fingerabdruck / Face ID öffnen (Passkey)'
+                    : 'Mit Passkey anmelden'}
+                </span>
               </button>
-              {localPasskeyForEmail && (
+              {localPasskeyForEmail ? (
                 <div
                   className="text-[11px] text-center flex items-center justify-center gap-1.5 flex-wrap"
                   style={{ color: 'var(--text-secondary)' }}
@@ -2006,6 +2064,15 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                       Hardware PRF
                     </span>
                   )}
+                </div>
+              ) : (
+                <div
+                  className="text-[11px] text-center"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  <span>
+                    Unterstützt auch neue Geräte & synchronisierte Passkeys (iCloud, 1Password, Google).
+                  </span>
                 </div>
               )}
               <div className="flex items-center gap-3 pt-1">

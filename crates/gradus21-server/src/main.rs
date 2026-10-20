@@ -1478,9 +1478,11 @@ struct PasskeyLoginStartRequest {
     email: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 struct PasskeyLoginStartResponse {
     session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    passkey_prf_salt_b64: Option<String>,
     #[serde(flatten)]
     public_key: RequestChallengeResponse,
 }
@@ -1687,24 +1689,44 @@ async fn passkey_login_start(
         None
     };
 
-    let pks = state.mem_passkeys.read().unwrap();
-    let passkeys_to_allow: Vec<Passkey> = pks
-        .values()
-        .filter(|p| {
-            if let Some(u) = &user_opt {
-                p.user_id == u.id
-            } else {
-                true
-            }
-        })
-        .filter_map(|p| {
-            if let Some(val) = &p.passkey_data {
-                serde_json::from_value::<Passkey>(val.clone()).ok()
-            } else {
-                None
-            }
-        })
-        .collect();
+    let (passkeys_to_allow, prf_salt_opt) = {
+        let pks = state.mem_passkeys.read().unwrap();
+        let user_pks: Vec<_> = pks
+            .values()
+            .filter(|p| {
+                if let Some(u) = &user_opt {
+                    p.user_id == u.id
+                } else {
+                    true
+                }
+            })
+            .cloned()
+            .collect();
+
+        let pk_objs: Vec<Passkey> = user_pks
+            .iter()
+            .filter_map(|p| {
+                if let Some(val) = &p.passkey_data {
+                    serde_json::from_value::<Passkey>(val.clone()).ok()
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let prf_salt = if let Some(u) = &user_opt {
+            user_pks
+                .iter()
+                .find(|p| u.passkey_credential_id.as_deref() == Some(&p.credential_id) && p.passkey_prf_salt.is_some())
+                .and_then(|p| p.passkey_prf_salt.clone())
+                .or_else(|| user_pks.iter().find_map(|p| p.passkey_prf_salt.clone()))
+                .or_else(|| u.passkey_prf_salt.clone())
+        } else {
+            None
+        };
+
+        (pk_objs, prf_salt)
+    };
 
     if passkeys_to_allow.is_empty() {
         return Err((
@@ -1733,6 +1755,7 @@ async fn passkey_login_start(
 
     Ok(Json(PasskeyLoginStartResponse {
         session_id,
+        passkey_prf_salt_b64: prf_salt_opt,
         public_key: request_challenge,
     }))
 }
@@ -3701,8 +3724,8 @@ mod tests {
         assert_eq!(list_after[0]["credential_id"], "cred_macbook_2");
     }
 
-    #[test]
-    fn test_webauthn_builder_and_origin_configuration() {
+    #[tokio::test]
+    async fn test_webauthn_builder_and_origin_configuration() {
         let webauthn = create_webauthn();
         assert!(Arc::strong_count(&webauthn) >= 1);
         let user_id = Uuid::new_v4();
@@ -3715,6 +3738,30 @@ mod tests {
         let val = serde_json::to_value(&resp).unwrap();
         assert!(val.get("session_id").is_some());
         assert!(val.get("publicKey").is_some());
+
+        // Test PasskeyLoginStartResponse serialization with PRF salt for new device onboarding
+        let (login_challenge, _) = webauthn.start_passkey_authentication(&[]).unwrap();
+        let login_resp = PasskeyLoginStartResponse {
+            session_id: "test_login_session".into(),
+            passkey_prf_salt_b64: Some("prf_salt_sample".into()),
+            public_key: login_challenge,
+        };
+        let login_val = serde_json::to_value(&login_resp).unwrap();
+        assert!(login_val.get("session_id").is_some());
+        assert_eq!(login_val.get("passkey_prf_salt_b64").unwrap(), "prf_salt_sample");
+        assert!(login_val.get("publicKey").is_some());
+
+        let state = create_test_state();
+        let err = passkey_login_start(
+            State(state),
+            Json(PasskeyLoginStartRequest {
+                email: Some("nonexistent@schule.de".into()),
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert!(err.1.contains("Kein passender Passkey"));
     }
 
     #[tokio::test]

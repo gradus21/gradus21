@@ -23,6 +23,7 @@ import {
 import { FlowRibbonLogo } from './FlowRibbonLogo';
 import { ClassroomSubjectDataset, TermFilterId } from '../data/demoClasses';
 import { ClassCalculationReport, WorkspaceMode } from '../types/workspace';
+import { SettingsSection } from './SettingsModal';
 
 export interface AppHeaderProps {
   datasets: ClassroomSubjectDataset[];
@@ -30,7 +31,7 @@ export interface AppHeaderProps {
   setActiveClassId: (id: string) => void;
   onOpenClassWizard: () => void;
   onOpenClassManager: () => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (section?: SettingsSection) => void;
   onOpenVaultInspector: () => void;
   onOpenAdmin: () => void;
   onOpenInteractiveGuide: () => void;
@@ -197,7 +198,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           )}
 
           <button
-            onClick={onOpenSettings}
+            onClick={() => onOpenSettings('storage')}
             data-tour="header-sync-status"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer hover:opacity-90"
             style={{
@@ -243,7 +244,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           </button>
 
           <button
-            onClick={onOpenSettings}
+            onClick={() => onOpenSettings()}
             data-tour="header-settings-btn"
             className="px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition hover:opacity-90"
             style={{

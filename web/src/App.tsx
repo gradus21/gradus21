@@ -3,11 +3,11 @@ import { AlertTriangle, ExternalLink, X } from 'lucide-react';
 import { AppHeader } from './components/AppHeader';
 import { ClassSetupAndExcelWizard } from './components/ClassSetupAndExcelWizard';
 import { ClassManagementModal } from './components/ClassManagementModal';
-import { SettingsModal } from './components/SettingsModal';
+import { SettingsModal, SettingsSection } from './components/SettingsModal';
 import { VaultLockAndAuthModal } from './components/VaultLockAndAuthModal';
 import { AdminModal } from './components/admin/AdminModal';
 import { LegalModal, LegalTab } from './components/LegalModal';
-import { CellDisplayFormat, TermFilterId } from './data/demoClasses';
+import { CellDisplayFormat, TermFilterId, INITIAL_CLASS_DATASETS } from './data/demoClasses';
 import { useVaultWorkspaceSync } from './hooks/useVaultWorkspaceSync';
 import { useClassroomCalculations } from './hooks/useClassroomCalculations';
 import { WorkspaceMode } from './types/workspace';
@@ -78,10 +78,16 @@ export const App: React.FC = () => {
   const [showClassWizard, setShowClassWizard] = useState<boolean>(false);
   const [showClassManager, setShowClassManager] = useState<boolean>(false);
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection>('favorites');
   const [showVaultInspector, setShowVaultInspector] = useState<boolean>(false);
   const [showAdminModal, setShowAdminModal] = useState<boolean>(false);
   const [showLegalModal, setShowLegalModal] = useState<boolean>(false);
   const [legalTab, setLegalTab] = useState<LegalTab>('impressum');
+
+  const handleOpenSettings = (section: SettingsSection = 'favorites') => {
+    setSettingsInitialSection(section);
+    setShowSettingsModal(true);
+  };
 
   const handleLoadDemoDataset = () => {
     const demoClass = INITIAL_CLASS_DATASETS[0];
@@ -209,7 +215,7 @@ export const App: React.FC = () => {
         setActiveClassId={setActiveClassId}
         onOpenClassWizard={() => setShowClassWizard(true)}
         onOpenClassManager={() => setShowClassManager(true)}
-        onOpenSettings={() => setShowSettingsModal(true)}
+        onOpenSettings={handleOpenSettings}
         onOpenVaultInspector={() => setShowVaultInspector(true)}
         onOpenAdmin={() => setShowAdminModal(true)}
         onOpenInteractiveGuide={() => setIsChapterSelectOpen(true)}
@@ -454,6 +460,7 @@ export const App: React.FC = () => {
 
       {showSettingsModal && (
         <SettingsModal
+          initialSection={settingsInitialSection}
           settings={userSettings}
           onUpdateSettings={setUserSettings}
           onClose={() => setShowSettingsModal(false)}

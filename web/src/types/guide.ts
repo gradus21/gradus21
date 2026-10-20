@@ -18,7 +18,8 @@ export interface GuideStepAction {
     | 'open_vault_inspector'
     | 'show_simulator'
     | 'show_curve_editor'
-    | 'trigger_custom';
+    | 'trigger_custom'
+    | 'load_demo_dataset';
   payload?: any;
 }
 

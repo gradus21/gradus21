@@ -192,7 +192,6 @@ export async function writeVaultToDirectory(
 
   // 1. Write the latest snapshot atomar
   const mainFileHandle = await dirHandle.getFileHandle(mainFilename, { create: true });
-  // @ts-expect-error - createWritable is standard in Chromium
   const writableMain = await mainFileHandle.createWritable();
   await writableMain.write(vaultJson);
   await writableMain.close();
@@ -200,7 +199,6 @@ export async function writeVaultToDirectory(
   // Also maintain gradus21-vault-latest.gradus21 compatibility
   try {
     const legacyHandle = await dirHandle.getFileHandle(legacyLatestFilename, { create: true });
-    // @ts-expect-error - createWritable is standard in Chromium
     const writableLegacy = await legacyHandle.createWritable();
     await writableLegacy.write(vaultJson);
     await writableLegacy.close();
@@ -222,7 +220,6 @@ export async function writeVaultToDirectory(
     savedSnapshotName = snapshotFilename;
 
     const timestampedHandle = await dirHandle.getFileHandle(snapshotFilename, { create: true });
-    // @ts-expect-error - createWritable is standard in Chromium
     const writableTimestamped = await timestampedHandle.createWritable();
     await writableTimestamped.write(vaultJson);
     await writableTimestamped.close();

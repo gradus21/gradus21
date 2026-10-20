@@ -37,10 +37,18 @@ import {
 } from 'lucide-react';
 import { isFileSystemAccessSupported } from '../utils/localBackupStorage';
 
+export type SettingsSection =
+  | 'favorites'
+  | 'visibility'
+  | 'appearance'
+  | 'storage'
+  | 'help';
+
 interface SettingsModalProps {
   settings: UserSyncSettings;
   onUpdateSettings: (updater: (prev: UserSyncSettings) => UserSyncSettings) => void;
   onClose: () => void;
+  initialSection?: SettingsSection;
   onOpenInteractiveGuide?: () => void;
   onOpenSchoolGuide?: () => void;
   onToggleCloudSync?: (enabled: boolean) => void;
@@ -73,6 +81,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   settings,
   onUpdateSettings,
   onClose,
+  initialSection = 'favorites',
   onOpenInteractiveGuide,
   onOpenSchoolGuide,
   onToggleCloudSync,
@@ -85,9 +94,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onDisconnectBackupDirectory,
   isPersistentStorage,
 }) => {
-  const [activeSection, setActiveSection] = useState<
-    'favorites' | 'visibility' | 'appearance' | 'storage' | 'help'
-  >('favorites');
+  const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection);
+
+  useEffect(() => {
+    if (initialSection) {
+      setActiveSection(initialSection);
+    }
+  }, [initialSection]);
   const [showAvvConfirmation, setShowAvvConfirmation] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [savedIndicator, setSavedIndicator] = useState(false);

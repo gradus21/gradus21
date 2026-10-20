@@ -131,7 +131,7 @@ function isGradeEmpty(g: GradeEntry): boolean {
     g.raw_points === null &&
     g.direct_grade_value === null &&
     (!g.comment || g.comment.trim() === '') &&
-    (g.status === 'valid' || !g.status)
+    (g.status === 'graded' || !g.status)
   );
 }
 
