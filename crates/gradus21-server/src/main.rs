@@ -96,6 +96,9 @@ pub struct EmailVerificationEntry {
     pub cooldown_until: DateTime<Utc>,
 }
 
+type RegChallengeMap = Arc<RwLock<HashMap<String, (Instant, PasskeyRegistration, Uuid)>>>;
+type AuthChallengeMap = Arc<RwLock<HashMap<String, (Instant, PasskeyAuthentication, Option<Uuid>)>>>;
+
 #[derive(Clone)]
 pub struct AppState {
     pub db: Option<PgPool>,
@@ -111,8 +114,8 @@ pub struct AppState {
     pub admin_emails: Vec<String>,
     pub enable_admin_panel: bool,
     pub webauthn: Arc<Webauthn>,
-    pub reg_challenges: Arc<RwLock<HashMap<String, (Instant, PasskeyRegistration, Uuid)>>>,
-    pub auth_challenges: Arc<RwLock<HashMap<String, (Instant, PasskeyAuthentication, Option<Uuid>)>>>,
+    pub reg_challenges: RegChallengeMap,
+    pub auth_challenges: AuthChallengeMap,
     pub legal_config: LegalConfig,
     pub mem_email_verifications: Arc<RwLock<HashMap<String, EmailVerificationEntry>>>,
 }
@@ -1992,7 +1995,7 @@ async fn list_user_passkeys(
 
     let pks = state.mem_passkeys.read().unwrap();
     let mut user_pks: Vec<_> = pks.values().filter(|p| p.user_id == user_id).cloned().collect();
-    user_pks.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    user_pks.sort_by_key(|a| std::cmp::Reverse(a.created_at));
 
     let list = user_pks
         .into_iter()

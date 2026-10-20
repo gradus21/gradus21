@@ -3,6 +3,28 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.2] - 2026-10-20
+
+### Fixes & Synchronization Improvements
+- **Multi-Device Real-Time Synchronization & Auto-Renewal (#13)**:
+  - Resolved `cloudSyncEnabled` reverting to `local_only` upon connection drop or server session expiration.
+  - Transparent silent token renewal (`renewTokenIfNeeded`) using client-side derived `authKeyB64` upon receiving HTTP 401 Unauthorized, eliminating jarring session loss and alerts.
+  - Real-time background sync polling (12s interval) active exclusively on focused tabs (`visibilitychange` / `window.focus`), ensuring remote grade modifications propagate seamlessly across devices without manual refreshes.
+  - Synchronized singleton settings envelope versions between tenant-scoped UUID and static UUID `00000000-0000-4000-8000-000000000002`.
+  - Empty starter classes (`class_starter_...` with 0 students and 0 grades) are filtered out from reconciliation warnings to streamline multi-device initial onboarding.
+
+### Security & Privacy (DSGVO / GDPR)
+- **Account Self-Purge (`DELETE /api/users/me`) (#14)**:
+  - Full self-service data erasure pursuant to Art. 17 DSGVO ("Right to be Forgotten"). Users can permanently purge their account, credentials, and encrypted envelopes directly from privacy settings.
+- **Email Verification Flow Hardening (#15)**:
+  - Added cryptographic constant-time comparison (`subtle::ConstantTimeEq`) for verification codes to eliminate timing attacks.
+  - Implemented brute-force rate limits (maximum 5 attempts per code, 60s cooldown per address, 15-minute expiration).
+
+### Quality & Performance
+- **Refactoring & Cleanups**:
+  - Addressed Rust clippy lints (`clippy::type_complexity`, `clippy::unnecessary_sort_by`) in `gradus21-server`.
+  - Maintained 100% test pass rate across Rust workspace (20 tests) and TypeScript type checks.
+
 ## [1.1.1] - 2026-10-20
 
 ### Security & Hardening
