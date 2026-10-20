@@ -241,6 +241,24 @@ function base64ToBytes(b64: string): Uint8Array {
   return bytes;
 }
 
+function base64UrlToBytes(base64url: string): Uint8Array {
+  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = base64.length % 4;
+  const padded = pad ? base64 + '='.repeat(4 - pad) : base64;
+  return base64ToBytes(padded);
+}
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  return bytesToBase64(bytes)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
+  return bytesToBase64Url(new Uint8Array(buffer));
+}
+
 export type RegistrationStep = 'credentials' | 'recovery' | 'totp' | 'passkey' | 'complete';
 
 export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
@@ -462,8 +480,37 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         return false;
       }
 
-      const challenge = crypto.getRandomValues(new Uint8Array(32));
-      const userIdBytes = new TextEncoder().encode(activeSession.userId);
+      let serverSessionId: string | null = null;
+      let creationPublicKey: any = null;
+      if (activeSession.token) {
+        try {
+          const startRes = await fetch('/api/auth/passkey/register/start', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${activeSession.token}`,
+            },
+          });
+          if (startRes.ok) {
+            const startData = await startRes.json();
+            serverSessionId = startData.session_id;
+            creationPublicKey = startData.publicKey;
+          }
+        } catch {
+          // offline: passkey works locally
+        }
+      }
+
+      let challengeBuffer: ArrayBuffer;
+      let userBuffer: ArrayBuffer;
+      if (creationPublicKey?.challenge && creationPublicKey?.user?.id) {
+        challengeBuffer = (base64UrlToBytes(creationPublicKey.challenge).buffer as ArrayBuffer);
+        userBuffer = (base64UrlToBytes(creationPublicKey.user.id).buffer as ArrayBuffer);
+      } else {
+        challengeBuffer = (crypto.getRandomValues(new Uint8Array(32)).buffer as ArrayBuffer);
+        userBuffer = (new TextEncoder().encode(activeSession.userId).buffer as ArrayBuffer);
+      }
+
       const prfSalt = crypto.getRandomValues(new Uint8Array(32));
       const prfSaltB64 = bytesToBase64(prfSalt);
 
@@ -474,30 +521,33 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         ? `Passkey auf diesem Gerät (${navigator.platform})`
         : 'Passkey (Fingerabdruck / Face ID)';
 
+      let cred: PublicKeyCredential | null = null;
       try {
-        const cred = (await navigator.credentials.create({
+        const createOptions: CredentialCreationOptions = {
           publicKey: {
-            challenge,
-            rp: {
+            challenge: challengeBuffer,
+            rp: creationPublicKey?.rp || {
               name: 'Gradus21',
               id: window.location.hostname || 'localhost',
             },
             user: {
-              id: userIdBytes,
-              name: activeSession.email,
-              displayName: activeSession.email,
+              id: userBuffer,
+              name: creationPublicKey?.user?.name || activeSession.email,
+              displayName: creationPublicKey?.user?.displayName || activeSession.email,
             },
-            pubKeyCredParams: [
+            pubKeyCredParams: creationPublicKey?.pubKeyCredParams || [
               { type: 'public-key', alg: -7 }, // ES256
               { type: 'public-key', alg: -257 }, // RS256
             ],
-            authenticatorSelection: {
+            authenticatorSelection: creationPublicKey?.authenticatorSelection || {
               authenticatorAttachment: 'platform',
               userVerification: 'preferred',
               residentKey: 'preferred',
             },
-            timeout: 60000,
+            timeout: creationPublicKey?.timeout || 60000,
+            attestation: creationPublicKey?.attestation || 'none',
             extensions: {
+              ...(creationPublicKey?.extensions || {}),
               // WebAuthn PRF Extension (W3C Level 3 standard)
               prf: {
                 eval: {
@@ -506,7 +556,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               },
             } as any,
           },
-        })) as PublicKeyCredential | null;
+        };
+
+        cred = (await navigator.credentials.create(createOptions)) as PublicKeyCredential | null;
 
         if (cred) {
           credentialIdB64 = bytesToBase64(new Uint8Array(cred.rawId));
@@ -537,7 +589,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         return false;
       }
 
-      if (!credentialIdB64) {
+      if (!cred || !credentialIdB64) {
         setStatusMsg(null);
         setErrorMsg('Es wurde kein Passkey vom Sicherheitschip oder Passwort-Manager bereitgestellt.');
         return false;
@@ -559,27 +611,67 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       let dataToken = activeSession.token;
       if (activeSession.token) {
         try {
-          const res = await fetch('/api/auth/passkey/register', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${activeSession.token}`,
-            },
-            body: JSON.stringify({
-              credential_id: credentialIdB64,
-              label: deviceLabel,
-              passkey_encrypted_dek: passkeyEncryptedDek,
-              passkey_prf_salt_b64: isPrfEnabled ? prfSaltB64 : undefined,
-              kdf_salt_b64: activeSession.kdfSaltB64,
-              encrypted_dek: activeSession.encryptedDek,
-              recovery_encrypted_dek: activeSession.recoveryEncryptedDek,
-              recovery_auth_key_b64: recoveryAuthKeyB64,
-            }),
-          });
+          if (serverSessionId && cred.response) {
+            const registrationResponse = {
+              id: cred.id,
+              rawId: arrayBufferToBase64Url(cred.rawId),
+              response: {
+                clientDataJSON: arrayBufferToBase64Url(
+                  (cred.response as AuthenticatorAttestationResponse).clientDataJSON
+                ),
+                attestationObject: arrayBufferToBase64Url(
+                  (cred.response as AuthenticatorAttestationResponse).attestationObject
+                ),
+              },
+              type: cred.type,
+            };
 
-          if (res.ok) {
-            const data = await res.json();
-            if (data.token) dataToken = data.token;
+            const finishRes = await fetch('/api/auth/passkey/register/finish', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${activeSession.token}`,
+              },
+              body: JSON.stringify({
+                session_id: serverSessionId,
+                registration_response: registrationResponse,
+                label: deviceLabel,
+                passkey_encrypted_dek: passkeyEncryptedDek,
+                passkey_prf_salt_b64: isPrfEnabled ? prfSaltB64 : undefined,
+                kdf_salt_b64: activeSession.kdfSaltB64,
+                encrypted_dek: activeSession.encryptedDek,
+                recovery_encrypted_dek: activeSession.recoveryEncryptedDek,
+                recovery_auth_key_b64: recoveryAuthKeyB64,
+              }),
+            });
+
+            if (finishRes.ok) {
+              const data = await finishRes.json();
+              if (data.token) dataToken = data.token;
+            }
+          } else {
+            const res = await fetch('/api/auth/passkey/register', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${activeSession.token}`,
+              },
+              body: JSON.stringify({
+                credential_id: credentialIdB64,
+                label: deviceLabel,
+                passkey_encrypted_dek: passkeyEncryptedDek,
+                passkey_prf_salt_b64: isPrfEnabled ? prfSaltB64 : undefined,
+                kdf_salt_b64: activeSession.kdfSaltB64,
+                encrypted_dek: activeSession.encryptedDek,
+                recovery_encrypted_dek: activeSession.recoveryEncryptedDek,
+                recovery_auth_key_b64: recoveryAuthKeyB64,
+              }),
+            });
+
+            if (res.ok) {
+              const data = await res.json();
+              if (data.token) dataToken = data.token;
+            }
           }
         } catch {
           // offline: passkey works locally
@@ -801,10 +893,53 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         return;
       }
 
+      let serverSessionId: string | null = null;
+      let serverPublicKey: any = null;
+      try {
+        const startRes = await fetch('/api/auth/passkey/login/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: localEntry.email,
+          }),
+        });
+        if (startRes.ok) {
+          const startData = await startRes.json();
+          serverSessionId = startData.session_id;
+          serverPublicKey = startData.publicKey;
+        }
+      } catch {
+        // Server unreachable / offline
+      }
+
       let assertion: PublicKeyCredential | null = null;
       try {
-        const challenge = crypto.getRandomValues(new Uint8Array(32));
-        const credIdBytes = base64ToBytes(localEntry.credentialId);
+        let challengeBuffer: ArrayBuffer;
+        let allowCredentialsList: PublicKeyCredentialDescriptor[] | undefined;
+
+        if (serverPublicKey?.challenge) {
+          challengeBuffer = base64UrlToBytes(serverPublicKey.challenge).buffer as ArrayBuffer;
+          if (Array.isArray(serverPublicKey.allowCredentials)) {
+            allowCredentialsList = serverPublicKey.allowCredentials.map((c: any) => ({
+              type: c.type || 'public-key',
+              id: base64UrlToBytes(c.id).buffer as ArrayBuffer,
+              transports: c.transports,
+            }));
+          }
+        } else {
+          challengeBuffer = crypto.getRandomValues(new Uint8Array(32)).buffer as ArrayBuffer;
+        }
+
+        if (!allowCredentialsList || allowCredentialsList.length === 0) {
+          const credIdBytes = base64ToBytes(localEntry.credentialId);
+          allowCredentialsList = [
+            {
+              type: 'public-key',
+              id: credIdBytes.buffer as ArrayBuffer,
+            },
+          ];
+        }
+
         const getExtensions = prfSaltToUse
           ? {
               prf: {
@@ -817,15 +952,11 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
         assertion = (await navigator.credentials.get({
           publicKey: {
-            challenge,
-            allowCredentials: [
-              {
-                type: 'public-key',
-                id: credIdBytes.buffer as ArrayBuffer,
-              },
-            ],
-            userVerification: 'preferred',
-            timeout: 60000,
+            challenge: challengeBuffer,
+            allowCredentials: allowCredentialsList,
+            userVerification: serverPublicKey?.userVerification || 'preferred',
+            timeout: serverPublicKey?.timeout || 60000,
+            rpId: serverPublicKey?.rpId || undefined,
             extensions: getExtensions as any,
           },
         })) as PublicKeyCredential | null;
@@ -871,21 +1002,47 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       }
 
       let loginData: any = null;
-      try {
-        const res = await fetch('/api/auth/passkey/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: localEntry.email,
-            credential_id: localEntry.credentialId,
-          }),
-        });
+      if (serverSessionId && assertion?.response) {
+        try {
+          const assertionResponse = {
+            id: assertion.id,
+            rawId: arrayBufferToBase64Url(assertion.rawId),
+            response: {
+              authenticatorData: arrayBufferToBase64Url(
+                (assertion.response as AuthenticatorAssertionResponse).authenticatorData
+              ),
+              clientDataJSON: arrayBufferToBase64Url(
+                (assertion.response as AuthenticatorAssertionResponse).clientDataJSON
+              ),
+              signature: arrayBufferToBase64Url(
+                (assertion.response as AuthenticatorAssertionResponse).signature
+              ),
+              userHandle: (assertion.response as AuthenticatorAssertionResponse).userHandle
+                ? arrayBufferToBase64Url(
+                    (assertion.response as AuthenticatorAssertionResponse).userHandle!
+                  )
+                : null,
+            },
+            type: assertion.type,
+          };
 
-        if (res.ok) {
-          loginData = await res.json();
+          const finishRes = await fetch('/api/auth/passkey/login/finish', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              session_id: serverSessionId,
+              assertion_response: assertionResponse,
+            }),
+          });
+
+          if (finishRes.ok) {
+            loginData = await finishRes.json();
+          } else {
+            console.warn('Passkey finish error / reject:', await finishRes.text().catch(() => ''));
+          }
+        } catch (e) {
+          // Server unreachable / offline
         }
-      } catch {
-        // Server unreachable / offline
       }
 
       const passkeyEncryptedDek = loginData?.passkey_encrypted_dek || localEntry.passkeyEncryptedDek;

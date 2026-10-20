@@ -158,12 +158,23 @@ export async function verifyDirectoryPermission(
   return false;
 }
 
+export interface WriteVaultDirectoryOptions {
+  userId?: string;
+  forceSnapshot?: boolean;
+  snapshotIntervalMs?: number; // default: 15 * 60 * 1000 (15 min)
+  maxSnapshots?: number; // default: 20
+}
+
+let lastSnapshotTimestamp = 0;
+
 /**
- * Writes the encrypted vault bundle into the connected directory handle
+ * Writes the encrypted vault bundle into the connected directory handle.
+ * Supports atomic latest file updates and periodic snapshots with retention (max 20).
  */
 export async function writeVaultToDirectory(
   dirHandle: FileSystemDirectoryHandle,
-  vaultJson: string
+  vaultJson: string,
+  options?: WriteVaultDirectoryOptions
 ): Promise<{ filename: string; timestamp: string }> {
   const hasPerm = await verifyDirectoryPermission(dirHandle, true);
   if (!hasPerm) {
@@ -172,24 +183,80 @@ export async function writeVaultToDirectory(
 
   const now = new Date();
   const dateStr = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const filename = `gradus21-vault-${dateStr}.gradus21`;
-  const latestFilename = 'gradus21-vault-latest.gradus21';
+  const rawUserId = options?.userId || '';
+  const safeUserId = rawUserId ? rawUserId.replace(/[^a-zA-Z0-9_-]/g, '_') : 'default';
 
-  // 1. Write the latest snapshot
-  const latestFileHandle = await dirHandle.getFileHandle(latestFilename, { create: true });
+  // Canonical filename per documentation: gradus21_vault_backup_<userId>.gradus21
+  const mainFilename = `gradus21_vault_backup_${safeUserId}.gradus21`;
+  const legacyLatestFilename = 'gradus21-vault-latest.gradus21';
+
+  // 1. Write the latest snapshot atomar
+  const mainFileHandle = await dirHandle.getFileHandle(mainFilename, { create: true });
   // @ts-expect-error - createWritable is standard in Chromium
-  const writableLatest = await latestFileHandle.createWritable();
-  await writableLatest.write(vaultJson);
-  await writableLatest.close();
+  const writableMain = await mainFileHandle.createWritable();
+  await writableMain.write(vaultJson);
+  await writableMain.close();
 
-  // 2. Also write timestamped snapshot
-  const timestampedHandle = await dirHandle.getFileHandle(filename, { create: true });
-  // @ts-expect-error - createWritable is standard in Chromium
-  const writableTimestamped = await timestampedHandle.createWritable();
-  await writableTimestamped.write(vaultJson);
-  await writableTimestamped.close();
+  // Also maintain gradus21-vault-latest.gradus21 compatibility
+  try {
+    const legacyHandle = await dirHandle.getFileHandle(legacyLatestFilename, { create: true });
+    // @ts-expect-error - createWritable is standard in Chromium
+    const writableLegacy = await legacyHandle.createWritable();
+    await writableLegacy.write(vaultJson);
+    await writableLegacy.close();
+  } catch {
+    // Ignore legacy mirror error if any
+  }
 
-  return { filename, timestamp: now.toISOString() };
+  // 2. Periodic or forced snapshot (at most once every 15 minutes by default)
+  const snapshotInterval = options?.snapshotIntervalMs ?? 15 * 60 * 1000;
+  const maxSnapshots = options?.maxSnapshots ?? 20;
+  const timeSinceLastSnapshot = Date.now() - lastSnapshotTimestamp;
+  const shouldCreateSnapshot = options?.forceSnapshot || timeSinceLastSnapshot >= snapshotInterval;
+
+  let savedSnapshotName = mainFilename;
+
+  if (shouldCreateSnapshot) {
+    lastSnapshotTimestamp = Date.now();
+    const snapshotFilename = `gradus21_vault_backup_${safeUserId}_${dateStr}.gradus21`;
+    savedSnapshotName = snapshotFilename;
+
+    const timestampedHandle = await dirHandle.getFileHandle(snapshotFilename, { create: true });
+    // @ts-expect-error - createWritable is standard in Chromium
+    const writableTimestamped = await timestampedHandle.createWritable();
+    await writableTimestamped.write(vaultJson);
+    await writableTimestamped.close();
+
+    // 3. Local Retention Rotation: Clean up snapshots exceeding maxSnapshots
+    try {
+      const snapshotFiles: string[] = [];
+      // @ts-expect-error - Chromium directory iterator
+      for await (const entry of dirHandle.values()) {
+        if (
+          entry.kind === 'file' &&
+          (entry.name.startsWith('gradus21_vault_backup_') || entry.name.startsWith('gradus21-vault-')) &&
+          entry.name.endsWith('.gradus21') &&
+          !entry.name.endsWith(`${safeUserId}.gradus21`) &&
+          !entry.name.includes('latest')
+        ) {
+          snapshotFiles.push(entry.name);
+        }
+      }
+
+      if (snapshotFiles.length > maxSnapshots) {
+        // Sort ascending by filename/timestamp (older files first)
+        snapshotFiles.sort();
+        const toDeleteCount = snapshotFiles.length - maxSnapshots;
+        for (let i = 0; i < toDeleteCount; i++) {
+          await dirHandle.removeEntry(snapshotFiles[i]);
+        }
+      }
+    } catch (cleanupErr) {
+      console.warn('Fehler bei der Bereinigung veralteter Backup-Dateien:', cleanupErr);
+    }
+  }
+
+  return { filename: savedSnapshotName, timestamp: now.toISOString() };
 }
 
 /**

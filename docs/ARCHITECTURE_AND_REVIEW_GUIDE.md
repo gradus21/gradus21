@@ -1,6 +1,6 @@
-# Architektur- & Review-Handbuch (`v0.1.0-alpha`)
+# Architektur- & Review-Handbuch (`v1.1.0`)
 
-Dieses Dokument richtet sich an Entwicklerinnen, Entwickler, Datenschutzbeauftragte und Fachlehrkräfte, die die Alpha-Version `0.1.0` von **Gradus21** begutachten, testen und für zukünftige Releases weiterentwickeln.
+Dieses Dokument richtet sich an Entwicklerinnen, Entwickler, Datenschutzbeauftragte und Fachlehrkräfte, die die Version `1.1.0` von **Gradus21** begutachten, testen und weiterentwickeln.
 
 ---
 
@@ -122,7 +122,7 @@ Gradus21 setzt das Prinzip der **Datensparsamkeit (Art. 5 Abs. 1 lit. c DSGVO)**
 
 ---
 
-## 6. Checkliste für das Audit & Review (`v1.0.1`)
+## 6. Checkliste für das Audit & Review (`v1.1.0`)
 
 ### A. Fachlich-Pädagogisches Review
 - [x] **Rundungsregeln je Bundesland / Schulordnung**: Exakte Weiterberechnung via IEEE-754 `f64`, Rundung bei der Anzeige auf `0.1 %` bzw. `0.01` Notenwert.

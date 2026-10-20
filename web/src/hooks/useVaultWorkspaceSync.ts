@@ -8,6 +8,7 @@ import { GlobalTemplateRecord } from '../components/admin/CentralTemplatesTab';
 import {
   ClassroomSubjectDataset,
   DEFAULT_USER_SYNC_SETTINGS,
+  GradeEntry,
   INITIAL_CLASS_DATASETS,
   UserSyncSettings,
   ensureValidUuid,
@@ -122,6 +123,137 @@ export function createFreshWorkspaceForNewTeacher(userId: string): ClassroomSubj
       reportCardOverrides: {},
     },
   ];
+}
+
+function isGradeEmpty(g: GradeEntry): boolean {
+  return (
+    g.percent_value === null &&
+    g.raw_points === null &&
+    g.direct_grade_value === null &&
+    (!g.comment || g.comment.trim() === '') &&
+    (g.status === 'valid' || !g.status)
+  );
+}
+
+function areGradesEqual(a: GradeEntry, b: GradeEntry): boolean {
+  return (
+    a.percent_value === b.percent_value &&
+    a.raw_points === b.raw_points &&
+    a.direct_grade_value === b.direct_grade_value &&
+    (a.comment || '').trim() === (b.comment || '').trim() &&
+    a.status === b.status
+  );
+}
+
+export function mergeClassroomDatasets(
+  localDs: ClassroomSubjectDataset,
+  serverDs: ClassroomSubjectDataset
+): {
+  mergedDs: ClassroomSubjectDataset;
+  hadGradeCollisions: boolean;
+  conflictCopy?: ClassroomSubjectDataset;
+} {
+  // 1. Students: preserve all from server, plus any locally added students
+  const serverStudentIds = new Set(serverDs.students.map((s) => s.id));
+  const mergedStudents = [...serverDs.students];
+  for (const localStudent of localDs.students) {
+    if (!serverStudentIds.has(localStudent.id)) {
+      mergedStudents.push(localStudent);
+    }
+  }
+
+  // 2. Categories: preserve all from server, plus any locally added categories
+  const serverCategoryIds = new Set(serverDs.categories.map((c) => c.id));
+  const mergedCategories = [...serverDs.categories];
+  for (const localCat of localDs.categories) {
+    if (!serverCategoryIds.has(localCat.id)) {
+      mergedCategories.push(localCat);
+    }
+  }
+
+  // 3. Assessments: preserve all from server, plus any locally added assessments
+  const serverAssessmentIds = new Set(serverDs.assessments.map((a) => a.id));
+  const mergedAssessments = [...serverDs.assessments];
+  for (const localAss of localDs.assessments) {
+    if (!serverAssessmentIds.has(localAss.id)) {
+      mergedAssessments.push(localAss);
+    }
+  }
+
+  // 4. Grades
+  const serverGradesMap = new Map<string, GradeEntry>();
+  for (const g of serverDs.grades) {
+    serverGradesMap.set(`${g.student_id}:${g.assessment_id}`, g);
+  }
+
+  const localGradesMap = new Map<string, GradeEntry>();
+  for (const g of localDs.grades) {
+    localGradesMap.set(`${g.student_id}:${g.assessment_id}`, g);
+  }
+
+  const mergedGradesMap = new Map<string, GradeEntry>();
+  let hadGradeCollisions = false;
+
+  // Add all server grades first
+  for (const [key, sGrade] of serverGradesMap.entries()) {
+    mergedGradesMap.set(key, sGrade);
+  }
+
+  // Merge local grades
+  for (const [key, lGrade] of localGradesMap.entries()) {
+    const sGrade = serverGradesMap.get(key);
+    if (!sGrade) {
+      // Grade only exists locally -> keep it
+      mergedGradesMap.set(key, lGrade);
+    } else {
+      // Grade exists in both
+      if (areGradesEqual(lGrade, sGrade)) {
+        continue;
+      }
+      if (isGradeEmpty(sGrade) && !isGradeEmpty(lGrade)) {
+        // Server was empty, local filled in a grade -> local wins
+        mergedGradesMap.set(key, lGrade);
+      } else if (!isGradeEmpty(sGrade) && isGradeEmpty(lGrade)) {
+        // Local was empty, server filled in a grade -> server wins
+        mergedGradesMap.set(key, sGrade);
+      } else {
+        // True collision: keep local grade in mergedDs and create conflict copy
+        mergedGradesMap.set(key, lGrade);
+        hadGradeCollisions = true;
+      }
+    }
+  }
+
+  // 5. Report card overrides
+  const mergedOverrides = {
+    ...(serverDs.reportCardOverrides || {}),
+    ...(localDs.reportCardOverrides || {}),
+  };
+
+  const mergedDs: ClassroomSubjectDataset = {
+    ...serverDs,
+    students: mergedStudents,
+    categories: mergedCategories,
+    assessments: mergedAssessments,
+    grades: Array.from(mergedGradesMap.values()),
+    reportCardOverrides: mergedOverrides,
+  };
+
+  let conflictCopy: ClassroomSubjectDataset | undefined;
+  if (hadGradeCollisions) {
+    const newId =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : ensureValidUuid(`class_conflict_${Date.now()}`);
+    conflictCopy = {
+      ...localDs,
+      id: newId,
+      className: `${localDs.className} (Lokale Noten-Kopie)`,
+      shortName: `${localDs.shortName || ''} (Lokal)`.trim(),
+    };
+  }
+
+  return { mergedDs, hadGradeCollisions, conflictCopy };
 }
 
 export function useVaultWorkspaceSync() {
@@ -790,7 +922,8 @@ export function useVaultWorkspaceSync() {
           try {
             await writeVaultToDirectory(
               connectedDirHandleRef.current,
-              JSON.stringify(userCacheBundle, null, 2)
+              JSON.stringify(userCacheBundle, null, 2),
+              { userId: userCacheBundle.userId }
             );
             setLastLocalBackupTime(
               new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -871,16 +1004,41 @@ export function useVaultWorkspaceSync() {
                 );
                 const serverDs = JSON.parse(decConflict) as ClassroomSubjectDataset;
                 serverDs.id = ensureValidUuid(serverDs.id || conflictEnv.id);
-                envelopeVersionsRef.current.set(serverDs.id, conflictEnv.version);
-                lastSerializedPerClassRef.current.set(serverDs.id, JSON.stringify(serverDs));
 
-                setDatasets((prev) =>
-                  prev.map((d) => (d.id === serverDs.id ? serverDs : d))
-                );
+                const localDs = datasets.find((d) => d.id === serverDs.id);
+                if (localDs) {
+                  const { mergedDs, hadGradeCollisions, conflictCopy } =
+                    mergeClassroomDatasets(localDs, serverDs);
 
-                setSyncConflictNotice(
-                  `Synchronisations-Konflikt gelöst: Die Klasse „${serverDs.className || serverDs.subjectName}“ wurde von einem anderen Tab/Gerät aktualisiert (v${conflictEnv.version}). Die Daten wurden ohne Überschreiben zusammengeführt.`
-                );
+                  envelopeVersionsRef.current.set(mergedDs.id, conflictEnv.version);
+                  lastSerializedPerClassRef.current.set(mergedDs.id, JSON.stringify(mergedDs));
+
+                  setDatasets((prev) => {
+                    const updated = prev.map((d) => (d.id === mergedDs.id ? mergedDs : d));
+                    if (conflictCopy) {
+                      return [...updated, conflictCopy];
+                    }
+                    return updated;
+                  });
+
+                  if (hadGradeCollisions) {
+                    setSyncConflictNotice(
+                      `Synchronisations-Konflikt erkannt: Die Klasse „${serverDs.className}“ wurde auf einem anderen Gerät geändert. Lokale Noten wurden zusammengeführt und zur Sicherheit als separate Kopie „${conflictCopy?.className}“ hinterlegt, damit keine Eingaben verloren gehen.`
+                    );
+                  } else {
+                    setSyncConflictNotice(
+                      `Synchronisations-Konflikt gelöst: Die Klasse „${serverDs.className}“ wurde von einem anderen Gerät aktualisiert (v${conflictEnv.version}). Lokale und serverseitige Noten/Schüler wurden ohne Verlust zusammengeführt.`
+                    );
+                  }
+                } else {
+                  envelopeVersionsRef.current.set(serverDs.id, conflictEnv.version);
+                  lastSerializedPerClassRef.current.set(serverDs.id, JSON.stringify(serverDs));
+                  setDatasets((prev) => [...prev, serverDs]);
+                  setSyncConflictNotice(
+                    `Klasse „${serverDs.className}“ von anderem Gerät synchronisiert (v${conflictEnv.version}).`
+                  );
+                }
+
                 setSyncStatus('synced');
                 return;
               }
@@ -1067,7 +1225,10 @@ export function useVaultWorkspaceSync() {
           const userCacheKey = getUserEncryptedCacheKey(vaultSession.userId);
           const cachedRaw = localStorage.getItem(userCacheKey);
           if (cachedRaw) {
-            await writeVaultToDirectory(handle, cachedRaw);
+            await writeVaultToDirectory(handle, cachedRaw, {
+              userId: vaultSession.userId,
+              forceSnapshot: true,
+            });
             setLastLocalBackupTime(
               new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             );

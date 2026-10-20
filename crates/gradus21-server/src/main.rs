@@ -912,17 +912,44 @@ async fn main() {
     tokio::spawn(admin::start_backup_scheduler(state.clone()));
 
     let cors = if let Ok(origin) = std::env::var("CORS_ALLOWED_ORIGIN") {
-        if let Ok(header_val) = origin.parse::<HeaderValue>() {
+        let origins: Vec<HeaderValue> = origin
+            .split(',')
+            .filter_map(|s| s.trim().parse::<HeaderValue>().ok())
+            .collect();
+        if !origins.is_empty() {
             CorsLayer::new()
-                .allow_origin(header_val)
+                .allow_origin(origins)
                 .allow_methods(Any)
                 .allow_headers(Any)
         } else {
-            CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any)
+            CorsLayer::new().allow_methods(Any).allow_headers(Any)
         }
     } else {
+        // Fallback to configured WEBAUTHN_RP_ORIGIN and WEBAUTHN_ALLOWED_ORIGINS (no wildcard Any fallback)
+        let mut origins: Vec<HeaderValue> = Vec::new();
+        if let Ok(rp_origin) = std::env::var("WEBAUTHN_RP_ORIGIN") {
+            if let Ok(hv) = rp_origin.trim().parse::<HeaderValue>() {
+                origins.push(hv);
+            }
+        }
+        if let Ok(allowed) = std::env::var("WEBAUTHN_ALLOWED_ORIGINS") {
+            for o in allowed.split(',') {
+                if let Ok(hv) = o.trim().parse::<HeaderValue>() {
+                    if !origins.contains(&hv) {
+                        origins.push(hv);
+                    }
+                }
+            }
+        }
+        for fallback in &["http://localhost:5173", "http://localhost:3080", "http://127.0.0.1:5173", "http://127.0.0.1:3080"] {
+            if let Ok(hv) = fallback.parse::<HeaderValue>() {
+                if !origins.contains(&hv) {
+                    origins.push(hv);
+                }
+            }
+        }
         CorsLayer::new()
-            .allow_origin(Any)
+            .allow_origin(origins)
             .allow_methods(Any)
             .allow_headers(Any)
     };
@@ -945,7 +972,7 @@ async fn main() {
             delete(delete_user_passkey_by_id).patch(rename_user_passkey),
         )
         .route("/api/auth/passkey/register", post(register_passkey))
-        .route("/api/auth/passkey/login", post(login_with_passkey))
+        .route("/api/auth/passkey/login", post(legacy_passkey_login_disabled))
         .route("/api/auth/passkey", delete(delete_passkey))
         .route("/api/auth/2fa/setup", get(get_2fa_setup_info))
         .route("/api/auth/2fa/verify", post(verify_and_enable_2fa))
@@ -1423,7 +1450,7 @@ async fn rotate_recovery_key(
 #[derive(Serialize)]
 struct PasskeyRegisterStartResponse {
     session_id: String,
-    #[serde(rename = "publicKey")]
+    #[serde(flatten)]
     public_key: CreationChallengeResponse,
 }
 
@@ -1454,7 +1481,7 @@ struct PasskeyLoginStartRequest {
 #[derive(Serialize)]
 struct PasskeyLoginStartResponse {
     session_id: String,
-    #[serde(rename = "publicKey")]
+    #[serde(flatten)]
     public_key: RequestChallengeResponse,
 }
 
@@ -2137,7 +2164,7 @@ async fn delete_passkey(
     })))
 }
 
-async fn login_with_passkey(
+async fn legacy_passkey_login_disabled(
     State(state): State<AppState>,
     Json(req): Json<PasskeyLoginRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, String)> {
@@ -2147,101 +2174,16 @@ async fn login_with_passkey(
         .unwrap_or(req.credential_id.as_str())
         .trim()
         .to_lowercase();
-    check_auth_rate_limit(&state, &format!("passkey:{}", rate_key))?;
+    let _ = check_auth_rate_limit(&state, &format!("passkey:{}", rate_key));
 
-    let passkey_opt = {
-        let pks = state.mem_passkeys.read().unwrap();
-        pks.values()
-            .find(|p| p.credential_id == req.credential_id)
-            .cloned()
-    };
-
-    let user_opt = if let Some(pk) = &passkey_opt {
-        let users = state.mem_users.read().unwrap();
-        users.get(&pk.user_id).cloned()
-    } else {
-        let users = state.mem_users.read().unwrap();
-        users
-            .values()
-            .find(|u| {
-                let cred_matches =
-                    u.passkey_credential_id.as_deref() == Some(req.credential_id.as_str());
-                let email_matches = req
-                    .email
-                    .as_ref()
-                    .map(|e| u.email == e.trim().to_lowercase())
-                    .unwrap_or(true);
-                cred_matches && email_matches
-            })
-            .cloned()
-    };
-
-    let Some(user) = user_opt else {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            "Dieser Passkey ist noch nicht mit deinem Konto verknüpft.".into(),
-        ));
-    };
-
-    if !user.is_active {
-        return Err((
-            StatusCode::FORBIDDEN,
-            "Dein Benutzerkonto wurde von der Administration deaktiviert.".into(),
-        ));
-    }
-
-    let now = Utc::now();
-    if let Some(mut pk) = passkey_opt.clone() {
-        pk.last_used_at = Some(now);
-        state.mem_passkeys.write().unwrap().insert(pk.id, pk.clone());
-        sync_passkey_to_pg(&state, &pk).await;
-    }
-
-    {
-        let mut users = state.mem_users.write().unwrap();
-        if let Some(u) = users.get_mut(&user.id) {
-            u.last_login_at = Some(now);
-        }
-    }
-    let mut updated_user = user.clone();
-    updated_user.last_login_at = Some(now);
-    sync_user_to_pg(&state, &updated_user).await;
-
-    let (cred_id, label, enc_dek, prf_salt) = if let Some(pk) = &passkey_opt {
-        (
-            Some(pk.credential_id.clone()),
-            Some(pk.passkey_label.clone()),
-            Some(pk.passkey_encrypted_dek.clone()),
-            pk.passkey_prf_salt.clone(),
-        )
-    } else {
-        (
-            user.passkey_credential_id.clone(),
-            user.passkey_label.clone(),
-            user.passkey_encrypted_dek.clone(),
-            user.passkey_prf_salt.clone(),
-        )
-    };
-
-    let token = issue_jwt(&state.jwt_secret, user.id, &user.email, user.is_admin, true)?;
-    Ok(Json(AuthResponse {
-        token,
-        user_id: user.id,
-        email: user.email,
-        is_admin: user.is_admin,
-        kdf_salt_b64: user.kdf_salt,
-        kdf_params: user.kdf_params,
-        encrypted_dek: user.encrypted_dek,
-        recovery_encrypted_dek: user.recovery_encrypted_dek,
-        totp_enabled: user.totp_enabled,
-        totp_setup_uri: None,
-        totp_secret_base32: None,
-        passkey_credential_id: cred_id,
-        passkey_label: label,
-        passkey_encrypted_dek: enc_dek,
-        passkey_prf_salt_b64: prf_salt,
-        ui_preferences: user.ui_preferences,
-    }))
+    tracing::warn!(
+        "Abgelehnt: Aufruf des veralteten, ungesicherten Passkey-Login Endpoints für cred_id {}",
+        req.credential_id
+    );
+    Err((
+        StatusCode::GONE,
+        "POST /api/auth/passkey/login wurde aus Sicherheitsgründen entfernt (Issue #8: Unauthenticated Passkey Login Bypass). Authentifizierung erfordert den kryptografischen WebAuthn-Challenge-Handshake über /api/auth/passkey/login/start und /finish.".into(),
+    ))
 }
 
 async fn get_2fa_setup_info(
@@ -3223,22 +3165,20 @@ mod tests {
         assert!(salt_info.has_passkey);
         assert_eq!(salt_info.passkey_prf_salt_b64, Some(prf_salt_b64.clone()));
 
-        // 5. Login via Passkey Credential ID
-        let Json(login_resp) = login_with_passkey(
+        // 5. Verify unauthenticated legacy passkey login endpoint is strictly disabled (Issue #8)
+        let legacy_attempt = legacy_passkey_login_disabled(
             State(state.clone()),
             Json(PasskeyLoginRequest {
                 email: Some("passkey_user@schule.de".into()),
                 credential_id: cred_id.into(),
             }),
         )
-        .await
-        .expect("login with passkey");
-        assert_eq!(login_resp.passkey_credential_id, Some(cred_id.into()));
-        assert_eq!(login_resp.passkey_prf_salt_b64, Some(prf_salt_b64));
-        assert_eq!(login_resp.passkey_encrypted_dek, Some(passkey_encrypted_dek.clone()));
+        .await;
+        assert!(legacy_attempt.is_err());
+        assert_eq!(legacy_attempt.unwrap_err().0, StatusCode::GONE);
 
         // 6. Client unwraps DEK using the hardware PRF secret
-        let unwrapped_dek = unwrap_dek_with_passkey_secret(&prf_secret_b64, cred_id, &login_resp.passkey_encrypted_dek.unwrap())
+        let unwrapped_dek = unwrap_dek_with_passkey_secret(&prf_secret_b64, cred_id, &passkey_encrypted_dek)
             .expect("unwrap dek");
         assert_eq!(unwrapped_dek, bundle.dek_b64);
 
@@ -3516,17 +3456,17 @@ mod tests {
         assert_eq!(login_ok.totp_enabled, true);
         assert_eq!(login_ok.passkey_credential_id, Some(cred_id.into()));
 
-        // C) Passkey login succeeds directly
-        let Json(passkey_login_ok) = login_with_passkey(
+        // C) Verify unauthenticated passkey login bypass is strictly disabled (Issue #8)
+        let passkey_login_legacy = legacy_passkey_login_disabled(
             State(state.clone()),
             Json(PasskeyLoginRequest {
                 email: Some("onboarding.teacher@schule.de".into()),
                 credential_id: cred_id.into(),
             }),
         )
-        .await
-        .expect("passkey login");
-        assert_eq!(passkey_login_ok.passkey_encrypted_dek, Some(passkey_enc_dek.into()));
+        .await;
+        assert!(passkey_login_legacy.is_err());
+        assert_eq!(passkey_login_legacy.unwrap_err().0, StatusCode::GONE);
 
         let _ = fs::remove_file(&state.disk_store_path);
     }
@@ -3731,18 +3671,17 @@ mod tests {
         .expect("rename passkey");
         assert_eq!(renamed["label"], "iPad Schultasche");
 
-        // 6. Login with second passkey
-        let Json(login_mb) = login_with_passkey(
+        // 6. Verify legacy passkey login attempt returns 410 GONE (Issue #8)
+        let login_mb = legacy_passkey_login_disabled(
             State(state.clone()),
             Json(PasskeyLoginRequest {
                 email: Some("teacher_multipass@schule.de".into()),
                 credential_id: "cred_macbook_2".into(),
             }),
         )
-        .await
-        .expect("login with macbook passkey");
-        assert_eq!(login_mb.passkey_credential_id, Some("cred_macbook_2".into()));
-        assert_eq!(login_mb.passkey_encrypted_dek, Some(enc_dek_2));
+        .await;
+        assert!(login_mb.is_err());
+        assert_eq!(login_mb.unwrap_err().0, StatusCode::GONE);
 
         // 7. Delete first passkey
         let Json(del_resp) = delete_user_passkey_by_id(
@@ -3766,6 +3705,16 @@ mod tests {
     fn test_webauthn_builder_and_origin_configuration() {
         let webauthn = create_webauthn();
         assert!(Arc::strong_count(&webauthn) >= 1);
+        let user_id = Uuid::new_v4();
+        let (creation_challenge, _) = webauthn.start_passkey_registration(user_id, "test@schule.de", "test@schule.de", None).unwrap();
+        
+        let resp = PasskeyRegisterStartResponse {
+            session_id: "test_session".into(),
+            public_key: creation_challenge,
+        };
+        let val = serde_json::to_value(&resp).unwrap();
+        assert!(val.get("session_id").is_some());
+        assert!(val.get("publicKey").is_some());
     }
 
     #[tokio::test]

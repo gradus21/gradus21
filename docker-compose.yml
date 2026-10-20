@@ -37,6 +37,7 @@ services:
       WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-Gradus21}
       WEBAUTHN_RP_ORIGIN: ${WEBAUTHN_RP_ORIGIN:-https://gradus21.app}
       WEBAUTHN_ALLOWED_ORIGINS: ${WEBAUTHN_ALLOWED_ORIGINS:-https://gradus21.app}
+      CORS_ALLOWED_ORIGIN: ${CORS_ALLOWED_ORIGIN:-http://localhost:3080,http://localhost:5173}
       RUST_LOG: info
       PORT: 8080
       # Rechtliche Angaben (§ 5 DDG Impressum & DSGVO Konfiguration)
