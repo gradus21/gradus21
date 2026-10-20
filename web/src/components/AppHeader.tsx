@@ -101,8 +101,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                     backgroundColor: 'var(--primary-soft)',
                     color: 'var(--primary-text)',
                   }}
+                  title="Zero-Knowledge End-to-End Encryption"
                 >
-                  BTE v2
+                  E2EE
                 </span>
               </div>
               <p className="text-[11px] leading-tight" style={{ color: 'var(--text-secondary)' }}>
