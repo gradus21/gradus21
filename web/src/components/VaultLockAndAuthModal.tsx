@@ -536,9 +536,15 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       let credentialIdB64 = '';
       let passkeySecretBytes = crypto.getRandomValues(new Uint8Array(32));
       let isPrfEnabled = false;
-      let deviceLabel = navigator.platform
-        ? `Passkey auf diesem Gerät (${navigator.platform})`
-        : 'Passkey (Fingerabdruck / Face ID)';
+      const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+      let platformName = typeof navigator !== 'undefined' && navigator.platform ? navigator.platform : 'diesem Gerät';
+      if (/android/i.test(ua)) platformName = 'Android';
+      else if (/ipad/i.test(ua)) platformName = 'iPad';
+      else if (/iphone/i.test(ua)) platformName = 'iPhone';
+      else if (/macintosh|mac os x/i.test(ua)) platformName = 'Mac';
+      else if (/windows/i.test(ua)) platformName = 'Windows';
+      else if (/linux/i.test(ua)) platformName = 'Linux';
+      const deviceLabel = `Passkey (${platformName})`;
 
       let cred: PublicKeyCredential | null = null;
       try {
@@ -587,7 +593,45 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             passkeySecretBytes = new Uint8Array(prfFirst);
             isPrfEnabled = true;
           } else if (extResults?.enabled) {
-            isPrfEnabled = true;
+            // Authenticator unterstützt Hardware-PRF, evaluiert es jedoch nicht während create().
+            // Führe eine sofortige PRF-Auswertung via credentials.get() mit dem neuen Credential durch:
+            try {
+              const evalAssertion = (await navigator.credentials.get({
+                publicKey: {
+                  challenge: (crypto.getRandomValues(new Uint8Array(32)).buffer as ArrayBuffer),
+                  allowCredentials: [
+                    {
+                      type: 'public-key',
+                      id: cred.rawId,
+                      transports: (cred.response as any)?.getTransports
+                        ? (cred.response as any).getTransports()
+                        : undefined,
+                    },
+                  ],
+                  userVerification:
+                    creationPublicKey?.authenticatorSelection?.userVerification || 'preferred',
+                  timeout: 30000,
+                  rpId: creationPublicKey?.rp?.id || window.location.hostname || undefined,
+                  extensions: {
+                    prf: {
+                      eval: {
+                        first: prfSalt,
+                      },
+                    },
+                  } as any,
+                },
+              })) as PublicKeyCredential | null;
+              const evalPrfFirst = (evalAssertion?.getClientExtensionResults() as any)?.prf?.results?.first;
+              if (evalPrfFirst) {
+                passkeySecretBytes = new Uint8Array(evalPrfFirst);
+                isPrfEnabled = true;
+              } else {
+                isPrfEnabled = false;
+              }
+            } catch (evalErr) {
+              console.warn('Post-creation PRF evaluation failed, falling back to local secret:', evalErr);
+              isPrfEnabled = false;
+            }
           }
         }
       } catch (webauthnErr: any) {
@@ -1135,6 +1179,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         setErrorMsg(
           'Dieser Passkey unterstützt keine geräteübergreifende Hardware-Schlüsselableitung (PRF). Bitte melde dich auf diesem neuen Gerät einmalig mit deinem Passwort an.'
         );
+        setTimeout(() => document.getElementById('login-password')?.focus(), 50);
         return;
       }
 
