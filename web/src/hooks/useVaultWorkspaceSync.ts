@@ -101,6 +101,35 @@ export function removeStoredAuthKey(userId: string): void {
   sessionStorage.removeItem(`bte_notenflow_authkey_${userId}`);
 }
 
+export async function renewTokenIfNeeded(
+  userId: string,
+  email?: string,
+  authKey?: string
+): Promise<string | null> {
+  const effectiveAuthKey = authKey || getStoredAuthKey(userId);
+  if (!email || !effectiveAuthKey) return null;
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email,
+        auth_key_b64: effectiveAuthKey,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.token) {
+        setStoredToken(userId, data.token);
+        return data.token;
+      }
+    }
+  } catch (e) {
+    console.warn('Auto-Login Erneuerung fehlgeschlagen:', e);
+  }
+  return null;
+}
+
 export function createFreshWorkspaceForNewTeacher(userId: string): ClassroomSubjectDataset[] {
   const starterId = ensureValidUuid(`class_starter_${userId}`);
   return [
@@ -474,30 +503,28 @@ export function useVaultWorkspaceSync() {
                 );
                 lastSerializedSettingsRef.current = decSettings;
                 const parsedSettings = JSON.parse(decSettings);
-                setUserSettings({
+                const isSync = Boolean(parsedSettings?.cloudSyncEnabled ?? userSettings.cloudSyncEnabled);
+                setUserSettings((prev) => ({
                   ...DEFAULT_USER_SYNC_SETTINGS,
                   ...parsedSettings,
-                });
+                  cloudSyncEnabled: isSync,
+                }));
                 setLoadedUserId(userId);
-                if (parsedSettings?.cloudSyncEnabled) {
+                if (isSync) {
                   isCloudSyncActive = true;
                   setSyncStatus('synced');
                 } else {
                   setSyncStatus('local_only');
-                  return;
                 }
               } catch {
                 // Keep default settings if corrupted
               }
             }
-            if (!isCloudSyncActive) {
-              setLoadedUserId(userId);
-              setSyncStatus(userSettings.cloudSyncEnabled ? 'synced' : 'local_only');
-              if (!userSettings.cloudSyncEnabled) {
-                return;
-              }
+            if (!isCloudSyncActive && userSettings.cloudSyncEnabled) {
               isCloudSyncActive = true;
             }
+            setLoadedUserId(userId);
+            setSyncStatus(isCloudSyncActive || userSettings.cloudSyncEnabled ? 'synced' : 'local_only');
           } else if (parsed.encryptedDatasetsEnvelope) {
             // Legacy monolithic cache
             const decryptedJson = wasm_decrypt_envelope(
@@ -529,30 +556,28 @@ export function useVaultWorkspaceSync() {
                 );
                 lastSerializedSettingsRef.current = decSettings;
                 const parsedSettings = JSON.parse(decSettings);
-                setUserSettings({
+                const isSync = Boolean(parsedSettings?.cloudSyncEnabled ?? userSettings.cloudSyncEnabled);
+                setUserSettings((prev) => ({
                   ...DEFAULT_USER_SYNC_SETTINGS,
                   ...parsedSettings,
-                });
+                  cloudSyncEnabled: isSync,
+                }));
                 setLoadedUserId(userId);
-                if (parsedSettings?.cloudSyncEnabled) {
+                if (isSync) {
                   isCloudSyncActive = true;
                   setSyncStatus('synced');
                 } else {
                   setSyncStatus('local_only');
-                  return;
                 }
               } catch {
                 // Keep default settings if corrupted
               }
             }
-            if (!isCloudSyncActive) {
-              setLoadedUserId(userId);
-              setSyncStatus(userSettings.cloudSyncEnabled ? 'synced' : 'local_only');
-              if (!userSettings.cloudSyncEnabled) {
-                return;
-              }
+            if (!isCloudSyncActive && userSettings.cloudSyncEnabled) {
               isCloudSyncActive = true;
             }
+            setLoadedUserId(userId);
+            setSyncStatus(isCloudSyncActive || userSettings.cloudSyncEnabled ? 'synced' : 'local_only');
           }
         } catch (e) {
           console.warn('Lokaler E2EE-Cache konnte nicht entschlüsselt werden:', e);
@@ -560,15 +585,35 @@ export function useVaultWorkspaceSync() {
       }
     }
 
-    // Falls kein lokaler Cache existiert oder forceServerFetch aktiv ist oder Cloud-Sync aktiv ist -> Server abfragen
-    if (token && (forceServerFetch || userSettings.cloudSyncEnabled || isCloudSyncActive)) {
+    // Falls kein lokaler Cache existiert oder forceServerFetch aktiv ist oder Cloud-Sync aktiv ist oder Token vorhanden -> Server abfragen
+    let effectiveToken = token || (userId ? getStoredToken(userId) : '');
+    const hasLocalClasses = cachedLocalClasses.length > 0;
+
+    if (effectiveToken && (forceServerFetch || userSettings.cloudSyncEnabled || isCloudSyncActive || !hasLocalClasses)) {
       try {
         setSyncStatus('syncing');
-        const res = await fetch('/api/envelopes/sync', {
+        let res = await fetch('/api/envelopes/sync', {
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${effectiveToken}`,
           },
         });
+
+        if (res.status === 401) {
+          // Token abgelaufen -> automatischer Re-Auth mit authKey
+          const refreshedToken = await renewTokenIfNeeded(
+            userId,
+            session.email,
+            session.authKeyB64
+          );
+          if (refreshedToken) {
+            effectiveToken = refreshedToken;
+            setVaultSession((prev) => (prev ? { ...prev, token: refreshedToken } : null));
+            res = await fetch('/api/envelopes/sync', {
+              headers: { Authorization: `Bearer ${refreshedToken}` },
+            });
+          }
+        }
+
         if (res.ok) {
           const remoteEnvelopes: Array<{
             id: string;
@@ -588,6 +633,7 @@ export function useVaultWorkspaceSync() {
           if (settingsEnvelope) {
             try {
               envelopeVersionsRef.current.set(settingsEnvelope.id, settingsEnvelope.version);
+              envelopeVersionsRef.current.set('00000000-0000-4000-8000-000000000002', settingsEnvelope.version);
               const decSettings = wasm_decrypt_envelope(
                 dekB64,
                 userId,
@@ -595,10 +641,15 @@ export function useVaultWorkspaceSync() {
                 settingsEnvelope.encrypted_payload
               );
               lastSerializedSettingsRef.current = decSettings;
-              setUserSettings({
+              const parsedRemoteSettings = JSON.parse(decSettings);
+              setUserSettings((prev) => ({
                 ...DEFAULT_USER_SYNC_SETTINGS,
-                ...JSON.parse(decSettings),
-              });
+                ...parsedRemoteSettings,
+                cloudSyncEnabled: parsedRemoteSettings.cloudSyncEnabled ?? prev.cloudSyncEnabled ?? true,
+              }));
+              if (parsedRemoteSettings.cloudSyncEnabled ?? true) {
+                isCloudSyncActive = true;
+              }
             } catch {
               // ignore
             }
@@ -641,7 +692,7 @@ export function useVaultWorkspaceSync() {
             if (wsEnvelope) {
               fetch(`/api/envelopes/${wsEnvelope.id}`, {
                 method: 'DELETE',
-                headers: { Authorization: `Bearer ${token}` },
+                headers: { Authorization: `Bearer ${effectiveToken}` },
               }).catch(() => {});
             }
           } else if (wsEnvelope) {
@@ -670,7 +721,7 @@ export function useVaultWorkspaceSync() {
                 // Clean up legacy workspace envelope on server
                 fetch(`/api/envelopes/${wsEnvelope.id}`, {
                   method: 'DELETE',
-                  headers: { Authorization: `Bearer ${token}` },
+                  headers: { Authorization: `Bearer ${effectiveToken}` },
                 }).catch(() => {});
               }
             } catch (e) {
@@ -678,7 +729,7 @@ export function useVaultWorkspaceSync() {
             }
           }
 
-          // Wenn der Server noch keine Daten für dieses neue Konto hat -> frischen leeren Arbeitsbereich anlegen, falls lokal auch nichts da war
+          // Wenn der Server noch keine Daten für dieses Konto hat -> frischen leeren Arbeitsbereich anlegen, falls lokal auch nichts da war
           if (!loadedDatasets) {
             if (cachedLocalClasses.length > 0) {
               loadedDatasets = cachedLocalClasses;
@@ -686,7 +737,7 @@ export function useVaultWorkspaceSync() {
               const freshWs = createFreshWorkspaceForNewTeacher(userId);
               setDatasets(freshWs);
               setActiveClassId(freshWs[0].id);
-              setUserSettings(DEFAULT_USER_SYNC_SETTINGS);
+              setUserSettings((prev) => ({ ...prev, ...DEFAULT_USER_SYNC_SETTINGS }));
             }
           }
 
@@ -699,14 +750,21 @@ export function useVaultWorkspaceSync() {
       }
     }
 
-    // Offline / Erstbesuch ohne Serverdaten:
+    // Wenn lokaler Cache vorhanden war -> behalte ihn und gehe nicht in den leeren Dummy-Modus!
+    if (cachedLocalClasses.length > 0) {
+      setLoadedUserId(userId);
+      setSyncStatus(isCloudSyncActive || userSettings.cloudSyncEnabled ? 'offline_local' : 'local_only');
+      return;
+    }
+
+    // Erstbesuch ohne Serverdaten und ohne lokalen Cache:
     const freshOffline =
       userId === DEMO_OWNER_USER_ID ? INITIAL_CLASS_DATASETS : createFreshWorkspaceForNewTeacher(userId);
     setDatasets(freshOffline);
     setActiveClassId(freshOffline[0].id);
     setUserSettings(DEFAULT_USER_SYNC_SETTINGS);
     setLoadedUserId(userId);
-    setSyncStatus(userSettings.cloudSyncEnabled ? 'synced' : 'local_only');
+    setSyncStatus('local_only');
   };
 
   const handleLockVault = () => {
@@ -1029,7 +1087,6 @@ export function useVaultWorkspaceSync() {
 
         const effectiveSettingsEnvelope =
           encryptedSettingsStr ||
-          preservedSettingsEnvelope ||
           wasm_encrypt_envelope(
             vaultSession.dekB64,
             vaultSession.userId,
@@ -1088,8 +1145,24 @@ export function useVaultWorkspaceSync() {
           return;
         }
 
-        // If offline / no token
-        if (!vaultSession.token) {
+        let effectiveToken =
+          vaultSession.token ||
+          (vaultSession.userId ? getStoredToken(vaultSession.userId) : '');
+
+        // If offline / no token -> attempt auto-renew
+        if (!effectiveToken && vaultSession.userId) {
+          effectiveToken =
+            (await renewTokenIfNeeded(
+              vaultSession.userId,
+              vaultSession.email,
+              vaultSession.authKeyB64
+            )) || '';
+          if (effectiveToken) {
+            setVaultSession((prev) => (prev ? { ...prev, token: effectiveToken } : null));
+          }
+        }
+
+        if (!effectiveToken) {
           setSyncStatus('offline_local');
           return;
         }
@@ -1099,12 +1172,12 @@ export function useVaultWorkspaceSync() {
           batchPayload.push(settingsEnvelopeItem);
         }
 
-        const [batchRes, prefRes] = await Promise.all([
+        let [batchRes, prefRes] = await Promise.all([
           fetch('/api/envelopes/batch', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${vaultSession.token}`,
+              Authorization: `Bearer ${effectiveToken}`,
             },
             body: JSON.stringify({
               envelopes: batchPayload,
@@ -1114,7 +1187,7 @@ export function useVaultWorkspaceSync() {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${vaultSession.token}`,
+              Authorization: `Bearer ${effectiveToken}`,
             },
             body: JSON.stringify({
               theme: userSettings.themePreset,
@@ -1125,6 +1198,25 @@ export function useVaultWorkspaceSync() {
             }),
           }),
         ]);
+
+        if (batchRes.status === 401) {
+          const newToken = await renewTokenIfNeeded(
+            vaultSession.userId,
+            vaultSession.email,
+            vaultSession.authKeyB64
+          );
+          if (newToken) {
+            setVaultSession((prev) => (prev ? { ...prev, token: newToken } : null));
+            batchRes = await fetch('/api/envelopes/batch', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${newToken}`,
+              },
+              body: JSON.stringify({ envelopes: batchPayload }),
+            });
+          }
+        }
 
         if (batchRes.status === 409) {
           // OCC Conflict detected: Another tab or device updated one of the envelopes!
@@ -1146,16 +1238,21 @@ export function useVaultWorkspaceSync() {
         }
 
         if (batchRes.ok && prefRes.ok) {
-          const updatedEnvelopes: Array<{ id: string; version: number }> =
+          const updatedEnvelopes: Array<{ id: string; version: number; entity_type?: string }> =
             await batchRes.json();
           for (const up of updatedEnvelopes) {
             envelopeVersionsRef.current.set(up.id, up.version);
+            if (up.entity_type === 'user_settings') {
+              envelopeVersionsRef.current.set('00000000-0000-4000-8000-000000000002', up.version);
+            }
           }
           for (const ds of datasets) {
             lastSerializedPerClassRef.current.set(ds.id, JSON.stringify(ds));
           }
           if (settingsEnvelopeItem) {
             lastSerializedSettingsRef.current = serializedSettings;
+            const settingsVer = updatedEnvelopes.find((e) => e.entity_type === 'user_settings')?.version || 1;
+            envelopeVersionsRef.current.set('00000000-0000-4000-8000-000000000002', settingsVer);
           }
           setSyncStatus('synced');
         } else {
@@ -1169,6 +1266,156 @@ export function useVaultWorkspaceSync() {
 
     return () => window.clearTimeout(timer);
   }, [wasmReady, datasets, userSettings, vaultSession, isVaultLocked, activeDataset, loadedUserId]);
+
+  // Real-time Background Sync & Tab Focus Reconciliation
+  useEffect(() => {
+    if (
+      !wasmReady ||
+      !vaultSession?.dekB64 ||
+      !vaultSession.userId ||
+      isVaultLocked ||
+      !userSettings.cloudSyncEnabled ||
+      loadedUserId !== vaultSession.userId
+    ) {
+      return;
+    }
+
+    let isPolling = false;
+
+    const performBackgroundSyncCheck = async () => {
+      if (isPolling || isRestoringRef.current) return;
+      isPolling = true;
+
+      try {
+        let token =
+          vaultSession.token ||
+          getStoredToken(vaultSession.userId) ||
+          (await renewTokenIfNeeded(
+            vaultSession.userId,
+            vaultSession.email,
+            vaultSession.authKeyB64
+          ));
+
+        if (!token) {
+          isPolling = false;
+          return;
+        }
+
+        const res = await fetch('/api/envelopes/sync', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!res.ok) {
+          isPolling = false;
+          return;
+        }
+
+        const remoteEnvelopes: Array<{
+          id: string;
+          entity_type: string;
+          parent_id: string | null;
+          class_id: string | null;
+          encrypted_payload: string;
+          version: number;
+          updated_at: string;
+        }> = await res.json();
+
+        const classEnvelopes = remoteEnvelopes.filter((e) => e.entity_type === 'class_dataset');
+        let hasNewerRemote = false;
+
+        for (const env of classEnvelopes) {
+          const currentVer = envelopeVersionsRef.current.get(env.id);
+          if (currentVer === undefined || env.version > currentVer) {
+            hasNewerRemote = true;
+            break;
+          }
+        }
+
+        if (hasNewerRemote) {
+          // Check if local has dirty uncommitted changes
+          let hasLocalDirty = false;
+          for (const ds of datasets) {
+            const lastSer = lastSerializedPerClassRef.current.get(ds.id);
+            if (lastSer !== JSON.stringify(ds)) {
+              hasLocalDirty = true;
+              break;
+            }
+          }
+
+          if (!hasLocalDirty) {
+            // Local is clean -> seamlessly pull and decrypt new remote datasets!
+            const restoredList: ClassroomSubjectDataset[] = [];
+            for (const env of classEnvelopes) {
+              try {
+                const decClass = wasm_decrypt_envelope(
+                  vaultSession.dekB64,
+                  vaultSession.userId,
+                  env.id,
+                  env.encrypted_payload
+                );
+                const ds = JSON.parse(decClass) as ClassroomSubjectDataset;
+                ds.id = ensureValidUuid(ds.id || env.id);
+                envelopeVersionsRef.current.set(ds.id, env.version);
+                lastSerializedPerClassRef.current.set(ds.id, JSON.stringify(ds));
+                restoredList.push(ds);
+              } catch (e) {
+                console.warn('Hintergrund-Entschlüsselung fehlgeschlagen für Envelope', env.id, e);
+              }
+            }
+
+            if (restoredList.length > 0) {
+              setDatasets(restoredList);
+              setSyncStatus('synced');
+            }
+          } else {
+            // Concurrent local changes exist -> flag conflict notice!
+            setSyncConflictNotice(
+              'Änderungen von einem anderen Gerät empfangen während lokale Änderungen vorliegen. Bitte abgleichen.'
+            );
+          }
+        }
+      } catch (err) {
+        console.debug('Hintergrund-Sync Check beendet:', err);
+      } finally {
+        isPolling = false;
+      }
+    };
+
+    // 1. Check on window focus / tab becoming visible
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        performBackgroundSyncCheck();
+      }
+    };
+    const onFocus = () => {
+      performBackgroundSyncCheck();
+    };
+
+    window.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', onFocus);
+
+    // 2. Gentle polling interval every 12 seconds when tab is active
+    const pollInterval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        performBackgroundSyncCheck();
+      }
+    }, 12000);
+
+    return () => {
+      window.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('focus', onFocus);
+      window.clearInterval(pollInterval);
+    };
+  }, [
+    wasmReady,
+    vaultSession?.token,
+    vaultSession?.dekB64,
+    vaultSession?.userId,
+    isVaultLocked,
+    userSettings.cloudSyncEnabled,
+    loadedUserId,
+    datasets,
+  ]);
 
   const updateSubjectConfig = (
     updater: (ds: ClassroomSubjectDataset) => ClassroomSubjectDataset
@@ -1239,8 +1486,13 @@ export function useVaultWorkspaceSync() {
       return;
     }
 
-    // Require E-Mail verification before enabling cloud sync
-    if (!isEmailVerified) {
+    const emailVerifiedKey = `gradus21_email_verified_${vaultSession.email}`;
+    const isAlreadyVerified =
+      isEmailVerified ||
+      localStorage.getItem(emailVerifiedKey) === 'true' ||
+      Boolean(vaultSession.token);
+
+    if (!isAlreadyVerified) {
       setEmailForVerification(vaultSession.email);
       setIsEmailVerificationOpen(true);
       return;
@@ -1251,8 +1503,6 @@ export function useVaultWorkspaceSync() {
 
   const handleEmailVerificationCancel = () => {
     setIsEmailVerificationOpen(false);
-    setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: false }));
-    setSyncStatus('local_only');
   };
 
   const proceedToCloudSyncActivation = async (authToken?: string) => {
@@ -1267,29 +1517,15 @@ export function useVaultWorkspaceSync() {
       vaultSession?.email &&
       (vaultSession?.authKeyB64 || (vaultSession?.userId && getStoredAuthKey(vaultSession.userId)))
     ) {
-      const authKey =
-        vaultSession.authKeyB64 || (vaultSession?.userId ? getStoredAuthKey(vaultSession.userId) : '');
-      try {
-        const logRes = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: vaultSession.email,
-            auth_key_b64: authKey,
-          }),
-        });
-        if (logRes.ok) {
-          const logData = await logRes.json();
-          token = logData.token;
-          if (token && vaultSession.userId) {
-            setStoredToken(vaultSession.userId, token);
-          }
-          setVaultSession((prev) =>
-            prev ? { ...prev, token: logData.token, isAdmin: logData.is_admin } : null
-          );
-        }
-      } catch (err) {
-        console.warn('Auto-Login vor Cloud-Aktivierung fehlgeschlagen:', err);
+      token = (await renewTokenIfNeeded(
+        vaultSession.userId,
+        vaultSession.email,
+        vaultSession.authKeyB64
+      )) || '';
+      if (token) {
+        setVaultSession((prev) =>
+          prev ? { ...prev, token } : null
+        );
       }
     }
 
@@ -1303,15 +1539,35 @@ export function useVaultWorkspaceSync() {
 
     try {
       setSyncStatus('syncing');
-      const sumRes = await fetch('/api/envelopes/summary', {
+      let sumRes = await fetch('/api/envelopes/summary', {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (sumRes.status === 401 && vaultSession?.userId) {
+        const refreshed = await renewTokenIfNeeded(
+          vaultSession.userId,
+          vaultSession.email,
+          vaultSession.authKeyB64
+        );
+        if (refreshed) {
+          token = refreshed;
+          setVaultSession((prev) => (prev ? { ...prev, token: refreshed } : null));
+          sumRes = await fetch('/api/envelopes/summary', {
+            headers: { Authorization: `Bearer ${refreshed}` },
+          });
+        }
+      }
       if (!sumRes.ok) {
         throw new Error('Summary konnte nicht abgerufen werden');
       }
       const summary = await sumRes.json();
       const remoteClassCount = summary.class_envelopes?.length || 0;
-      const realLocalClasses = datasets.filter((d) => d.id !== 'demo-class-initial');
+      const realLocalClasses = datasets.filter((d) => {
+        if (d.id === 'demo-class-initial') return false;
+        if (d.id.startsWith('class_starter_') && d.students.length === 0 && d.grades.length === 0) {
+          return false;
+        }
+        return true;
+      });
 
       if (remoteClassCount > 0 && realLocalClasses.length > 0) {
         // Both local and remote exist -> open reconciliation modal
@@ -1333,13 +1589,15 @@ export function useVaultWorkspaceSync() {
       }
     } catch (err) {
       console.error('Fehler bei der Cloud-Aktivierung:', err);
-      setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: false }));
-      setSyncStatus('local_only');
+      setSyncStatus('offline_local');
     }
   };
 
   const handleEmailVerificationSuccess = async () => {
     setIsEmailVerified(true);
+    if (vaultSession?.email) {
+      localStorage.setItem(`gradus21_email_verified_${vaultSession.email}`, 'true');
+    }
     setIsEmailVerificationOpen(false);
 
     let token =
@@ -1408,15 +1666,27 @@ export function useVaultWorkspaceSync() {
 
   const handleCancelReconciliation = () => {
     setIsReconciliationOpen(false);
-    setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: false }));
-    setSyncStatus('local_only');
   };
 
   const executeReconciliation = async (
     strategy: SyncReconciliationStrategy,
     authToken?: string
   ) => {
-    const token = authToken || vaultSession?.token;
+    let token =
+      authToken ||
+      vaultSession?.token ||
+      (vaultSession?.userId ? getStoredToken(vaultSession.userId) : '');
+    if (!token && vaultSession?.userId) {
+      token =
+        (await renewTokenIfNeeded(
+          vaultSession.userId,
+          vaultSession.email,
+          vaultSession.authKeyB64
+        )) || '';
+      if (token) {
+        setVaultSession((prev) => (prev ? { ...prev, token } : null));
+      }
+    }
     if (!token || !vaultSession?.dekB64) {
       setIsReconciliationOpen(false);
       return;
@@ -1426,9 +1696,23 @@ export function useVaultWorkspaceSync() {
       setSyncStatus('syncing');
 
       // 1. Fetch remote envelopes
-      const res = await fetch('/api/envelopes/sync', {
+      let res = await fetch('/api/envelopes/sync', {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (res.status === 401 && vaultSession?.userId) {
+        const refreshed = await renewTokenIfNeeded(
+          vaultSession.userId,
+          vaultSession.email,
+          vaultSession.authKeyB64
+        );
+        if (refreshed) {
+          token = refreshed;
+          setVaultSession((prev) => (prev ? { ...prev, token: refreshed } : null));
+          res = await fetch('/api/envelopes/sync', {
+            headers: { Authorization: `Bearer ${refreshed}` },
+          });
+        }
+      }
       if (!res.ok) throw new Error('Fehler beim Abruf der Cloud-Daten.');
       const remoteEnvelopes: Array<{
         id: string;
@@ -1441,6 +1725,9 @@ export function useVaultWorkspaceSync() {
       // Populate server versions for OCC
       remoteEnvelopes.forEach((env) => {
         envelopeVersionsRef.current.set(env.id, env.version);
+        if (env.entity_type === 'user_settings') {
+          envelopeVersionsRef.current.set('00000000-0000-4000-8000-000000000002', env.version);
+        }
       });
 
       // Decrypt remote class envelopes
@@ -1485,6 +1772,15 @@ export function useVaultWorkspaceSync() {
 
         // Merge local classes
         datasets.forEach((localCls) => {
+          // Ignore placeholder starter class if remote classes exist
+          if (
+            localCls.id.startsWith('class_starter_') &&
+            localCls.students.length === 0 &&
+            localCls.grades.length === 0 &&
+            decryptedRemoteClasses.length > 0
+          ) {
+            return;
+          }
           const remoteCls = remoteMap.get(localCls.id);
           if (!remoteCls) {
             finalMap.set(localCls.id, localCls);
