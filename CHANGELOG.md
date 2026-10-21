@@ -3,6 +3,29 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-10-21
+
+### Mobile, iPad & Responsive Touch Experience
+- **Adaptive Touch Target Architecture (WCAG & Apple HIG Compliance)**:
+  - Enforced a minimum 44×44px interactive target size on coarse pointer devices (iPads, Android tablets, smartphones) while preserving compact layout density for table cells and indicator dots.
+  - Excluded `.step-dot` and `.compact-touch` indicators from artificial dimension stretching to prevent distorted tour pagination dots.
+- **Universal Mobile Icon Centering**:
+  - Global CSS rule (`index.css`) and explicit Tailwind utility classes guaranteeing absolute horizontal and vertical centering (`inline-flex items-center justify-center`) for all icon-only buttons.
+  - Responsive text collapse support: All buttons with label spans collapsing on smaller viewports (`hidden sm:inline`, `hidden md:inline`, `hidden lg:inline`, `hidden xl:inline`) maintain centered icon alignment.
+  - Aligned modal close controls across `InteractiveDemoGuide`, `WelcomeGuideBanner`, `GuideChapterSelectModal`, `LegalModal`, `AdminModal`, `ExportConfigModal`, `EmailVerificationModal`, `ClassManagementModal`, and `SettingsModal`.
+- **iOS Safari & Mobile Usability Hardening**:
+  - Auto-zoom prevention: Input font sizes clamped to 16px on mobile viewports to prevent iOS Safari from zooming into the viewport on touch focus.
+  - Instant decimal keypad (`inputMode="decimal"`) automatically engaged on touch devices for fast single-handed points and percentage grade entry.
+  - Touch hover bypass (`@media (hover: none)`): Contextual actions (such as *o.B.* / without grade and student archive toggles) remain immediately accessible without hover requirements.
+  - Native iOS safe-area support (`env(safe-area-inset-top)` and `env(safe-area-inset-bottom)`) for iPhones with dynamic island and home indicator bars.
+
+### CI/CD & Build Pipeline Hardening
+- **Automated WASM Build Integration**:
+  - Added automated `wasm-pack` compilation for `crates/gradus21-core` prior to `npm run build` in GitHub Actions CI workflow, preventing missing bundle artifacts in headless environments.
+
+### Versioning & Documentation
+- Bumped workspace version across Cargo workspace, Web client, WASM bindings, and architecture documentation to `v1.2.0`.
+
 ## [1.1.2] - 2026-10-20
 
 ### Fixes & Synchronization Improvements

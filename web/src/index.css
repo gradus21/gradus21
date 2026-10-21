@@ -121,13 +121,32 @@ body {
 
 /* Adaptive Touch-Targets: Auf Touch-Geräten (iPad, Smartphone, Tablet) 
    Mindesthöhe/-breite auf 44px für interaktive Hauptelemente,
-   während Tabellenzellen-Elemente kompakt bleiben. */
+   während Tabellenzellen-Elemente, Dots und Mini-Indikatoren kompakt bleiben. */
 @media (pointer: coarse) {
-  button:not(.compact-touch):not(table button), 
-  [role="button"]:not(.compact-touch):not(table [role="button"]),
+  button:not(.compact-touch):not(table button):not(.step-dot), 
+  [role="button"]:not(.compact-touch):not(table [role="button"]):not(.step-dot),
   .touch-target {
     min-height: 44px;
     min-width: 44px;
+  }
+}
+
+/* Garantiert absolut zentrierte Ausrichtung für Buttons, die nur Icons enthalten
+   oder deren Text auf mobilen Displays/Tablets ausgeblendet ist */
+button:has(> svg:only-child),
+button:has(> svg.shrink-0:only-child),
+.icon-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+@media (max-width: 640px) {
+  button:has(> [class*="hidden sm:inline"]),
+  button:has(> [class*="hidden md:inline"]),
+  button:has(> [class*="hidden lg:inline"]),
+  button:has(> [class*="hidden xl:inline"]) {
+    justify-content: center;
   }
 }
 

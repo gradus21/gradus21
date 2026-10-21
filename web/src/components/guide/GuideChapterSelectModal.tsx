@@ -107,7 +107,7 @@ export const GuideChapterSelectModal: React.FC<GuideChapterSelectModalProps> = (
 
           <button
             onClick={onClose}
-            className="p-2 rounded-xl transition hover:opacity-80"
+            className="w-10 h-10 rounded-xl transition hover:opacity-80 inline-flex items-center justify-center shrink-0"
             style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)' }}
             title="Schließen"
           >
@@ -215,7 +215,7 @@ export const GuideChapterSelectModal: React.FC<GuideChapterSelectModalProps> = (
                       onClose();
                       onStartChapter(chapter.id);
                     }}
-                    className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition ${
+                    className={`px-3.5 py-2 rounded-xl text-xs font-bold inline-flex items-center justify-center gap-1.5 transition ${
                       isCompleted
                         ? 'border hover:bg-slate-100 dark:hover:bg-slate-800'
                         : 'text-white shadow-sm hover:opacity-95'
@@ -261,7 +261,7 @@ export const GuideChapterSelectModal: React.FC<GuideChapterSelectModalProps> = (
           <span>💡 Du kannst die interaktive Demo jederzeit oben in der Kopfleiste aufrufen.</span>
           <button
             onClick={onClose}
-            className="px-4 py-1.5 rounded-xl border text-xs font-semibold transition hover:opacity-80"
+            className="px-4 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center justify-center transition hover:opacity-80"
             style={{
               backgroundColor: 'var(--bg-surface)',
               borderColor: 'var(--border-subtle)',

@@ -698,7 +698,7 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                           </button>
                           <button
                             onClick={() => toggleStudentArchived(stu.id)}
-                            className={`compact-touch text-[10px] px-1.5 py-0.5 rounded transition ${
+                            className={`compact-touch w-6 h-6 rounded inline-flex items-center justify-center transition ${
                               stu.is_archived
                                 ? 'bg-amber-200 text-amber-900 font-bold'
                                 : 'opacity-0 group-hover:opacity-70 touch-visible text-slate-500'

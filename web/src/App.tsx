@@ -370,7 +370,7 @@ export const App: React.FC = () => {
               <button
                 type="button"
                 onClick={clearConflictNotice}
-                className="p-1.5 rounded-lg hover:bg-amber-500/20 transition opacity-80 hover:opacity-100 cursor-pointer"
+                className="w-8 h-8 rounded-lg hover:bg-amber-500/20 transition opacity-80 hover:opacity-100 cursor-pointer inline-flex items-center justify-center shrink-0"
                 title="Schließen"
               >
                 <X className="w-4 h-4" />

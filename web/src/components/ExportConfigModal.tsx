@@ -194,7 +194,7 @@ export const ExportConfigModal: React.FC<ExportConfigModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-xl hover:bg-neutral-500/10 transition"
+            className="w-10 h-10 rounded-xl hover:bg-neutral-500/10 transition inline-flex items-center justify-center shrink-0"
             style={{ color: 'var(--text-secondary)' }}
             aria-label="Schließen"
           >

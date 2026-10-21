@@ -195,7 +195,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
             <button
               onClick={onClose}
-              className="p-2 rounded-xl border transition hover:opacity-80"
+              className="w-10 h-10 rounded-xl border transition hover:opacity-80 inline-flex items-center justify-center shrink-0"
               style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
             >
               <X className="w-4 h-4" />

@@ -279,7 +279,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-xl border transition hover:opacity-80"
+            className="w-9 h-9 rounded-xl border transition hover:opacity-80 inline-flex items-center justify-center shrink-0"
             style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
           >
             <X className="w-4 h-4" />
@@ -1006,7 +1006,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
                 </div>
                 <button
                   onClick={() => setStudentPendingDelete(null)}
-                  className="p-1 rounded-lg opacity-50 hover:opacity-100 transition"
+                  className="w-8 h-8 rounded-lg opacity-50 hover:opacity-100 transition inline-flex items-center justify-center shrink-0"
                   style={{ color: 'var(--text-secondary)' }}
                 >
                   <X className="w-4 h-4" />

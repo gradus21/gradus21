@@ -1,10 +1,10 @@
-# Gradus21 (`v1.1.1`)
+# Gradus21 (`v1.2.0`)
 
 > **Gradus21** — Zero-Knowledge E2EE & 100 % Client-Side Rust/WebAssembly Notenverwaltung & pädagogische Didaktik für Lehrkräfte.
 >
 > 🌐 **Website:** [gradus21.de](https://gradus21.de) &nbsp;|&nbsp; 🧮 **Kostenloser Notenschlüssel-Rechner:** [gradus21.de/notenrechner](https://gradus21.de/notenrechner/)  
-> 🚀 **Status: Version `1.1.1` (Production Release)**  
-> Vollständig DSGVO-konform, Zero-Knowledge verschlüsselt, FIDO2/Passkey-gesichert und bereit für den produktiven Schuleinsatz.
+> 🚀 **Status: Version `1.2.0` (Production Release — Mobile, iPad & Responsive Touch Edition)**  
+> Vollständig DSGVO-konform, Zero-Knowledge verschlüsselt, FIDO2/Passkey-gesichert und bereit für den produktiven Schuleinsatz auf Desktop, iPad und Smartphone.
 
 [![Website](https://img.shields.io/badge/Website-gradus21.de-0d9488?style=for-the-badge&logo=googlechrome&logoColor=white)](https://gradus21.de)
 [![Notenrechner](https://img.shields.io/badge/Notenschl%C3%BCssel--Rechner-gradus21.de%2Fnotenrechner-3b82f6?style=for-the-badge&logo=calculator&logoColor=white)](https://gradus21.de/notenrechner/)
@@ -33,9 +33,20 @@ Viele Lehrkräfte verwalten ihre Klassenlisten, Punktetabellen, Gewichtungen (`5
 
 ---
 
-## ✨ Funktionsumfang in Version `1.1.1`
+## ✨ Funktionsumfang in Version `1.2.0`
 
-### 1. Vier vernetzte Arbeitsmodi
+### 1. iPad-, Tablet- & Smartphone-Optimierung
+- **Adaptive Touch-Targets (WCAG & Apple HIG Konformität)**:
+  - 44×44px Mindest-Trefferzonen für alle interaktiven Steuerelemente auf Touchscreens bei gleichzeitiger kompakter Präzision in Tabellenzellen.
+  - Vollständige Zentrierung (`inline-flex items-center justify-center`) für alle Icon-Only-Schaltflächen auf mobilen Viewports.
+- **iOS Safari Ergonomie**:
+  - Auto-Zoom-Prävention auf iPhones und iPads durch optimierte 16px-Eingabefelder im mobilen Ansichtsmodus.
+  - Automatisches Ziffern-Keypad (`inputMode="decimal"`) für zügige Noten- und Punkteerfassung mit dem Daumen oder Stylus/Apple Pencil.
+  - Unterstützung für Apple Dynamic Island und Safe-Area-Insets (`env(safe-area-inset-...)`).
+- **Touch-Hover-Bypass**:
+  - Kontextuelle Aktionen (z. B. *o.B.* und *Archivieren*) bleiben auf Touch-Displays ohne echten Mauszeiger direkt zugänglich.
+
+### 2. Vier vernetzte Arbeitsmodi
 - **📊 Gesamt-Matrix**:
   - Übersicht aller Schüler:innen inkl. Niveaustufe (`G` / `M` / `E`), Einzelprüfungen, **Kategorie-Durchschnitten (`Ø LNW`, `Ø Mündl`, `Ø Tests`)**, berechnetem **Gesamtschnitt** und editierbarer **Zeugnisnote (Override)**.
   - Umschaltbare Zellen-Darstellung (`Prozent + Note`, `Nur Prozent`, `Nur Note`) und Halbjahres-Filter (`1. Halbjahr`, `2. Halbjahr`, `Gesamtjahr`).
@@ -96,7 +107,7 @@ Viele Lehrkräfte verwalten ihre Klassenlisten, Punktetabellen, Gewichtungen (`5
 
 ```text
 gradus21/
-├── Cargo.toml                        # Rust Workspace (v1.1.1)
+├── Cargo.toml                        # Rust Workspace (v1.2.0)
 ├── crates/
 │   ├── gradus21-core/                # Shared Rust Library + WebAssembly Bindings
 │   │   └── src/
@@ -190,7 +201,7 @@ docker compose up -d
 
 ---
 
-## 📋 Release- & Review-Fokus (`v1.1.1`)
+## 📋 Release- & Review-Fokus (`v1.2.0`)
 
 Eine detaillierte technische Dokumentation aller Architekturentscheidungen, Berechnungsformeln und offenen Prüfpunkte für das Code- und Security-Review befindet sich in:
 👉 **[`docs/ARCHITECTURE_AND_REVIEW_GUIDE.md`](docs/ARCHITECTURE_AND_REVIEW_GUIDE.md)**

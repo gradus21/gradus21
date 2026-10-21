@@ -137,7 +137,7 @@ export const CryptoEnvelopeInspector: React.FC<CryptoEnvelopeInspectorProps> = (
             {onCloseInspector && (
               <button
                 onClick={onCloseInspector}
-                className="p-2 rounded-xl border"
+                className="w-10 h-10 rounded-xl border inline-flex items-center justify-center shrink-0"
                 style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
               >
                 <X className="w-4 h-4" />
