@@ -44,6 +44,7 @@ export interface StudentProfile {
   level: string | null;
   is_not_graded: boolean;
   is_archived?: boolean;
+  archived_at?: string;
   notes?: string;
 }
 
