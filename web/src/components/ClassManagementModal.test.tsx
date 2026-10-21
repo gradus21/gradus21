@@ -133,4 +133,36 @@ describe('ClassManagementModal - Student Safety & Retention Mechanism', () => {
 
     expect(handleUpdate).toHaveBeenCalled();
   });
+
+  it('creates multiple numbered assessments when Anzahl > 1', () => {
+    const ds = getBaseDataset();
+    let updatedDs = ds;
+    const handleUpdate = vi.fn((updater) => {
+      updatedDs = typeof updater === 'function' ? updater(updatedDs) : updater;
+    });
+
+    render(
+      <ClassManagementModal
+        dataset={ds}
+        canDeleteClass={false}
+        initialTab="assessments"
+        onUpdateDataset={handleUpdate}
+        onDeleteClass={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+
+    const titleInput = screen.getByPlaceholderText(/z\.B\. Vokabeltest/i);
+    fireEvent.change(titleInput, { target: { value: 'Kurzarbeit' } });
+
+    const countInput = screen.getByDisplayValue('1');
+    fireEvent.change(countInput, { target: { value: '3' } });
+
+    const createBtn = screen.getByRole('button', { name: /3 prüfungen hinzufügen/i });
+    fireEvent.click(createBtn);
+
+    expect(handleUpdate).toHaveBeenCalled();
+    const createdTitles = updatedDs.assessments.slice(-3).map((a) => a.title);
+    expect(createdTitles).toEqual(['Kurzarbeit 1', 'Kurzarbeit 2', 'Kurzarbeit 3']);
+  });
 });

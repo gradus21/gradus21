@@ -48,21 +48,14 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
   const [newStudentLevel, setNewStudentLevel] = useState<'G' | 'M' | 'E'>('M');
   const [confirmDeleteClass, setConfirmDeleteClass] = useState(false);
 
-  // Dedicated single-assessment creator form state
+  // Dedicated assessment creator form state (supports 1 or batch N)
   const [newAssessTitle, setNewAssessTitle] = useState('');
   const [newAssessCategoryId, setNewAssessCategoryId] = useState(dataset.categories[0]?.id || '');
   const [newAssessTermId, setNewAssessTermId] = useState<'hj1' | 'hj2'>('hj1');
+  const [newAssessCount, setNewAssessCount] = useState<number>(1);
   const [newAssessInputMode, setNewAssessInputMode] = useState<AssessmentInputMode>('percent');
   const [newAssessMaxPoints, setNewAssessMaxPoints] = useState<number>(15);
   const [newAssessWeight, setNewAssessWeight] = useState<number>(1.0);
-
-  // Quick batch generator state for assessments
-  const [genCategoryId, setGenCategoryId] = useState(dataset.categories[0]?.id || '');
-  const [genPrefix, setGenPrefix] = useState('Test');
-  const [genTargetCount, setGenTargetCount] = useState(4);
-  const [genTermId, setGenTermId] = useState<'hj1' | 'hj2'>('hj1');
-  const [genInputMode, setGenInputMode] = useState<AssessmentInputMode>('percent');
-  const [genMaxPoints, setGenMaxPoints] = useState<number>(15);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
   const [studentPendingDelete, setStudentPendingDelete] = useState<StudentProfile | null>(null);
   const [pendingBulkClean, setPendingBulkClean] = useState(false);
@@ -246,25 +239,33 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
     showToast(`Prüfungsspalte „${title}“ wurde entfernt.`);
   };
 
-  const handleCreateSingleAssessment = (e: React.FormEvent) => {
+  const handleCreateAssessments = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAssessTitle.trim()) return;
     const cat = dataset.categories.find((c) => c.id === newAssessCategoryId) || dataset.categories[0];
-    const newAssess: AssessmentConfig = {
-      id: `assess_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      category_id: cat ? cat.id : (dataset.categories[0]?.id || ''),
-      title: newAssessTitle.trim(),
-      term_id: newAssessTermId,
-      weight: newAssessWeight,
-      input_mode: newAssessInputMode,
-      max_points: newAssessInputMode === 'grade_scale' ? undefined : (newAssessMaxPoints || 15),
-    };
+    const count = Math.max(1, Math.min(20, newAssessCount || 1));
+    const baseTitle = newAssessTitle.trim();
+    const toAdd: AssessmentConfig[] = [];
+
+    for (let i = 1; i <= count; i++) {
+      toAdd.push({
+        id: `assess_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`,
+        category_id: cat ? cat.id : (dataset.categories[0]?.id || ''),
+        title: count === 1 ? baseTitle : `${baseTitle} ${i}`,
+        term_id: newAssessTermId,
+        weight: newAssessWeight,
+        input_mode: newAssessInputMode,
+        max_points: newAssessInputMode === 'grade_scale' ? undefined : (newAssessMaxPoints || 15),
+      });
+    }
+
     onUpdateDataset((ds) => ({
       ...ds,
-      assessments: [...ds.assessments, newAssess],
+      assessments: [...ds.assessments, ...toAdd],
     }));
     setNewAssessTitle('');
-    showToast(`Prüfung „${newAssess.title}“ angelegt.`);
+    setNewAssessCount(1);
+    showToast(count === 1 ? `Prüfung „${baseTitle}“ angelegt.` : `${count} Prüfungen angelegt.`);
   };
 
   const addSingleAssessment = (categoryId: string, termId: 'hj1' | 'hj2') => {
@@ -287,53 +288,6 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
       assessments: [...ds.assessments, newAssess],
     }));
     showToast(`Spalte „${newAssess.title}“ angelegt.`);
-  };
-
-  // Adjust exact number of assessments for a category + term (e.g., "Set number of Tests in 1. HJ to 4")
-  const handleSetCategoryAssessmentCount = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!genCategoryId) return;
-    onUpdateDataset((ds) => {
-      const currentInCatTerm = ds.assessments.filter(
-        (a) => a.category_id === genCategoryId && a.term_id === genTermId
-      );
-      const others = ds.assessments.filter(
-        (a) => !(a.category_id === genCategoryId && a.term_id === genTermId)
-      );
-
-      if (genTargetCount === currentInCatTerm.length) return ds;
-
-      if (genTargetCount > currentInCatTerm.length) {
-        const toAdd: AssessmentConfig[] = [];
-        for (let i = currentInCatTerm.length + 1; i <= genTargetCount; i++) {
-          toAdd.push({
-            id: `assess_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 5)}`,
-            category_id: genCategoryId,
-            title: `${genPrefix.trim() || 'Prüfung'} ${i}`,
-            term_id: genTermId,
-            weight: 1.0,
-            input_mode: genInputMode,
-            max_points: genInputMode === 'grade_scale' ? undefined : (genMaxPoints || 15),
-          });
-        }
-        return {
-          ...ds,
-          assessments: [...ds.assessments, ...toAdd],
-        };
-      } else {
-        // Keep the first genTargetCount assessments in that category/term
-        const kept = currentInCatTerm.slice(0, Math.max(0, genTargetCount));
-        const removedIds = new Set(
-          currentInCatTerm.slice(Math.max(0, genTargetCount)).map((a) => a.id)
-        );
-        return {
-          ...ds,
-          assessments: [...others, ...kept],
-          grades: ds.grades.filter((g) => !removedIds.has(g.assessment_id)),
-        };
-      }
-    });
-    showToast(`Anzahl der Spalten auf ${genTargetCount} angepasst.`);
   };
 
   return (
@@ -852,9 +806,9 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
                 );
               })()}
 
-              {/* Form: Neue Prüfung gezielt anlegen */}
+              {/* Form: Neue Prüfung(en) anlegen & Bewertungsart festlegen */}
               <form
-                onSubmit={handleCreateSingleAssessment}
+                onSubmit={handleCreateAssessments}
                 className="p-4 rounded-2xl border space-y-3.5"
                 style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
               >
@@ -868,8 +822,8 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end text-xs">
-                  <div className="sm:col-span-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 items-end text-xs">
+                  <div className="col-span-2 sm:col-span-2 lg:col-span-2">
                     <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
                       Bezeichnung der Prüfung
                     </label>
@@ -877,7 +831,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
                       type="text"
                       value={newAssessTitle}
                       onChange={(e) => setNewAssessTitle(e.target.value)}
-                      placeholder="z.B. Vokabeltest Unit 2 oder Klausur 1"
+                      placeholder="z.B. Vokabeltest oder Klausur"
                       className="w-full px-3 py-2 rounded-xl border bg-transparent"
                       style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
                     />
@@ -925,7 +879,22 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
 
                   <div>
                     <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-                      Bewertungsart (Modus)
+                      Anzahl
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={newAssessCount}
+                      onChange={(e) => setNewAssessCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
+                      className="w-full px-2.5 py-2 rounded-xl border font-mono font-bold bg-transparent text-center"
+                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
+                      Bewertungsart
                     </label>
                     <select
                       value={newAssessInputMode}
@@ -933,11 +902,11 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
                       className="w-full px-2.5 py-2 rounded-xl border bg-transparent font-semibold"
                       style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
                     >
-                      <option value="percent" className="dark:bg-slate-900">% Prozent (0–100%)</option>
-                      <option value="points" className="dark:bg-slate-900">Rohpunkte (Punkte / Max)</option>
+                      <option value="percent" className="dark:bg-slate-900">% Prozent</option>
+                      <option value="points" className="dark:bg-slate-900">Rohpunkte</option>
                       <option value="grade_scale" className="dark:bg-slate-900">
                         {dataset.config.scale_id === 'de_oberstufe_0_to_15'
-                          ? 'Notenpunkte (0–15)'
+                          ? 'Notenpunkte'
                           : 'Schulnote (1–6)'}
                       </option>
                     </select>
@@ -945,11 +914,11 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
 
                   <div>
                     <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-                      {newAssessInputMode === 'grade_scale' ? 'Skala' : 'Max. Punkte'}
+                      {newAssessInputMode === 'grade_scale' ? 'Skala' : 'Max. Pkt'}
                     </label>
                     {newAssessInputMode === 'grade_scale' ? (
                       <div className="w-full px-2.5 py-2 rounded-xl border bg-slate-100 dark:bg-slate-800 text-slate-500 font-mono text-center text-xs">
-                        {dataset.config.scale_id === 'de_oberstufe_0_to_15' ? '0–15 MSS' : '1–6'}
+                        {dataset.config.scale_id === 'de_oberstufe_0_to_15' ? '0–15' : '1–6'}
                       </div>
                     ) : (
                       <input
@@ -964,7 +933,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
                     )}
                   </div>
 
-                  <div className="sm:col-span-6 flex flex-wrap items-center justify-between gap-3 pt-1 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+                  <div className="col-span-2 sm:col-span-4 lg:col-span-7 flex flex-wrap items-center justify-between gap-3 pt-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
                     <div className="flex items-center gap-2 text-xs">
                       <span className="text-[11px] font-semibold" style={{ color: 'var(--text-secondary)' }}>
                         Prüfungs-Gewichtung (in Kategorie):
@@ -989,133 +958,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
                       style={{ backgroundColor: 'var(--primary-500)' }}
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span>Prüfung hinzufügen</span>
-                    </button>
-                  </div>
-                </div>
-              </form>
-
-              {/* Quick Batch Generator: "Anzahl der Tests / LNW festlegen" */}
-              <form
-                onSubmit={handleSetCategoryAssessmentCount}
-                className="p-4 rounded-2xl border space-y-3"
-                style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
-              >
-                <div className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
-                  Schnell-Generator: Mehrere Prüfungen auf einmal erzeugen
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end text-xs">
-                  <div>
-                    <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-                      Kategorie
-                    </label>
-                    <select
-                      value={genCategoryId}
-                      onChange={(e) => {
-                        setGenCategoryId(e.target.value);
-                        const c = dataset.categories.find((cat) => cat.id === e.target.value);
-                        if (c) setGenPrefix(c.short_code);
-                      }}
-                      className="w-full px-2.5 py-2 rounded-xl border bg-white dark:bg-slate-900"
-                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
-                    >
-                      {dataset.categories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-                      Halbjahr
-                    </label>
-                    <select
-                      value={genTermId}
-                      onChange={(e) => setGenTermId(e.target.value as 'hj1' | 'hj2')}
-                      className="w-full px-2.5 py-2 rounded-xl border bg-white dark:bg-slate-900"
-                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
-                    >
-                      <option value="hj1">1. Halbjahr</option>
-                      <option value="hj2">2. Halbjahr</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-                      Bezeichnung
-                    </label>
-                    <input
-                      type="text"
-                      value={genPrefix}
-                      onChange={(e) => setGenPrefix(e.target.value)}
-                      placeholder="z.B. Test oder LNW"
-                      className="w-full px-2.5 py-2 rounded-xl border bg-white dark:bg-slate-900"
-                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-                      Bewertungsart
-                    </label>
-                    <select
-                      value={genInputMode}
-                      onChange={(e) => setGenInputMode(e.target.value as AssessmentInputMode)}
-                      className="w-full px-2.5 py-2 rounded-xl border bg-white dark:bg-slate-900 font-semibold"
-                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
-                    >
-                      <option value="percent">% Prozent</option>
-                      <option value="points">Rohpunkte</option>
-                      <option value="grade_scale">
-                        {dataset.config.scale_id === 'de_oberstufe_0_to_15' ? 'Notenpunkte' : 'Schulnote (1–6)'}
-                      </option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-                      {genInputMode === 'grade_scale' ? 'Skala' : 'Max. Pkt'}
-                    </label>
-                    {genInputMode === 'grade_scale' ? (
-                      <div className="w-full px-2.5 py-2 rounded-xl border bg-slate-100 dark:bg-slate-800 text-slate-500 font-mono text-center text-xs">
-                        1–6
-                      </div>
-                    ) : (
-                      <input
-                        type="number"
-                        min={1}
-                        max={500}
-                        value={genMaxPoints}
-                        onChange={(e) => setGenMaxPoints(Number(e.target.value) || 15)}
-                        className="w-full px-2.5 py-2 rounded-xl border font-mono font-bold bg-white dark:bg-slate-900 text-center"
-                        style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
-                      />
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1">
-                      <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-                        Anzahl
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        max={15}
-                        value={genTargetCount}
-                        onChange={(e) => setGenTargetCount(Number(e.target.value))}
-                        className="w-full px-2.5 py-2 rounded-xl border font-mono font-bold bg-white dark:bg-slate-900 text-center"
-                        style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      className="px-3.5 py-2 rounded-xl text-xs font-bold text-white shadow-sm shrink-0 self-end"
-                      style={{ backgroundColor: 'var(--primary-500)' }}
-                    >
-                      Setzen
+                      <span>{newAssessCount > 1 ? `${newAssessCount} Prüfungen hinzufügen` : 'Prüfung hinzufügen'}</span>
                     </button>
                   </div>
                 </div>
