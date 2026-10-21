@@ -76,28 +76,28 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     <>
       {/* HEADER BAR */}
       <header
-        className="border-b px-6 py-3 flex flex-wrap items-center justify-between gap-4 sticky top-0 z-30 shadow-sm"
+        className="border-b px-3 sm:px-6 py-2 sm:py-3 flex flex-wrap items-center justify-between gap-2.5 sm:gap-4 sticky top-0 z-30 shadow-sm"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-4 min-w-0">
           <a
             href="https://gradus21.de"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2.5 group transition hover:opacity-95"
+            className="flex items-center gap-2 sm:gap-2.5 group transition hover:opacity-95 shrink-0"
             title="Zur offiziellen Website gradus21.de"
           >
-            <FlowRibbonLogo size={32} showWordmark={false} />
+            <FlowRibbonLogo size={28} showWordmark={false} />
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 sm:gap-2">
                 <span
-                  className="font-extrabold tracking-tight text-base group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors"
+                  className="font-extrabold tracking-tight text-sm sm:text-base group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors"
                   style={{ color: 'var(--text-primary)' }}
                 >
                   Gradus21
                 </span>
                 <span
-                  className="text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider"
+                  className="text-[9px] sm:text-[10px] font-bold px-1 sm:px-1.5 py-0.5 rounded uppercase tracking-wider"
                   style={{
                     backgroundColor: 'var(--primary-soft)',
                     color: 'var(--primary-text)',
@@ -107,7 +107,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   E2EE
                 </span>
               </div>
-              <p className="text-[11px] leading-tight" style={{ color: 'var(--text-secondary)' }}>
+              <p className="text-[10px] sm:text-[11px] leading-tight hidden sm:block" style={{ color: 'var(--text-secondary)' }}>
                 Offline-First & Zero-Knowledge Notenverwaltung
               </p>
             </div>
@@ -116,7 +116,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           {/* Class Switcher */}
           <div
             data-tour="header-class-switcher"
-            className="flex flex-wrap items-center gap-1 p-1 rounded-xl border"
+            className="flex items-center gap-1 p-1 rounded-xl border max-w-full overflow-x-auto"
             style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
           >
             {datasets.map((ds) => {
@@ -125,7 +125,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 <button
                   key={ds.id}
                   onClick={() => setActiveClassId(ds.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 ${
+                  className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 sm:gap-2 shrink-0 ${
                     active ? 'shadow-sm' : 'opacity-75 hover:opacity-100'
                   }`}
                   style={{
@@ -134,12 +134,12 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   }}
                 >
                   <span
-                    className="w-2 h-2 rounded-full"
+                    className="w-2 h-2 rounded-full shrink-0"
                     style={{
                       backgroundColor: active ? 'var(--primary-500)' : 'var(--text-muted)',
                     }}
                   />
-                  <span>
+                  <span className="whitespace-nowrap">
                     {ds.className} · {ds.subjectName}
                   </span>
                 </button>
@@ -149,7 +149,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             <button
               onClick={onOpenClassManager}
               data-tour="header-class-manager-btn"
-              className="px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition hover:opacity-90 border"
+              className="px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition hover:opacity-90 border shrink-0"
               style={{
                 backgroundColor: 'var(--bg-surface)',
                 borderColor: 'var(--border-subtle)',
@@ -158,13 +158,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               title="Aktuelle Klasse bearbeiten"
             >
               <Edit3 className="w-3.5 h-3.5" style={{ color: 'var(--primary-500)' }} />
-              <span>Klasse bearbeiten</span>
+              <span className="hidden md:inline">Klasse bearbeiten</span>
             </button>
 
             <button
               onClick={onOpenClassWizard}
               data-tour="header-class-wizard-btn"
-              className="px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition hover:opacity-90"
+              className="px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition hover:opacity-90 shrink-0"
               style={{
                 backgroundColor: 'var(--primary-soft)',
                 color: 'var(--primary-text)',
@@ -172,19 +172,20 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               title="Neue Klasse erstellen oder .xlsx Excel-Datei importieren"
             >
               <FolderPlus className="w-3.5 h-3.5" />
-              <span>+ Neue Klasse</span>
+              <span className="hidden sm:inline">+ Neue Klasse</span>
+              <span className="sm:hidden">+ Neu</span>
             </button>
           </div>
         </div>
 
         {/* Right Controls */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           {/* OPTIONAL SUBTLE GUIDE BUTTON (CAN BE TOGGLED IN SETTINGS) */}
           {showGuideButtonInHeader && (
             <button
               onClick={onOpenInteractiveGuide}
               data-tour="header-guide-btn"
-              className="px-2.5 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition hover:opacity-90"
+              className="px-2 sm:px-2.5 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition hover:opacity-90"
               style={{
                 backgroundColor: 'var(--bg-subtle)',
                 color: 'var(--text-secondary)',
@@ -200,7 +201,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           <button
             onClick={() => onOpenSettings('storage')}
             data-tour="header-sync-status"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer hover:opacity-90"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer hover:opacity-90"
             style={{
               backgroundColor: 'var(--bg-subtle)',
               borderColor: 'var(--border-subtle)',
@@ -232,7 +233,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             ) : (
               <CloudOff className="w-3.5 h-3.5 text-amber-600" />
             )}
-            <span className="hidden sm:inline">
+            <span className="hidden lg:inline">
               {syncStatus === 'syncing'
                 ? 'Speichern...'
                 : syncStatus === 'synced'
@@ -246,53 +247,56 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           <button
             onClick={() => onOpenSettings()}
             data-tour="header-settings-btn"
-            className="px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition hover:opacity-90"
+            className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition hover:opacity-90"
             style={{
               backgroundColor: 'var(--bg-subtle)',
               color: 'var(--text-primary)',
               borderColor: 'var(--border-subtle)',
             }}
             title="Einstellungen"
+            aria-label="Einstellungen"
           >
             <Settings className="w-3.5 h-3.5" style={{ color: 'var(--primary-500)' }} />
-            <span>Einstellungen</span>
+            <span className="hidden xl:inline">Einstellungen</span>
           </button>
 
           <button
             onClick={onOpenVaultInspector}
             data-tour="header-vault-btn"
-            className="px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition hover:opacity-90"
+            className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition hover:opacity-90"
             style={{
               backgroundColor: 'var(--primary-soft)',
               color: 'var(--primary-text)',
               borderColor: 'var(--border-subtle)',
             }}
             title="Konto & Schutz"
+            aria-label="Konto & Schutz"
           >
             <KeyRound className="w-3.5 h-3.5" />
-            <span>Konto & Schutz</span>
+            <span className="hidden lg:inline">Konto & Schutz</span>
           </button>
 
           {isAdmin && (
             <button
               onClick={onOpenAdmin}
-              className="px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition hover:opacity-90 shadow-sm"
+              className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition hover:opacity-90 shadow-sm"
               style={{
                 backgroundColor: 'rgba(239, 68, 68, 0.1)',
                 color: '#dc2626',
                 borderColor: 'rgba(239, 68, 68, 0.25)',
               }}
               title="Admin-Bereich"
+              aria-label="Admin-Bereich"
             >
               <Shield className="w-3.5 h-3.5 text-red-600" />
-              <span>Admin-Bereich</span>
+              <span className="hidden xl:inline">Admin</span>
             </button>
           )}
 
           <button
             onClick={() => setPrivacyBlur((b) => !b)}
             data-tour="header-privacy-blur"
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition ${
+            className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition ${
               privacyBlur ? 'ring-2 ring-amber-500 bg-amber-500/10 text-amber-600' : ''
             }`}
             style={
@@ -305,9 +309,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 : undefined
             }
             title="Namen & Noten unscharf schalten (Alt+P)"
+            aria-label="Datenschutz Unschärfe umschalten"
           >
             {privacyBlur ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-            <span>{privacyBlur ? 'Namen wieder zeigen' : 'Namen ausblenden'}</span>
+            <span className="hidden md:inline">{privacyBlur ? 'Namen zeigen' : 'Namen ausblenden'}</span>
           </button>
 
           <button
@@ -319,25 +324,26 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               borderColor: 'var(--border-subtle)',
             }}
             title="Gradus21 sperren"
+            aria-label="Abmelden und sperren"
           >
             <Lock className="w-3.5 h-3.5" />
-            <span>Abmelden</span>
+            <span className="hidden sm:inline">Abmelden</span>
           </button>
         </div>
       </header>
 
       {/* SUB-HEADER: CONTEXT & TABS */}
       <div
-        className="border-b px-6 py-4 flex flex-wrap items-center justify-between gap-4"
+        className="border-b px-3 sm:px-6 py-2.5 sm:py-4 flex flex-wrap items-center justify-between gap-3 sm:gap-4"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
-        <div className="space-y-1">
+        <div className="space-y-1 min-w-0">
           <div
-            className="flex flex-wrap items-center gap-2 text-xs font-medium"
+            className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs font-medium"
             style={{ color: 'var(--text-secondary)' }}
           >
-            <span>{activeDataset.schoolName}</span>
-            <ChevronRight className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{activeDataset.schoolName}</span>
+            <ChevronRight className="w-3.5 h-3.5 hidden sm:inline" />
             <span>SJ {activeDataset.schoolYear}</span>
             <ChevronRight className="w-3.5 h-3.5" />
 
@@ -371,14 +377,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           </div>
 
           <h1
-            className="text-xl font-bold flex flex-wrap items-center gap-3"
+            className="text-lg sm:text-xl font-bold flex flex-wrap items-center gap-2 sm:gap-3"
             style={{ color: 'var(--text-primary)' }}
           >
             <span>
               {activeDataset.subjectName} – {activeDataset.className}
             </span>
             <span
-              className="text-xs font-semibold px-2.5 py-0.5 rounded-full"
+              className="text-xs font-semibold px-2 sm:px-2.5 py-0.5 rounded-full"
               style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--text-secondary)' }}
             >
               {activeDataset.students.filter((s) => !s.is_archived).length} aktive Schüler
@@ -386,7 +392,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             </span>
             {calculationReport?.class_average_percent != null && (
               <span
-                className="text-xs font-mono font-semibold px-2.5 py-0.5 rounded-full"
+                className="text-xs font-mono font-semibold px-2 sm:px-2.5 py-0.5 rounded-full"
                 style={{ backgroundColor: 'var(--primary-soft)', color: 'var(--primary-text)' }}
               >
                 Live-Klassenschnitt ({activeTerm.toUpperCase()}):{' '}
@@ -395,7 +401,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               </span>
             )}
           </h1>
-          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+          <p className="text-xs line-clamp-1 sm:line-clamp-none" style={{ color: 'var(--text-secondary)' }}>
             {activeDataset.description}
           </p>
         </div>
@@ -403,7 +409,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         {/* 4 Specialized Workspace Mode Tabs */}
         <div
           data-tour="header-mode-tabs"
-          className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-2xl border"
+          className="flex items-center gap-1 sm:gap-1.5 p-1 sm:p-1.5 rounded-2xl border max-w-full overflow-x-auto"
           style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
         >
           {(
@@ -429,7 +435,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 key={tab.id}
                 onClick={() => setMode(tab.id)}
                 data-tour={tourId}
-                className={`px-3.5 py-2 rounded-xl text-left transition-all flex items-center gap-2.5 ${
+                className={`px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl text-left transition-all flex items-center gap-2 shrink-0 ${
                   active ? 'shadow-sm' : 'opacity-75 hover:opacity-100'
                 }`}
                 style={{
@@ -439,8 +445,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               >
                 <Icon className="w-4 h-4 shrink-0" />
                 <div className="leading-tight">
-                  <div className="text-xs font-bold">{tab.label}</div>
-                  <div className={`text-[10px] ${active ? 'text-teal-50/90' : 'opacity-70'}`}>
+                  <div className="text-xs font-bold whitespace-nowrap">{tab.label}</div>
+                  <div className={`text-[10px] hidden md:block ${active ? 'text-teal-50/90' : 'opacity-70'}`}>
                     {tab.sub}
                   </div>
                 </div>

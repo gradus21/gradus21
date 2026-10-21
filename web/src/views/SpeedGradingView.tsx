@@ -99,11 +99,11 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
             </h2>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <select
               value={activeAssessment.id}
               onChange={(e) => setSelectedAssessmentId(e.target.value)}
-              className="px-3 py-2 rounded-xl border text-xs font-semibold"
+              className="px-3 py-2 rounded-xl border text-xs font-semibold max-w-full"
               style={{
                 backgroundColor: 'var(--bg-subtle)',
                 borderColor: 'var(--border-subtle)',
@@ -126,29 +126,29 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
             >
               <button
                 onClick={() => setSpeedInputMode('percent')}
-                className={`px-2.5 py-1 rounded-lg transition ${
-                  speedInputMode === 'percent' ? 'bg-teal-600 text-white' : ''
+                className={`px-2 sm:px-2.5 py-1 rounded-lg transition ${
+                  speedInputMode === 'percent' ? 'bg-teal-600 text-white font-bold' : 'opacity-80'
                 }`}
               >
                 % Prozent
               </button>
               <button
                 onClick={() => setSpeedInputMode('points')}
-                className={`px-2.5 py-1 rounded-lg transition ${
-                  speedInputMode === 'points' ? 'bg-teal-600 text-white' : ''
+                className={`px-2 sm:px-2.5 py-1 rounded-lg transition ${
+                  speedInputMode === 'points' ? 'bg-teal-600 text-white font-bold' : 'opacity-80'
                 }`}
               >
-                Rohpunkte (/{activeAssessment.max_points || 15})
+                Punkte (/{activeAssessment.max_points || 15})
               </button>
               <button
                 onClick={() => setSpeedInputMode('grade_scale')}
-                className={`px-2.5 py-1 rounded-lg transition ${
-                  speedInputMode === 'grade_scale' ? 'bg-teal-600 text-white' : ''
+                className={`px-2 sm:px-2.5 py-1 rounded-lg transition ${
+                  speedInputMode === 'grade_scale' ? 'bg-teal-600 text-white font-bold' : 'opacity-80'
                 }`}
               >
                 {activeDataset.config.scale_id === 'de_oberstufe_0_to_15'
-                  ? 'Notenpunkte'
-                  : 'Direkte Note'}
+                  ? '0–15 Pkt'
+                  : 'Note'}
               </button>
             </div>
           </div>
@@ -169,36 +169,36 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
               : undefined;
 
             return (
-              <div key={stu.id} className="py-2.5 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-mono opacity-45 w-6">{idx + 1}.</span>
+              <div key={stu.id} className="py-2 sm:py-2.5 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 sm:gap-4">
+                <div className="flex items-center gap-2 sm:gap-3 min-w-[140px]">
+                  <span className="text-xs font-mono opacity-45 w-5 sm:w-6">{idx + 1}.</span>
                   <span
-                    className="font-semibold text-sm"
+                    className="font-semibold text-sm truncate"
                     style={{ color: 'var(--text-primary)' }}
                   >
                     {stu.name}
                   </span>
                   {stu.level && (
                     <span
-                      className="px-2 py-0.5 rounded text-[11px] font-bold font-mono"
+                      className="px-2 py-0.5 rounded text-[11px] font-bold font-mono shrink-0"
                       style={{
                         backgroundColor: LEVEL_BADGE_STYLES[stu.level]?.bg,
                         color: LEVEL_BADGE_STYLES[stu.level]?.text,
                       }}
                     >
-                      Niveau {stu.level}
+                      {stu.level}
                     </span>
                   )}
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3 shrink-0 ml-auto sm:ml-0">
                   {entry?.status === 'excused' ? (
-                    <span className="px-2.5 py-1 rounded-lg bg-amber-100 text-amber-800 text-xs font-semibold">
+                    <span className="px-2 sm:px-2.5 py-1 rounded-lg bg-amber-100 text-amber-800 text-xs font-semibold">
                       Entschuldigt
                     </span>
                   ) : entry?.direct_grade_value != null ? (
                     <span
-                      className="text-xs font-mono"
+                      className="text-xs font-mono hidden sm:inline"
                       style={{ color: 'var(--text-secondary)' }}
                     >
                       Direkt:{' '}
@@ -212,7 +212,7 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
                   ) : (
                     entry?.percent_value != null && (
                       <span
-                        className="text-xs font-mono"
+                        className="text-xs font-mono hidden sm:inline"
                         style={{ color: 'var(--text-secondary)' }}
                       >
                         {entry.raw_points ??
@@ -228,6 +228,7 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
 
                   <input
                     type="text"
+                    inputMode={speedInputMode === 'grade_scale' ? 'text' : 'decimal'}
                     data-speed-grade-idx={idx}
                     value={
                       entry?.status === 'excused'
@@ -272,7 +273,7 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
                         prevInput?.select();
                       }
                     }}
-                    className="w-24 px-3 py-1.5 rounded-xl border text-center font-mono text-sm font-bold focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    className="w-20 sm:w-24 px-2 sm:px-3 py-1.5 rounded-xl border text-center font-mono text-sm font-bold focus:outline-none focus:ring-2 focus:ring-teal-500"
                     style={{
                       backgroundColor: 'var(--bg-subtle)',
                       borderColor: 'var(--border-subtle)',

@@ -46,6 +46,11 @@ export interface StudentProfile {
   is_archived?: boolean;
   archived_at?: string;
   notes?: string;
+  // --- Optionale Stammdaten für Schulverwaltungs-Exporte (SchILD-NRW, ASV etc.) ---
+  birthDate?: string;          // Format: "YYYY-MM-DD" oder "DD.MM.YYYY" (rein optional)
+  studentId?: string;          // Amtliche Schüler-ID / Schild-ID (rein optional)
+  officialLastName?: string;   // Amtlicher Nachname (falls abweichend von name)
+  officialFirstName?: string;  // Amtlicher Vorname (falls abweichend von name)
 }
 
 export type ThemePreset = 'teal' | 'indigo' | 'sage' | 'terracotta';
@@ -177,6 +182,9 @@ export interface ClassroomSubjectDataset {
   students: StudentProfile[];
   grades: GradeEntry[];
   reportCardOverrides?: Record<string, ReportCardOverride>;
+  // Optionale amtliche Kürzel für Schulverwaltungsprogramme
+  subjectCode?: string; // z.B. "E", "M", "D" (für SchILD / ASV)
+  courseType?: string;  // z.B. "GKM", "GK", "LK" (für SchILD / Oberstufe)
 }
 
 /**
@@ -325,6 +333,8 @@ export const INITIAL_CLASS_DATASETS: ClassroomSubjectDataset[] = [
     className: 'Klasse 6',
     subjectName: 'Englisch',
     shortName: 'EN 6',
+    subjectCode: 'E',
+    courseType: 'GKM',
     description: 'Originaldaten aus Englisch 6 SJ 2627.xlsx (LNW, Mündlich, Tests 1–4 + Niveau G/M/E)',
     config: {
       scale_id: 'de_classic_1_to_6',
@@ -397,6 +407,8 @@ export const INITIAL_CLASS_DATASETS: ClassroomSubjectDataset[] = [
     className: 'Klasse 9b',
     subjectName: 'Mathematik',
     shortName: 'MA 9b',
+    subjectCode: 'M',
+    courseType: 'GKM',
     description: 'Andere Fachlogik: 2:1 Gewichtung (Schriftlich 67% / Sonstige 33%), beste 2 von 3 Kurztests zählen',
     config: {
       scale_id: 'de_classic_1_to_6',
@@ -439,6 +451,8 @@ export const INITIAL_CLASS_DATASETS: ClassroomSubjectDataset[] = [
     className: 'Kursstufe Q1',
     subjectName: 'Informatik (Oberstufe)',
     shortName: 'INF Q1',
+    subjectCode: 'INF',
+    courseType: 'GKM',
     description: 'Oberstufen-Punktesystem (0–15 MSS-Punkte) mit Klausuren & Praxis-Projekt',
     config: {
       scale_id: 'de_oberstufe_0_to_15',

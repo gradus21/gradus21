@@ -121,6 +121,57 @@ export const App: React.FC = () => {
     setActiveModal(null);
   };
 
+  // Update Student Profile with optional smart cross-class propagation
+  const handleUpdateStudentProfile = (
+    studentId: string,
+    patch: Partial<import('./data/demoClasses').StudentProfile>,
+    propagateToAllClasses: boolean
+  ) => {
+    const currentTarget = activeDataset.students.find((s) => s.id === studentId);
+    const targetNormName = currentTarget?.name.trim().toLowerCase();
+    const targetStudentId = currentTarget?.studentId;
+
+    if (!propagateToAllClasses) {
+      updateSubjectConfig((prev) => ({
+        ...prev,
+        students: prev.students.map((stu) =>
+          stu.id === studentId ? { ...stu, ...patch } : stu
+        ),
+      }));
+    } else {
+      setDatasets((prevList) =>
+        prevList.map((ds) => {
+          const hasMatch = ds.students.some(
+            (s) =>
+              s.id === studentId ||
+              (targetStudentId && s.studentId === targetStudentId) ||
+              (targetNormName && s.name.trim().toLowerCase() === targetNormName)
+          );
+          if (!hasMatch) return ds;
+
+          return {
+            ...ds,
+            students: ds.students.map((stu) => {
+              const isMatch =
+                stu.id === studentId ||
+                (targetStudentId && stu.studentId === targetStudentId) ||
+                (targetNormName && stu.name.trim().toLowerCase() === targetNormName);
+              return isMatch ? { ...stu, ...patch } : stu;
+            }),
+          };
+        })
+      );
+    }
+  };
+
+  // Update Active Dataset Metadata (e.g. subjectCode, courseType)
+  const handleUpdateDatasetMeta = (patch: { subjectCode?: string; courseType?: string }) => {
+    updateSubjectConfig((prev) => ({
+      ...prev,
+      ...patch,
+    }));
+  };
+
   // Interactive Demo & Guide Hook
   const {
     isGuideOpen,
@@ -297,7 +348,7 @@ export const App: React.FC = () => {
 
       {/* MAIN WORKSPACE CONTENT */}
       <main
-        className={`flex-1 p-6 max-w-[1600px] w-full mx-auto transition ${
+        className={`flex-1 p-3 sm:p-4 md:p-6 max-w-[1600px] w-full mx-auto transition pb-safe ${
           privacyBlur ? 'privacy-blur-active' : ''
         }`}
       >
@@ -359,6 +410,7 @@ export const App: React.FC = () => {
             toggleStudentArchived={toggleStudentArchived}
             onAddStudent={handleAddStudent}
             onAddAssessment={handleAddAssessment}
+            onUpdateDatasetMeta={handleUpdateDatasetMeta}
           />
         )}
 
@@ -393,6 +445,7 @@ export const App: React.FC = () => {
         {mode === 'student_360' && (
           <Student360View
             activeDataset={activeDataset}
+            allDatasets={datasets}
             activeTerm={activeTerm}
             visibleStudents={visibleStudents}
             activeStudent={activeStudent}
@@ -404,6 +457,7 @@ export const App: React.FC = () => {
             showOnDemandSimulator={showOnDemandSimulator}
             setShowOnDemandSimulator={setShowOnDemandSimulator}
             updateReportCardOverride={updateReportCardOverride}
+            onUpdateStudentProfile={handleUpdateStudentProfile}
             wasmReady={wasmReady}
           />
         )}
@@ -437,7 +491,7 @@ export const App: React.FC = () => {
       </main>
 
       {/* APP FOOTER / LEGAL COMPLIANCE LINKS */}
-      <footer className="mt-auto py-3 px-6 border-t border-slate-200/60 dark:border-slate-800/60 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500 dark:text-slate-400">
+      <footer className="mt-auto py-3 px-3 sm:px-6 border-t border-slate-200/60 dark:border-slate-800/60 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500 dark:text-slate-400 pb-safe">
         <div className="flex items-center gap-2 font-medium">
           <span className="font-bold text-slate-700 dark:text-slate-300">Gradus21 v{APP_VERSION}</span>
           <span>·</span>

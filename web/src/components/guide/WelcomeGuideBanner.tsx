@@ -34,7 +34,7 @@ export const WelcomeGuideBanner: React.FC<WelcomeGuideBannerProps> = ({
         <div>
           <span className="font-bold">Neu bei Gradus21? </span>
           <span style={{ color: 'var(--text-secondary)' }}>
-            Lass dich in einer kurzen interaktiven Demo einmal durch alle Funktionen führen oder lerne, wie du deine erste Klasse einrichtest.
+            Starte mit dem Import deiner eigenen Klasse (.xlsx) oder lade eine Beispielklasse, um alle Funktionen interaktiv kennenzulernen.
           </span>
         </div>
       </div>

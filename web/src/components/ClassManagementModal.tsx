@@ -256,9 +256,9 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
       <div
-        className="max-w-4xl w-full rounded-2xl border p-6 shadow-xl space-y-5 max-h-[90vh] flex flex-col"
+        className="max-w-4xl w-full rounded-2xl border p-4 sm:p-6 shadow-xl space-y-4 sm:space-y-5 max-h-[95vh] sm:max-h-[90vh] flex flex-col"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
         {/* Header */}
@@ -287,14 +287,14 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 shrink-0">
           <div
-            className="flex gap-1 p-1 rounded-xl border text-xs font-bold"
+            className="flex gap-1 p-1 rounded-xl border text-xs font-bold max-w-full overflow-x-auto"
             style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
           >
             <button
               onClick={() => setActiveTab('students')}
-              className={`px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition ${
+              className={`px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg flex items-center gap-1.5 transition shrink-0 ${
                 activeTab === 'students' ? 'text-white shadow-sm' : ''
               }`}
               style={{
@@ -303,13 +303,13 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
             >
               <Users className="w-3.5 h-3.5" />
               <span>
-                Schüler:innenliste & Archiv ({activeStudents.length} aktiv
-                {archivedStudents.length > 0 ? ` · ${archivedStudents.length} archiviert` : ''})
+                Schüler ({activeStudents.length}
+                {archivedStudents.length > 0 ? ` · +${archivedStudents.length}` : ''})
               </span>
             </button>
             <button
               onClick={() => setActiveTab('assessments')}
-              className={`px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition ${
+              className={`px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg flex items-center gap-1.5 transition shrink-0 ${
                 activeTab === 'assessments' ? 'text-white shadow-sm' : ''
               }`}
               style={{
@@ -317,11 +317,11 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
               }}
             >
               <ClipboardList className="w-3.5 h-3.5" />
-              <span>Tests & Leistungsnachweise ({dataset.assessments.length})</span>
+              <span>Prüfungen ({dataset.assessments.length})</span>
             </button>
             <button
               onClick={() => setActiveTab('meta')}
-              className={`px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition ${
+              className={`px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg flex items-center gap-1.5 transition shrink-0 ${
                 activeTab === 'meta' ? 'text-white shadow-sm' : ''
               }`}
               style={{
@@ -329,7 +329,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
               }}
             >
               <BookOpen className="w-3.5 h-3.5" />
-              <span>Klassen-Stammdaten</span>
+              <span>Stammdaten</span>
             </button>
           </div>
 

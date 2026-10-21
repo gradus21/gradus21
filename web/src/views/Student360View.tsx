@@ -11,10 +11,11 @@ import {
 } from '../types/workspace';
 import { printStudentParentReport } from '../components/ExportAndPrintHelpers';
 import { wasm_simulate_needed_score_v2 } from '../wasm-pkg/gradus21_core';
-import { Printer, Sparkles } from 'lucide-react';
+import { Printer, Sparkles, UserCheck, ShieldCheck, Check } from 'lucide-react';
 
 export interface Student360ViewProps {
   activeDataset: ClassroomSubjectDataset;
+  allDatasets?: ClassroomSubjectDataset[];
   activeTerm: TermFilterId;
   visibleStudents: StudentProfile[];
   activeStudent: StudentProfile;
@@ -26,11 +27,17 @@ export interface Student360ViewProps {
   showOnDemandSimulator: boolean;
   setShowOnDemandSimulator: React.Dispatch<React.SetStateAction<boolean>>;
   updateReportCardOverride: (studentId: string, gradeVal: string, reason?: string) => void;
+  onUpdateStudentProfile?: (
+    studentId: string,
+    patch: Partial<StudentProfile>,
+    propagateToAllClasses: boolean
+  ) => void;
   wasmReady: boolean;
 }
 
 export const Student360View: React.FC<Student360ViewProps> = ({
   activeDataset,
+  allDatasets = [],
   activeTerm,
   visibleStudents,
   activeStudent,
@@ -42,12 +49,41 @@ export const Student360View: React.FC<Student360ViewProps> = ({
   showOnDemandSimulator,
   setShowOnDemandSimulator,
   updateReportCardOverride,
+  onUpdateStudentProfile,
   wasmReady,
 }) => {
   const [simCategoryId, setSimCategoryId] = useState<string>(
     activeDataset.categories[0]?.id || 'cat_lnw'
   );
   const [simTargetPercent, setSimTargetPercent] = useState<number>(80);
+
+  // Cross-class sync state
+  const [syncAcrossClasses, setSyncAcrossClasses] = useState<boolean>(true);
+  const [profileSavedFeedback, setProfileSavedFeedback] = useState<boolean>(false);
+
+  // Find other classes that have this student (match by id, studentId, or normalized name)
+  const otherClassesWithStudent = useMemo(() => {
+    if (!activeStudent || !allDatasets.length) return [];
+    const normName = activeStudent.name.trim().toLowerCase();
+    return allDatasets.filter((ds) => {
+      if (ds.id === activeDataset.id) return false;
+      return ds.students.some((s) => {
+        if (activeStudent.studentId && s.studentId && s.studentId === activeStudent.studentId) return true;
+        if (s.id === activeStudent.id) return true;
+        return s.name.trim().toLowerCase() === normName;
+      });
+    });
+  }, [allDatasets, activeDataset.id, activeStudent]);
+
+  const handleProfileFieldChange = (field: keyof StudentProfile, value: string) => {
+    if (!onUpdateStudentProfile || !activeStudent) return;
+    const patch: Partial<StudentProfile> = {
+      [field]: value.trim() === '' ? undefined : value.trim(),
+    };
+    onUpdateStudentProfile(activeStudent.id, patch, syncAcrossClasses);
+    setProfileSavedFeedback(true);
+    setTimeout(() => setProfileSavedFeedback(false), 2000);
+  };
 
   const isSimulatorVisible =
     userSettings.showWhatIfSimulator || showOnDemandSimulator;
@@ -94,9 +130,41 @@ export const Student360View: React.FC<Student360ViewProps> = ({
   ]);
 
   return (
-    <div data-tour="student360-container" data-privacy-sensitive="true" className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+    <div data-tour="student360-container" data-privacy-sensitive="true" className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6">
+      {/* MOBILE STUDENT SELECTOR (Visible on screens < lg) */}
+      <div className="block lg:hidden rounded-2xl border p-3.5 shadow-sm space-y-2" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}>
+        <div className="flex items-center justify-between gap-2">
+          <label className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>
+            Schüler:in auswählen:
+          </label>
+          <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
+            {visibleStudents.findIndex((s) => s.id === activeStudent.id) + 1} von {visibleStudents.length}
+          </span>
+        </div>
+        <select
+          value={activeStudent.id}
+          onChange={(e) => setSelectedStudentId(e.target.value)}
+          className="w-full px-3 py-2 rounded-xl border text-sm font-semibold shadow-sm"
+          style={{
+            backgroundColor: 'var(--bg-subtle)',
+            borderColor: 'var(--border-subtle)',
+            color: 'var(--text-primary)',
+          }}
+        >
+          {visibleStudents.map((stu) => {
+            const sum = summaryByStudentId.get(stu.id);
+            return (
+              <option key={stu.id} value={stu.id}>
+                {stu.name} {stu.level ? `(${stu.level})` : ''} — Note {sum?.overall_display_grade || '—'} ({sum?.overall_percent != null ? `${sum.overall_percent}%` : 'keine Noten'})
+              </option>
+            );
+          })}
+        </select>
+      </div>
+
+      {/* DESKTOP SIDEBAR (Visible on screens >= lg) */}
       <div
-        className="rounded-2xl border p-4 shadow-sm max-h-[680px] overflow-y-auto space-y-1"
+        className="hidden lg:block rounded-2xl border p-4 shadow-sm max-h-[680px] overflow-y-auto space-y-1"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
         <div
@@ -134,9 +202,9 @@ export const Student360View: React.FC<Student360ViewProps> = ({
         })}
       </div>
 
-      <div className="lg:col-span-3 space-y-6">
+      <div className="lg:col-span-3 space-y-4 sm:space-y-6">
         <div
-          className="rounded-2xl border p-6 shadow-sm flex flex-wrap items-center justify-between gap-4"
+          className="rounded-2xl border p-4 sm:p-6 shadow-sm flex flex-wrap items-center justify-between gap-3 sm:gap-4"
           style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
         >
           <div>
@@ -163,7 +231,7 @@ export const Student360View: React.FC<Student360ViewProps> = ({
               )}
             </div>
             <h2
-              className="text-2xl font-extrabold mt-2"
+              className="text-xl sm:text-2xl font-extrabold mt-2"
               style={{ color: 'var(--text-primary)' }}
             >
               {activeStudent.name}
@@ -173,7 +241,7 @@ export const Student360View: React.FC<Student360ViewProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 sm:gap-4">
             <button
               onClick={() =>
                 printStudentParentReport(
@@ -184,11 +252,12 @@ export const Student360View: React.FC<Student360ViewProps> = ({
                 )
               }
               data-tour="student360-print-btn"
-              className="px-4 py-2.5 rounded-xl text-xs font-bold text-white flex items-center gap-2 shadow-sm"
+              className="px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 sm:gap-2 shadow-sm transition active:scale-[0.98]"
               style={{ backgroundColor: 'var(--primary-500)' }}
             >
-              <Printer className="w-4 h-4" />
-              <span>Elterngesprächs-Bogen drucken / PDF</span>
+              <Printer className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">Elterngesprächs-Bogen drucken / PDF</span>
+              <span className="sm:hidden">PDF drucken</span>
             </button>
 
             <div className="text-right">
@@ -196,7 +265,7 @@ export const Student360View: React.FC<Student360ViewProps> = ({
                 Berechneter Schnitt
               </div>
               <div
-                className="text-3xl font-extrabold font-mono mt-0.5"
+                className="text-2xl sm:text-3xl font-extrabold font-mono mt-0.5"
                 style={{ color: 'var(--primary-500)' }}
               >
                 {activeStudentSummary?.overall_display_grade || '—'}
@@ -306,6 +375,131 @@ export const Student360View: React.FC<Student360ViewProps> = ({
               </div>
             </div>
           ))}
+        </div>
+
+        {/* Amtliche Export-Stammdaten (SchILD-NRW, ASV, etc.) - Rein optional */}
+        <div
+          className="rounded-2xl border p-5 shadow-sm space-y-4"
+          style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3" style={{ borderColor: 'var(--border-subtle)' }}>
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-emerald-600" />
+              <div>
+                <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                  Amtliche Export-Stammdaten (SchILD-NRW / ASV)
+                </h3>
+                <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                  Rein optional – wird nur für amtliche Schulverwaltungs-Exporte benötigt. Bleibt strikt clientseitig gespeichert.
+                </p>
+              </div>
+            </div>
+            {profileSavedFeedback && (
+              <span className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                <Check className="w-3.5 h-3.5" /> Automatisch gespeichert
+              </span>
+            )}
+          </div>
+
+          {/* Cross-Class Smart Sync Banner */}
+          {otherClassesWithStudent.length > 0 && (
+            <div
+              className="p-3 rounded-xl border flex items-center justify-between gap-3 text-xs"
+              style={{
+                backgroundColor: 'var(--primary-soft)',
+                borderColor: 'var(--border-subtle)',
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <UserCheck className="w-4 h-4 text-primary-500 shrink-0" />
+                <span>
+                  <strong>{activeStudent.name}</strong> ist auch in{' '}
+                  <span className="font-semibold underline decoration-dotted">
+                    {otherClassesWithStudent.map((c) => `${c.className} (${c.subjectName})`).join(', ')}
+                  </span>{' '}
+                  vorhanden.
+                </span>
+              </div>
+              <label className="flex items-center gap-1.5 cursor-pointer font-semibold shrink-0 select-none">
+                <input
+                  type="checkbox"
+                  checked={syncAcrossClasses}
+                  onChange={(e) => setSyncAcrossClasses(e.target.checked)}
+                  className="rounded accent-teal-600 cursor-pointer"
+                />
+                <span>Für alle Kurse synchronisieren</span>
+              </label>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div>
+              <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
+                Geburtsdatum (für SchILD-NRW)
+              </label>
+              <input
+                type="date"
+                value={activeStudent.birthDate || ''}
+                onChange={(e) => handleProfileFieldChange('birthDate', e.target.value)}
+                className="w-full px-2.5 py-1.5 rounded-lg border text-xs bg-transparent"
+                style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+              />
+              <span className="text-[10px] block mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                Format JJJJ-MM-TT
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
+                Amtliche Schüler-ID / ASV-Nr.
+              </label>
+              <input
+                type="text"
+                placeholder="z.B. S-2024-042"
+                value={activeStudent.studentId || ''}
+                onChange={(e) => handleProfileFieldChange('studentId', e.target.value)}
+                className="w-full px-2.5 py-1.5 rounded-lg border text-xs bg-transparent"
+                style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+              />
+              <span className="text-[10px] block mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                Identifikator aus Schulverwaltung
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
+                Amtlicher Nachname
+              </label>
+              <input
+                type="text"
+                placeholder={activeStudent.name.split(' ').slice(1).join(' ') || 'Nachname'}
+                value={activeStudent.officialLastName || ''}
+                onChange={(e) => handleProfileFieldChange('officialLastName', e.target.value)}
+                className="w-full px-2.5 py-1.5 rounded-lg border text-xs bg-transparent"
+                style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+              />
+              <span className="text-[10px] block mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                Falls abweichend von Rufname
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
+                Amtlicher Vorname
+              </label>
+              <input
+                type="text"
+                placeholder={activeStudent.name.split(' ')[0] || 'Vorname'}
+                value={activeStudent.officialFirstName || ''}
+                onChange={(e) => handleProfileFieldChange('officialFirstName', e.target.value)}
+                className="w-full px-2.5 py-1.5 rounded-lg border text-xs bg-transparent"
+                style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+              />
+              <span className="text-[10px] block mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                Vollständiger erster Vorname
+              </span>
+            </div>
+          </div>
         </div>
 
         {/* Interactive "Was-wäre-wenn" Simulator */}

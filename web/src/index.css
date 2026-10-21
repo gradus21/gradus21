@@ -119,14 +119,45 @@ body {
   }
 }
 
-/* Adaptive Touch-Targets: Nur auf Touch-Geräten (iPad, Smartphone, Tablet) 
-   Mindesthöhe/-breite auf 44px anheben, Desktop-Mausnutzung bleibt kompakt. */
+/* Adaptive Touch-Targets: Auf Touch-Geräten (iPad, Smartphone, Tablet) 
+   Mindesthöhe/-breite auf 44px für interaktive Hauptelemente,
+   während Tabellenzellen-Elemente kompakt bleiben. */
 @media (pointer: coarse) {
-  button:not(.compact-touch), 
-  [role="button"]:not(.compact-touch),
+  button:not(.compact-touch):not(table button), 
+  [role="button"]:not(.compact-touch):not(table [role="button"]),
   .touch-target {
     min-height: 44px;
     min-width: 44px;
   }
 }
+
+/* Auf Touch-Geräten ohne echten Mauszeiger (iPad, Smartphone)
+   sollen kontextuelle Aktions-Buttons sichtbar sein statt erst bei Hover */
+@media (hover: none) {
+  .touch-visible {
+    opacity: 0.75 !important;
+  }
+}
+
+/* Verhindert auf iOS Safari (iPhone & iPad) das störende automatische Hineinzoomen
+   bei Klick in Eingabefelder mit Schriftgrößen unter 16px */
+@media screen and (max-width: 768px) {
+  input[type="text"],
+  input[type="number"],
+  input[type="password"],
+  input[type="email"],
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* iOS Safe-Area Unterstützung (z.B. iPhone Dynamic Island / Home Indicator) */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
 
