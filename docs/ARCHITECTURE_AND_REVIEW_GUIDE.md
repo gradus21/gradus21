@@ -1,6 +1,6 @@
-# Architektur- & Review-Handbuch (`v1.2.0`)
+# Architektur- & Review-Handbuch (`v1.2.1`)
 
-Dieses Dokument richtet sich an Entwicklerinnen, Entwickler, Datenschutzbeauftragte und Fachlehrkräfte, die die Version `1.2.0` von **Gradus21** begutachten, testen und weiterentwickeln.
+Dieses Dokument richtet sich an Entwicklerinnen, Entwickler, Datenschutzbeauftragte und Fachlehrkräfte, die die Version `1.2.1` von **Gradus21** begutachten, testen und weiterentwickeln.
 
 ---
 
@@ -129,9 +129,17 @@ Gradus21 setzt das Prinzip der **Datensparsamkeit (Art. 5 Abs. 1 lit. c DSGVO)**
 - **Stille Sitzungserneuerung**:
   - Läuft ein JWT-Sitzungstoken nach Inaktivität ab (HTTP 401), erneuert der Client die Sitzung transparent im Hintergrund über den aus dem Master Key abgeleiteten `AuthKey`, ohne den Lehrenden durch Anmeldedialoge aus dem Arbeitsfluss zu reißen.
 
+### 5.6 Mandantentrennung & Kollisionsfreie Envelope-Persistenz (`v1.2.1`)
+- **Zusammengesetzter Envelope-Schlüssel (`owner_user_id:envelope_id`)**:
+  - Da Standard-Demoklassen und Singleton-Settings (`00000000-0000-4000-8000-000000000002`) benutzerübergreifend dieselbe kanonische UUID besitzen, indiziert das Backend alle Speicherstrukturen (In-Memory, Disk-JSON und PostgreSQL) strikt über `tenant_env_key(&owner_id, &envelope_id)`.
+  - In PostgreSQL sichert ein zusammengesetzter Primärschlüssel `PRIMARY KEY (owner_user_id, id)` mit `ON CONFLICT (owner_user_id, id) DO UPDATE` die atomare Mandantentrennung ab.
+  - Der Server gibt die unveränderte kanonische UUID an den Browser zurück, sodass der clientseitige AAD-Kontext (`owner:{userId}|entity:{canonicalId}`) in WebAssembly deterministisch übereinstimmt und Entschlüsselungsfehler (`wasm_decrypt_envelope`) kryptografisch ausgeschlossen sind.
+- **Transparenz über Speicherorte & Nutzungsbedingungen**:
+  - Ergänzung strukturierter Dialoge für Nutzungsbedingungen (`TermsOfServiceModal`) und Browser-Speicherhinweise (`StorageNoticeModal`) zur lückenlosen Information über lokale und verschlüsselte Cloud-Speicherung.
+
 ---
 
-## 6. Checkliste für das Audit & Review (`v1.2.0`)
+## 6. Checkliste für das Audit & Review (`v1.2.1`)
 
 ### A. Fachlich-Pädagogisches Review
 - [x] **Rundungsregeln je Bundesland / Schulordnung**: Exakte Weiterberechnung via IEEE-754 `f64`, Rundung bei der Anzeige auf `0.1 %` bzw. `0.01` Notenwert.
@@ -139,6 +147,8 @@ Gradus21 setzt das Prinzip der **Datensparsamkeit (Art. 5 Abs. 1 lit. c DSGVO)**
 - [x] **Halbjahres-Verrechnung (`Gesamtjahr`)**: Umschaltbare Halbjahres-Filter und gemeinsame Kategorien-Verrechnung.
 
 ### B. Security- & Datenschutz-Review
+- [x] **Mandanten-Isolation & Kollisionsschutz (`v1.2.1`)**: Keying nach `owner_user_id:envelope_id` schließt serverweite ID-Kollisionen bei Demoklassen und Singleton-Settings vollständig aus.
+- [x] **Transparenz & Nutzungsbedingungen (`v1.2.1`)**: Modale Dialoge für Nutzungsbedingungen und lokale Speicherhinweise (IndexedDB/localStorage).
 - [x] **PostgreSQL-Persistenz & Atomares Backup**: `DATABASE_URL` PostgreSQL-Anbindung und transaktionales JSON-Write-and-Rename.
 - [x] **Granulare E2EE-Envelopes & OCC**: Klassen-Granularität und Versionsprüfung mit `409 Conflict`-Handling.
 - [x] **Cloud-Sync Opt-In & Server-Purge**: Standardmäßig rein lokaler Betrieb, Server-Datenlöschung via `DELETE /api/envelopes`.

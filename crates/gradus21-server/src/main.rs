@@ -146,13 +146,28 @@ async fn main() {
 
     let webauthn = create_webauthn();
     let legal_config = LegalConfig::default();
+    let app_env = std::env::var("APP_ENV")
+        .or_else(|_| std::env::var("ENVIRONMENT"))
+        .or_else(|_| std::env::var("NODE_ENV"))
+        .unwrap_or_else(|_| "production".into());
+
+    let mut normalized_envelopes = HashMap::new();
+    for (_, mut env) in initial_disk.envelopes {
+        if env.entity_type == "user_settings" {
+            env.id = Uuid::parse_str("00000000-0000-4000-8000-000000000002").unwrap();
+        } else if env.entity_type == "workspace" {
+            env.id = Uuid::parse_str("00000000-0000-4000-8000-000000000001").unwrap();
+        }
+        let key = tenant_env_key(&env.owner_user_id, &env.id);
+        normalized_envelopes.insert(key, env);
+    }
 
     let state = AppState {
         db,
         disk_store_path,
         mem_users: Arc::new(RwLock::new(initial_disk.users)),
         mem_passkeys: Arc::new(RwLock::new(initial_disk.passkeys)),
-        mem_envelopes: Arc::new(RwLock::new(initial_disk.envelopes)),
+        mem_envelopes: Arc::new(RwLock::new(normalized_envelopes)),
         mem_settings: Arc::new(RwLock::new(initial_disk.system_settings)),
         mem_global_templates: Arc::new(RwLock::new(initial_disk.global_templates)),
         auth_rate_limits: Arc::new(RwLock::new(HashMap::new())),
@@ -165,6 +180,7 @@ async fn main() {
         auth_challenges: Arc::new(RwLock::new(HashMap::new())),
         legal_config,
         mem_email_verifications: Arc::new(RwLock::new(HashMap::new())),
+        app_env,
     };
 
     // Spawn background tasks (Automated snapshot scheduler & retention)

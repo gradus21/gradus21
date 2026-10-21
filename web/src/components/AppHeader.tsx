@@ -1,15 +1,20 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
+  AlertTriangle,
   Calendar,
+  CheckCircle2,
   ChevronRight,
   Cloud,
   CloudOff,
   Columns,
+  Download,
   Edit3,
   Eye,
   EyeOff,
   FolderPlus,
+  HardDrive,
   HelpCircle,
+  Info,
   KeyRound,
   Lock,
   RefreshCw,
@@ -38,6 +43,10 @@ export interface AppHeaderProps {
   showGuideButtonInHeader?: boolean;
   isAdmin?: boolean;
   syncStatus: 'syncing' | 'synced' | 'offline_local' | 'local_only';
+  isPersistentStorage?: boolean;
+  lastLocalBackupTime?: string | null;
+  onExportEncryptedBackup?: () => void;
+  onOpenStorageNotice?: () => void;
   privacyBlur: boolean;
   setPrivacyBlur: React.Dispatch<React.SetStateAction<boolean>>;
   onLockVault: () => void;
@@ -62,6 +71,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   showGuideButtonInHeader = false,
   isAdmin,
   syncStatus,
+  isPersistentStorage,
+  lastLocalBackupTime,
+  onExportEncryptedBackup,
+  onOpenStorageNotice,
   privacyBlur,
   setPrivacyBlur,
   onLockVault,
@@ -72,6 +85,20 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   mode,
   setMode,
 }) => {
+  const [isStoragePopoverOpen, setIsStoragePopoverOpen] = useState(false);
+  const storagePopoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isStoragePopoverOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (storagePopoverRef.current && !storagePopoverRef.current.contains(e.target as Node)) {
+        setIsStoragePopoverOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isStoragePopoverOpen]);
+
   return (
     <>
       {/* HEADER BAR */}
@@ -198,51 +225,250 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             </button>
           )}
 
-          <button
-            onClick={() => onOpenSettings('storage')}
-            data-tour="header-sync-status"
-            className="w-10 h-10 lg:w-auto lg:h-auto p-0 lg:px-3 lg:py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer hover:opacity-90 flex items-center justify-center gap-1.5 shrink-0"
-            style={{
-              backgroundColor: 'var(--bg-subtle)',
-              borderColor: 'var(--border-subtle)',
-              color:
-                syncStatus === 'syncing'
-                  ? 'var(--primary-text)'
-                  : syncStatus === 'synced'
-                  ? '#059669'
+          {/* HEADER SPEICHERAMPEL (§ 241 Abs. 2 BGB Transparenz: Lehrkraft sieht jede Sekunde, wo die Noten liegen) */}
+          <div className="relative" ref={storagePopoverRef}>
+            <button
+              onClick={() => setIsStoragePopoverOpen((prev) => !prev)}
+              data-tour="header-sync-status"
+              className={`h-10 lg:h-auto px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer hover:opacity-95 flex items-center justify-center gap-2 shrink-0 ${
+                syncStatus === 'synced'
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-300'
                   : syncStatus === 'local_only'
-                  ? 'var(--primary-text)'
-                  : '#d97706',
-            }}
-            title={
-              syncStatus === 'syncing'
-                ? 'Daten werden synchronisiert...'
-                : syncStatus === 'synced'
-                ? 'E2EE Cloud-Synchronisation aktiv (Auf Server gesichert)'
-                : syncStatus === 'local_only'
-                ? 'Ausschließlich lokal im Browser verschlüsselt gespeichert (Cloud-Sync ist opt-in und aus). Klicke für Einstellungen.'
-                : 'Offline: Änderungen sind lokal verschlüsselt gespeichert'
-            }
-          >
-            {syncStatus === 'syncing' ? (
-              <RefreshCw className="w-4 h-4 lg:w-3.5 lg:h-3.5 animate-spin" style={{ color: 'var(--primary-500)' }} />
-            ) : syncStatus === 'synced' ? (
-              <Cloud className="w-4 h-4 lg:w-3.5 lg:h-3.5 text-emerald-600" />
-            ) : syncStatus === 'local_only' ? (
-              <Shield className="w-4 h-4 lg:w-3.5 lg:h-3.5" style={{ color: 'var(--primary-500)' }} />
-            ) : (
-              <CloudOff className="w-4 h-4 lg:w-3.5 lg:h-3.5 text-amber-600" />
+                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-800 dark:text-amber-300'
+                  : syncStatus === 'syncing'
+                  ? 'bg-teal-500/10 border-teal-500/30 text-teal-800 dark:text-teal-300'
+                  : 'bg-rose-500/10 border-rose-500/30 text-rose-800 dark:text-rose-300'
+              }`}
+              title={
+                syncStatus === 'synced'
+                  ? 'Speicherampel: GRÜN - Verschlüsselt in der Cloud & lokal gesichert (E2EE)'
+                  : syncStatus === 'local_only'
+                  ? 'Speicherampel: GELB - Achtung: Noten liegen ausschließlich in diesem Browser. Klicke für Details & Backup.'
+                  : syncStatus === 'syncing'
+                  ? 'Speicherampel: BLAU - Änderungen werden verschlüsselt gesichert...'
+                  : 'Speicherampel: ROT - Offline / Lokale Änderungen nicht synchronisiert.'
+              }
+              aria-label="Speicherampel: Wo liegen Ihre Daten?"
+            >
+              {/* Ampel-Dot mit Glow/Pulse */}
+              <span className="relative flex h-2.5 w-2.5 shrink-0">
+                {syncStatus === 'local_only' && (
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                )}
+                {syncStatus === 'offline_local' && (
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                )}
+                <span
+                  className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                    syncStatus === 'synced'
+                      ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]'
+                      : syncStatus === 'local_only'
+                      ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)]'
+                      : syncStatus === 'syncing'
+                      ? 'bg-teal-500 animate-pulse'
+                      : 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.8)]'
+                  }`}
+                />
+              </span>
+
+              {/* Icon */}
+              {syncStatus === 'syncing' ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-teal-600 dark:text-teal-400" />
+              ) : syncStatus === 'synced' ? (
+                <Cloud className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              ) : syncStatus === 'local_only' ? (
+                <HardDrive className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              ) : (
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+              )}
+
+              {/* Status Text Desktop */}
+              <span className="hidden sm:inline font-bold">
+                {syncStatus === 'syncing'
+                  ? 'Sichern...'
+                  : syncStatus === 'synced'
+                  ? 'Cloud-Sync (E2EE)'
+                  : syncStatus === 'local_only'
+                  ? 'Nur lokal (Browser)'
+                  : 'Offline (Lokal)'}
+              </span>
+
+              {/* Status Text Mobile */}
+              <span className="sm:hidden font-bold text-[11px]">
+                {syncStatus === 'synced' ? 'Cloud' : syncStatus === 'syncing' ? '...' : 'Lokal'}
+              </span>
+            </button>
+
+            {/* SPEICHERAMPEL POPOVER / FLYOUT */}
+            {isStoragePopoverOpen && (
+              <div
+                className="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl border shadow-2xl p-4 z-50 text-xs space-y-3.5 animate-in fade-in zoom-in-95 duration-150"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  borderColor: 'var(--border-subtle)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                {/* Popover Header */}
+                <div
+                  className="flex items-start justify-between gap-3 border-b pb-3"
+                  style={{ borderColor: 'var(--border-subtle)' }}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                        syncStatus === 'synced'
+                          ? 'bg-emerald-500/15 text-emerald-600'
+                          : syncStatus === 'local_only'
+                          ? 'bg-amber-500/15 text-amber-600'
+                          : 'bg-rose-500/15 text-rose-600'
+                      }`}
+                    >
+                      {syncStatus === 'synced' ? (
+                        <Cloud className="w-5 h-5" />
+                      ) : syncStatus === 'local_only' ? (
+                        <HardDrive className="w-5 h-5" />
+                      ) : (
+                        <AlertTriangle className="w-5 h-5" />
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={`w-2 h-2 rounded-full ${
+                            syncStatus === 'synced'
+                              ? 'bg-emerald-500'
+                              : syncStatus === 'local_only'
+                              ? 'bg-amber-500'
+                              : 'bg-rose-500'
+                          }`}
+                        />
+                        <h4 className="font-extrabold text-xs">
+                          {syncStatus === 'synced'
+                            ? 'Speicherampel: GRÜN (Gesichert)'
+                            : syncStatus === 'local_only'
+                            ? 'Speicherampel: GELB (Nur lokal)'
+                            : 'Speicherampel: ROT (Offline / Flüchtig)'}
+                        </h4>
+                      </div>
+                      <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                        {syncStatus === 'synced'
+                          ? 'Zero-Knowledge E2EE Server-Sync aktiv'
+                          : 'Daten liegen ausschließlich in diesem Browser'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIsStoragePopoverOpen(false)}
+                    className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition opacity-60 hover:opacity-100"
+                    title="Schließen"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Rechtliche Aufklärung (§ 241 Abs. 2 BGB Belehrung) */}
+                <div
+                  className={`p-3 rounded-xl border leading-relaxed text-[11px] space-y-1 ${
+                    syncStatus === 'synced'
+                      ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-950 dark:text-emerald-200'
+                      : 'bg-amber-500/10 border-amber-500/25 text-amber-950 dark:text-amber-200'
+                  }`}
+                >
+                  <p className="font-semibold">
+                    {syncStatus === 'synced'
+                      ? '✓ Noten sind servergesichert:'
+                      : '⚠️ Wichtiger Hinweis zum Datenverlust-Risiko:'}
+                  </p>
+                  <p className="opacity-90">
+                    {syncStatus === 'synced'
+                      ? 'Ihre Noten werden bei jeder Änderung als AES-256-GCM Chiffretext synchronisiert. Selbst bei Defekt oder Reboot dieses PCs bleiben Ihre Daten erhalten.'
+                      : 'Noten liegen nur im lokalen Browser-Speicher (IndexedDB). Bei Bereinigungs-Software an Schul-PCs (HDGuard), privatem Fenster oder Cache-Leeren gehen Daten ohne Export verloren!'}
+                  </p>
+                </div>
+
+                {/* Details-Liste */}
+                <div className="space-y-1.5 text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                  <div
+                    className="flex justify-between items-center py-1 border-b"
+                    style={{ borderColor: 'var(--border-subtle)' }}
+                  >
+                    <span>Speicherort:</span>
+                    <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                      {syncStatus === 'synced' ? 'E2EE Cloud + Browser' : 'Ausschließlich lokaler Browser'}
+                    </span>
+                  </div>
+                  <div
+                    className="flex justify-between items-center py-1 border-b"
+                    style={{ borderColor: 'var(--border-subtle)' }}
+                  >
+                    <span>Eviction-Schutz:</span>
+                    <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                      {isPersistentStorage ? 'Aktiv (Persistenter Speicher)' : 'Standardspeicher'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-1">
+                    <span>Letzter Datei-Export:</span>
+                    <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                      {lastLocalBackupTime ? lastLocalBackupTime : 'Noch kein Datei-Export'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Quick-Aktionen */}
+                <div className="pt-1 flex flex-col gap-2">
+                  {onExportEncryptedBackup && (
+                    <button
+                      onClick={() => {
+                        setIsStoragePopoverOpen(false);
+                        onExportEncryptedBackup();
+                      }}
+                      className="w-full py-2 px-3 rounded-xl text-xs font-bold border flex items-center justify-center gap-2 transition hover:opacity-90"
+                      style={{
+                        backgroundColor: 'var(--bg-subtle)',
+                        borderColor: 'var(--border-subtle)',
+                        color: 'var(--text-primary)',
+                      }}
+                    >
+                      <Download className="w-3.5 h-3.5 text-teal-600" />
+                      <span>Tresor jetzt als .gradus21 Datei sichern</span>
+                    </button>
+                  )}
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setIsStoragePopoverOpen(false);
+                        onOpenSettings('storage');
+                      }}
+                      className="flex-1 py-1.5 px-2 rounded-xl text-[11px] font-semibold border flex items-center justify-center gap-1.5 transition hover:opacity-90"
+                      style={{
+                        backgroundColor: 'transparent',
+                        borderColor: 'var(--border-subtle)',
+                        color: 'var(--text-primary)',
+                      }}
+                    >
+                      <Settings className="w-3 h-3 text-teal-600" />
+                      <span>Speicher-Einstellungen</span>
+                    </button>
+
+                    {onOpenStorageNotice && (
+                      <button
+                        onClick={() => {
+                          setIsStoragePopoverOpen(false);
+                          onOpenStorageNotice();
+                        }}
+                        className="flex-1 py-1.5 px-2 rounded-xl text-[11px] font-semibold border flex items-center justify-center gap-1.5 transition hover:opacity-90 text-teal-700 dark:text-teal-300 bg-teal-500/10 border-teal-500/30"
+                      >
+                        <Info className="w-3 h-3" />
+                        <span>Hinweis-Details</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
             )}
-            <span className="hidden lg:inline">
-              {syncStatus === 'syncing'
-                ? 'Speichern...'
-                : syncStatus === 'synced'
-                ? 'Cloud-Sync'
-                : syncStatus === 'local_only'
-                ? 'Lokal (Kein Cloud-Sync)'
-                : 'Offline (Lokal)'}
-            </span>
-          </button>
+          </div>
 
           <button
             onClick={() => onOpenSettings()}

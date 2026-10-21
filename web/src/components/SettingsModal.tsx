@@ -16,8 +16,10 @@ import {
   CloudOff,
   Compass,
   Download,
+  ExternalLink,
   Eye,
   FileCheck,
+  FileText,
   Folder,
   GraduationCap,
   HardDrive,
@@ -36,6 +38,7 @@ import {
   X,
 } from 'lucide-react';
 import { isFileSystemAccessSupported } from '../utils/localBackupStorage';
+import { useLegalConfig, getDisplayDomain } from '../utils/legalConfig';
 
 export type SettingsSection =
   | 'favorites'
@@ -94,6 +97,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onDisconnectBackupDirectory,
   isPersistentStorage,
 }) => {
+  const legalConfig = useLegalConfig();
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection);
 
   useEffect(() => {
@@ -794,18 +798,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       Gemäß DSGVO und Grundsatz der Datensparsamkeit verbleiben alle Noten und Schülerdaten standardmäßig <strong>ausschließlich lokal verschlüsselt im Browser</strong> dieses Geräts. 
                       Wenn du Cloud-Sync aktivierst, werden deine Datensätze mit modernem <strong>AES-256-GCM Zero-Knowledge</strong> verschlüsselt auf dem Server gesichert, um geräteübergreifendes Arbeiten zu ermöglichen.
                     </p>
-                    {onOpenSchoolGuide && (
-                      <div className="pt-1">
+                    <div className="pt-1 flex flex-wrap items-center gap-3">
+                      {onOpenSchoolGuide && (
                         <button
                           type="button"
                           onClick={onOpenSchoolGuide}
                           className="inline-flex items-center gap-1.5 text-xs font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400 hover:underline"
                         >
                           <GraduationCap className="w-3.5 h-3.5" />
-                          <span>Schul-Datenschutz Leitfaden &amp; AVV-Mustervertrag öffnen</span>
+                          <span>Schul-Datenschutz Leitfaden</span>
                         </button>
-                      </div>
-                    )}
+                      )}
+                      {onOpenSchoolGuide && <span className="text-slate-400">•</span>}
+                      <a
+                        href={legalConfig.avv_url || 'https://gradus21.de/avv.html'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400 hover:underline"
+                        title="AVV-Mustervertrag online öffnen"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        <span>AVV-Mustervertrag ({getDisplayDomain(legalConfig.avv_url)})</span>
+                        <ExternalLink className="w-3 h-3 opacity-70" />
+                      </a>
+                    </div>
                   </div>
 
                   <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
@@ -1147,6 +1163,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 Abbrechen
               </button>
 
+              <a
+                href={legalConfig.avv_url || 'https://gradus21.de/avv.html'}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3.5 py-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 text-xs font-bold hover:bg-indigo-500/20 transition flex items-center justify-center gap-1.5"
+                title={`AVV-Mustervertrag online auf ${getDisplayDomain(legalConfig.avv_url)} öffnen`}
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>AVV-Muster ({getDisplayDomain(legalConfig.avv_url)})</span>
+                <ExternalLink className="w-3 h-3 opacity-70" />
+              </a>
+
               <button
                 type="button"
                 onClick={() => {
@@ -1158,7 +1186,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 className="px-3.5 py-2 rounded-xl border border-teal-500/30 bg-teal-500/10 text-teal-700 dark:text-teal-300 text-xs font-bold hover:bg-teal-500/20 transition flex items-center justify-center gap-1.5"
               >
                 <GraduationCap className="w-3.5 h-3.5" />
-                <span>Nein, Vorlage &amp; Leitfaden öffnen</span>
+                <span>Schul-Leitfaden</span>
               </button>
 
               <button

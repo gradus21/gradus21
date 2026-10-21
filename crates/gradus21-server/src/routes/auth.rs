@@ -108,13 +108,20 @@ pub struct VerifyTotpRequest {
 pub async fn health_check(State(state): State<AppState>) -> Json<serde_json::Value> {
     let user_count = state.mem_users.read().unwrap().len();
     let env_count = state.mem_envelopes.read().unwrap().len();
+    let is_first_user = user_count == 0;
+    let is_test_or_prod = state.is_test_or_production_env();
+    let email_verification_required = is_test_or_prod && !is_first_user;
+
     Json(serde_json::json!({
         "status": "ok",
         "service": "gradus21-server",
         "zero_knowledge_e2ee": true,
         "storage_mode": if state.db.is_some() { "postgresql" } else { "persistent_disk_vault" },
         "registered_users": user_count,
-        "stored_envelopes": env_count
+        "stored_envelopes": env_count,
+        "app_env": state.app_env,
+        "is_first_user": is_first_user,
+        "email_verification_required": email_verification_required,
     }))
 }
 
@@ -209,8 +216,18 @@ pub async fn register_user(
 
     let was_verified = {
         let verifs = state.mem_email_verifications.read().unwrap();
-        verifs.get(&email).map(|v| v.code.is_empty()).unwrap_or(false)
+        verifs
+            .get(&email)
+            .map(|v| v.code.is_empty() && v.expires_at >= now)
+            .unwrap_or(false)
     };
+
+    if !is_first_user && state.is_test_or_production_env() && !was_verified {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "E-Mail-Verifikation erforderlich: In Test- und Produktivsystemen muss die E-Mail-Adresse vor der Kontoerstellung verifiziert werden.".into(),
+        ));
+    }
 
     let new_user = {
         let mut users = state.mem_users.write().unwrap();
@@ -248,6 +265,11 @@ pub async fn register_user(
     };
     sync_user_to_pg(&state, &new_user).await;
     persist_to_disk(&state);
+
+    if was_verified {
+        let mut verifs = state.mem_email_verifications.write().unwrap();
+        verifs.remove(&email);
+    }
 
     let token = issue_jwt(&state.jwt_secret, user_id, &email, is_admin, true)?;
     Ok(Json(AuthResponse {
@@ -859,6 +881,7 @@ pub async fn verify_email_confirm(
         let remaining = 5usize.saturating_sub(entry.attempts as usize);
         if valid {
             entry.code.clear();
+            entry.expires_at = now + chrono::Duration::hours(24);
         }
         (valid, remaining)
     };

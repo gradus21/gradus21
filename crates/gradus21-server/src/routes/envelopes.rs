@@ -10,8 +10,8 @@ use uuid::Uuid;
 use crate::middleware::authenticate_request;
 use crate::state::{
     delete_all_envelopes_from_pg, delete_all_passkeys_for_user_from_pg, delete_envelope_from_pg,
-    delete_user_from_pg, persist_to_disk, sync_envelope_to_pg, sync_user_to_pg, AppState,
-    EncryptedEnvelopeRecord,
+    delete_user_from_pg, persist_to_disk, sync_envelope_to_pg, sync_user_to_pg, tenant_env_key,
+    AppState, EncryptedEnvelopeRecord,
 };
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -86,16 +86,16 @@ pub async fn upsert_envelope(
     let claims = authenticate_request(&state, &headers)?;
     let owner_id = Uuid::parse_str(&claims.sub)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
-    let effective_id = resolve_tenant_envelope_id(owner_id, req.id);
+
+    let primary_key = tenant_env_key(&owner_id, &req.id);
+    let legacy_namespaced_id = resolve_tenant_envelope_id(owner_id, req.id);
+    let legacy_key = tenant_env_key(&owner_id, &legacy_namespaced_id);
 
     let record = {
         let mut store = state.mem_envelopes.write().unwrap();
-        let existing = store.get(&effective_id).or_else(|| store.get(&req.id));
+        let existing = store.get(&primary_key).or_else(|| store.get(&legacy_key));
         if let Some(existing) = existing {
-            if existing.owner_user_id != owner_id {
-                return Err((StatusCode::FORBIDDEN, "Zugriff verweigert (Mandantentrennung)".into()));
-            }
-            // Issue #2: Optimistic Concurrency Control
+            // Optimistic Concurrency Control
             if let Some(exp_ver) = req.expected_version {
                 if existing.version != exp_ver {
                     let err_json = serde_json::json!({
@@ -115,19 +115,9 @@ pub async fn upsert_envelope(
             }
         }
 
-        let key = if let Some(existing) = store.get(&req.id) {
-            if existing.owner_user_id == owner_id {
-                req.id
-            } else {
-                effective_id
-            }
-        } else {
-            effective_id
-        };
-
-        let next_version = store.get(&key).map(|e| e.version + 1).unwrap_or(1);
+        let next_version = existing.map(|e| e.version + 1).unwrap_or(1);
         let rec = EncryptedEnvelopeRecord {
-            id: key,
+            id: req.id,
             owner_user_id: owner_id,
             entity_type: req.entity_type,
             parent_id: req.parent_id,
@@ -136,7 +126,10 @@ pub async fn upsert_envelope(
             version: next_version,
             updated_at: Utc::now(),
         };
-        store.insert(key, rec.clone());
+        if legacy_key != primary_key {
+            store.remove(&legacy_key);
+        }
+        store.insert(primary_key, rec.clone());
         rec
     };
     sync_envelope_to_pg(&state, &record).await;
@@ -158,12 +151,12 @@ pub async fn batch_sync_envelopes(
 
         // Pre-validation pass: verify all expected_versions before mutating any record
         for item in &req.envelopes {
-            let effective_id = resolve_tenant_envelope_id(owner_id, item.id);
-            let existing = store.get(&effective_id).or_else(|| store.get(&item.id));
+            let primary_key = tenant_env_key(&owner_id, &item.id);
+            let legacy_namespaced_id = resolve_tenant_envelope_id(owner_id, item.id);
+            let legacy_key = tenant_env_key(&owner_id, &legacy_namespaced_id);
+
+            let existing = store.get(&primary_key).or_else(|| store.get(&legacy_key));
             if let Some(existing) = existing {
-                if existing.owner_user_id != owner_id {
-                    return Err((StatusCode::FORBIDDEN, "Zugriff verweigert".into()));
-                }
                 if let Some(exp_ver) = item.expected_version {
                     if existing.version != exp_ver {
                         let err_json = serde_json::json!({
@@ -187,19 +180,18 @@ pub async fn batch_sync_envelopes(
         let mut out = Vec::with_capacity(req.envelopes.len());
 
         for item in req.envelopes {
-            let effective_id = resolve_tenant_envelope_id(owner_id, item.id);
-            let key = if let Some(existing) = store.get(&item.id) {
-                if existing.owner_user_id == owner_id {
-                    item.id
-                } else {
-                    effective_id
-                }
-            } else {
-                effective_id
-            };
-            let next_version = store.get(&key).map(|e| e.version + 1).unwrap_or(1);
+            let primary_key = tenant_env_key(&owner_id, &item.id);
+            let legacy_namespaced_id = resolve_tenant_envelope_id(owner_id, item.id);
+            let legacy_key = tenant_env_key(&owner_id, &legacy_namespaced_id);
+
+            let next_version = store
+                .get(&primary_key)
+                .or_else(|| store.get(&legacy_key))
+                .map(|e| e.version + 1)
+                .unwrap_or(1);
+
             let record = EncryptedEnvelopeRecord {
-                id: key,
+                id: item.id,
                 owner_user_id: owner_id,
                 entity_type: item.entity_type,
                 parent_id: item.parent_id,
@@ -208,7 +200,10 @@ pub async fn batch_sync_envelopes(
                 version: next_version,
                 updated_at: Utc::now(),
             };
-            store.insert(key, record.clone());
+            if legacy_key != primary_key {
+                store.remove(&legacy_key);
+            }
+            store.insert(primary_key, record.clone());
             out.push(record);
         }
         out
@@ -228,28 +223,17 @@ pub async fn delete_envelope(
     let claims = authenticate_request(&state, &headers)?;
     let owner_id = Uuid::parse_str(&claims.sub)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
-    let effective_id = resolve_tenant_envelope_id(owner_id, id);
 
-    let removed_id = {
+    let primary_key = tenant_env_key(&owner_id, &id);
+    let legacy_namespaced_id = resolve_tenant_envelope_id(owner_id, id);
+    let legacy_key = tenant_env_key(&owner_id, &legacy_namespaced_id);
+
+    let removed = {
         let mut store = state.mem_envelopes.write().unwrap();
-        if let Some(existing) = store.get(&effective_id) {
-            if existing.owner_user_id != owner_id {
-                return Err((StatusCode::FORBIDDEN, "Zugriff verweigert".into()));
-            }
-            store.remove(&effective_id);
-            Some(effective_id)
-        } else if let Some(existing) = store.get(&id) {
-            if existing.owner_user_id != owner_id {
-                return Err((StatusCode::FORBIDDEN, "Zugriff verweigert".into()));
-            }
-            store.remove(&id);
-            Some(id)
-        } else {
-            None
-        }
+        store.remove(&primary_key).or_else(|| store.remove(&legacy_key))
     };
-    if let Some(del_id) = removed_id {
-        delete_envelope_from_pg(&state, del_id, owner_id).await;
+    if let Some(_rec) = removed {
+        delete_envelope_from_pg(&state, id, owner_id).await;
         persist_to_disk(&state);
         return Ok(StatusCode::NO_CONTENT);
     }

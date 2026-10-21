@@ -27,7 +27,7 @@ export interface VaultLockAndAuthModalProps {
     ciphertext: string;
     decryptedVerify: string;
   } | null;
-  onUnlockSuccess: (newSession: ActiveVaultSession) => void;
+  onUnlockSuccess: (newSession: ActiveVaultSession, options?: { enableCloudSync?: boolean }) => void;
   onLockVault: () => void;
   onCloseInspector?: () => void;
   cloudSyncEnabled?: boolean;

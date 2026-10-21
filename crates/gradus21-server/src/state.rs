@@ -44,6 +44,10 @@ pub struct LegalConfig {
     pub hosting_provider: String,
     pub hosting_location: String,
     pub dpo_contact: Option<String>,
+    pub avv_url: String,
+    pub avv_download_url: Option<String>,
+    pub avv_custom_text: Option<String>,
+    pub terms_url: String,
 }
 
 impl Default for LegalConfig {
@@ -65,6 +69,17 @@ impl Default for LegalConfig {
             hosting_location: std::env::var("LEGAL_HOSTING_LOCATION")
                 .unwrap_or_else(|_| "Leipzig (Deutschland)".into()),
             dpo_contact: std::env::var("LEGAL_DPO_CONTACT").ok().filter(|s| !s.trim().is_empty()),
+            avv_url: std::env::var("LEGAL_AVV_URL")
+                .unwrap_or_else(|_| "https://gradus21.de/avv.html".into()),
+            avv_download_url: std::env::var("LEGAL_AVV_DOWNLOAD_URL")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .or_else(|| Some("https://gradus21.de/downloads/gradus21-muster-avv.pdf".into())),
+            avv_custom_text: std::env::var("LEGAL_AVV_CUSTOM_TEXT")
+                .ok()
+                .filter(|s| !s.trim().is_empty()),
+            terms_url: std::env::var("LEGAL_TERMS_URL")
+                .unwrap_or_else(|_| "https://gradus21.de/nutzungsbedingungen.html".into()),
         }
     }
 }
@@ -81,13 +96,18 @@ pub struct EmailVerificationEntry {
 pub type RegChallengeMap = Arc<RwLock<HashMap<String, (Instant, PasskeyRegistration, Uuid)>>>;
 pub type AuthChallengeMap = Arc<RwLock<HashMap<String, (Instant, PasskeyAuthentication, Option<Uuid>)>>>;
 
+#[inline]
+pub fn tenant_env_key(owner_id: &Uuid, envelope_id: &Uuid) -> String {
+    format!("{}:{}", owner_id, envelope_id)
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub db: Option<PgPool>,
     pub disk_store_path: PathBuf,
     pub mem_users: Arc<RwLock<HashMap<Uuid, UserRecord>>>,
     pub mem_passkeys: Arc<RwLock<HashMap<Uuid, UserPasskeyRecord>>>,
-    pub mem_envelopes: Arc<RwLock<HashMap<Uuid, EncryptedEnvelopeRecord>>>,
+    pub mem_envelopes: Arc<RwLock<HashMap<String, EncryptedEnvelopeRecord>>>,
     pub mem_settings: Arc<RwLock<HashMap<String, serde_json::Value>>>,
     pub mem_global_templates: Arc<RwLock<HashMap<Uuid, admin::GlobalTemplateRecord>>>,
     pub auth_rate_limits: Arc<RwLock<HashMap<String, Vec<Instant>>>>,
@@ -100,6 +120,14 @@ pub struct AppState {
     pub auth_challenges: AuthChallengeMap,
     pub legal_config: LegalConfig,
     pub mem_email_verifications: Arc<RwLock<HashMap<String, EmailVerificationEntry>>>,
+    pub app_env: String,
+}
+
+impl AppState {
+    pub fn is_test_or_production_env(&self) -> bool {
+        let env = self.app_env.trim().to_lowercase();
+        env == "production" || env == "prod" || env == "produktiv" || env == "test" || env == "testing"
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -107,7 +135,7 @@ pub struct PersistentDiskStore {
     pub users: HashMap<Uuid, UserRecord>,
     #[serde(default)]
     pub passkeys: HashMap<Uuid, UserPasskeyRecord>,
-    pub envelopes: HashMap<Uuid, EncryptedEnvelopeRecord>,
+    pub envelopes: HashMap<String, EncryptedEnvelopeRecord>,
     #[serde(default)]
     pub system_settings: HashMap<String, serde_json::Value>,
     #[serde(default)]
@@ -177,7 +205,7 @@ pub async fn ensure_pg_schema_and_load(
     pool: &PgPool,
     users_map: &mut HashMap<Uuid, UserRecord>,
     passkeys_map: &mut HashMap<Uuid, UserPasskeyRecord>,
-    envelopes_map: &mut HashMap<Uuid, EncryptedEnvelopeRecord>,
+    envelopes_map: &mut HashMap<String, EncryptedEnvelopeRecord>,
     settings_map: &mut HashMap<String, serde_json::Value>,
     templates_map: &mut HashMap<Uuid, admin::GlobalTemplateRecord>,
 ) {
@@ -223,14 +251,15 @@ pub async fn ensure_pg_schema_and_load(
         "CREATE INDEX IF NOT EXISTS idx_user_passkeys_user ON user_passkeys (user_id)",
         "CREATE INDEX IF NOT EXISTS idx_user_passkeys_cred ON user_passkeys (credential_id)",
         r#"CREATE TABLE IF NOT EXISTS encrypted_envelopes (
-            id UUID PRIMARY KEY,
+            id UUID NOT NULL,
             owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             entity_type TEXT NOT NULL,
             parent_id UUID,
             class_id UUID,
             encrypted_payload TEXT NOT NULL,
             version INT NOT NULL DEFAULT 1,
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (owner_user_id, id)
         )"#,
         "CREATE INDEX IF NOT EXISTS idx_encrypted_envelopes_owner ON encrypted_envelopes (owner_user_id)",
         r#"CREATE TABLE IF NOT EXISTS system_settings (
@@ -353,9 +382,10 @@ pub async fn ensure_pg_schema_and_load(
     {
         for row in rows {
             let id: Uuid = row.get("id");
+            let owner_user_id: Uuid = row.get("owner_user_id");
             let env = EncryptedEnvelopeRecord {
                 id,
-                owner_user_id: row.get("owner_user_id"),
+                owner_user_id,
                 entity_type: row.get("entity_type"),
                 parent_id: row.get("parent_id"),
                 class_id: row.get("class_id"),
@@ -363,7 +393,8 @@ pub async fn ensure_pg_schema_and_load(
                 version: row.get("version"),
                 updated_at: row.get("updated_at"),
             };
-            envelopes_map.insert(id, env);
+            let key = tenant_env_key(&env.owner_user_id, &env.id);
+            envelopes_map.insert(key, env);
         }
     }
 
@@ -505,7 +536,7 @@ pub async fn sync_envelope_to_pg(state: &AppState, env: &EncryptedEnvelopeRecord
         r#"INSERT INTO encrypted_envelopes (
             id, owner_user_id, entity_type, parent_id, class_id, encrypted_payload, version, updated_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (id) DO UPDATE SET
+        ON CONFLICT (owner_user_id, id) DO UPDATE SET
             entity_type = EXCLUDED.entity_type,
             parent_id = EXCLUDED.parent_id,
             class_id = EXCLUDED.class_id,
