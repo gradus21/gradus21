@@ -23,3 +23,7 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Knowledge Graph / Analysis
+graphify-out/
+
