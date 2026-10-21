@@ -13,9 +13,12 @@ import {
   ChevronDown,
   ChevronUp,
   Unlock,
+  ExternalLink,
+  FileText,
 } from 'lucide-react';
 import { ActiveVaultSession, RegistrationStep } from './vaultTypes';
 import { LegalTab } from '../LegalModal';
+import { useLegalConfig, getDisplayDomain } from '../../utils/legalConfig';
 
 interface VaultRegistrationWizardProps {
   step: RegistrationStep;
@@ -29,6 +32,9 @@ interface VaultRegistrationWizardProps {
   optInCloudSync: boolean;
   setOptInCloudSync: (optIn: boolean) => void;
   setShowAvvConfirmation: (show: boolean) => void;
+  termsAccepted: boolean;
+  setTermsAccepted: (accepted: boolean) => void;
+  onOpenTermsModal?: () => void;
   regSession: ActiveVaultSession | null;
   recoverySavedConfirmed: boolean;
   setRecoverySavedConfirmed: (confirmed: boolean) => void;
@@ -67,6 +73,9 @@ export const VaultRegistrationWizard: React.FC<VaultRegistrationWizardProps> = (
   optInCloudSync,
   setOptInCloudSync,
   setShowAvvConfirmation,
+  termsAccepted,
+  setTermsAccepted,
+  onOpenTermsModal,
   regSession,
   recoverySavedConfirmed,
   setRecoverySavedConfirmed,
@@ -92,6 +101,8 @@ export const VaultRegistrationWizard: React.FC<VaultRegistrationWizardProps> = (
   onCopyRegSecret,
   onOpenLegal,
 }) => {
+  const legalConfig = useLegalConfig();
+
   if (step === 'credentials') {
     return (
       <form onSubmit={onStartRegistration} className="space-y-3.5 text-xs">
@@ -177,17 +188,31 @@ export const VaultRegistrationWizard: React.FC<VaultRegistrationWizardProps> = (
             <p className="text-[10px] mt-0.5 opacity-80 leading-normal" style={{ color: 'var(--text-secondary)' }}>
               Standardmäßig <strong>deaktiviert</strong>: Alle Schüler- und Notendaten bleiben zu 100% lokal auf diesem Gerät (bzw. auf deinem Schullaufwerk). Aktiviere dies nur, wenn du mehrere Geräte synchronisieren möchtest.
             </p>
-            <button
-              type="button"
-              onClick={(ev) => {
-                ev.preventDefault();
-                ev.stopPropagation();
-                onOpenLegal('school_guide');
-              }}
-              className="text-[10px] text-teal-600 dark:text-teal-400 font-semibold underline hover:opacity-80 block mt-1"
-            >
-              Schul-Datenschutz Leitfaden &amp; AVV anzeigen
-            </button>
+            <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+              <button
+                type="button"
+                onClick={(ev) => {
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  onOpenLegal('school_guide');
+                }}
+                className="text-[10px] text-teal-600 dark:text-teal-400 font-semibold underline hover:opacity-80"
+              >
+                Schul-Datenschutz Leitfaden
+              </button>
+              <span className="text-[10px] opacity-40">•</span>
+              <a
+                href={legalConfig.avv_url || 'https://gradus21.de/avv.html'}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(ev) => ev.stopPropagation()}
+                className="text-[10px] text-teal-600 dark:text-teal-400 font-semibold underline hover:opacity-80 inline-flex items-center gap-1"
+                title={`AVV-Mustervertrag online auf ${getDisplayDomain(legalConfig.avv_url)} öffnen`}
+              >
+                <span>AVV-Mustervertrag ({getDisplayDomain(legalConfig.avv_url)})</span>
+                <ExternalLink className="w-2.5 h-2.5 opacity-70" />
+              </a>
+            </div>
           </label>
         </div>
 
@@ -198,28 +223,117 @@ export const VaultRegistrationWizard: React.FC<VaultRegistrationWizardProps> = (
           </span>
         </div>
 
-        <button
-          type="submit"
-          className="w-full py-2.5 rounded-xl text-xs font-bold text-white shadow-sm flex items-center justify-center gap-2 transition hover:opacity-95"
-          style={{ backgroundColor: 'var(--primary-500)' }}
-        >
-          <KeyRound className="w-4 h-4" />
-          <span>Konto anlegen & Sicherheit einrichten</span>
-        </button>
+        {/* Wichtiger Hinweis zum Speicherort (§ 241 Abs. 2 BGB Belehrung) */}
+        <div className="p-3 rounded-xl border text-[11px] leading-snug space-y-1.5 bg-amber-500/10 border-amber-500/25 text-amber-900 dark:text-amber-200">
+          <div className="flex items-center gap-1.5 font-bold text-xs text-amber-800 dark:text-amber-300">
+            <Shield className="w-4 h-4 shrink-0" />
+            <span>Wichtiger Hinweis zum Noten-Speicherort:</span>
+          </div>
+          <p className="leading-relaxed opacity-95">
+            „Gradus21 schützt Ihre Daten durch Zero-Knowledge: Standardmäßig verlassen Ihre Noten niemals diesen Browser. Bitte sichern Sie Ihren Tresor regelmäßig als .gradus21-Datei oder aktivieren Sie den verschlüsselten Cloud-Sync.“
+          </p>
+        </div>
 
-        <button
-          type="button"
-          onClick={onCreateLocalOfflineVault}
-          className="w-full py-2 rounded-xl text-[11px] font-semibold border flex items-center justify-center gap-1.5 transition hover:opacity-90"
+        {/* Nutzungsbedingungen Bestätigung (Pflichtfeld) */}
+        <div
+          className="p-3 rounded-xl border flex items-start gap-2.5 transition"
           style={{
-            backgroundColor: 'transparent',
-            borderColor: 'var(--border-subtle)',
-            color: 'var(--text-secondary)',
+            backgroundColor: termsAccepted ? 'var(--primary-soft)' : 'var(--bg-subtle)',
+            borderColor: termsAccepted ? 'var(--primary-500)' : 'var(--border-subtle)',
           }}
         >
-          <Shield className="w-3.5 h-3.5 text-teal-600" />
-          <span>Rein lokalen Offline-Tresor nutzen (ohne Server)</span>
-        </button>
+          <input
+            type="checkbox"
+            id="terms-accepted"
+            checked={termsAccepted}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              if (checked) {
+                if (onOpenTermsModal) {
+                  onOpenTermsModal();
+                } else {
+                  setTermsAccepted(true);
+                }
+              } else {
+                setTermsAccepted(false);
+              }
+            }}
+            className="mt-0.5 rounded cursor-pointer accent-teal-600"
+            required
+          />
+          <div className="text-[11px] leading-snug flex-1 select-none">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <label
+                htmlFor="terms-accepted"
+                className="cursor-pointer font-semibold"
+                style={{ color: 'var(--text-primary)' }}
+              >
+                Nutzungsbedingungen akzeptieren (Pflichtfeld)
+              </label>
+              {onOpenTermsModal && (
+                <button
+                  type="button"
+                  onClick={onOpenTermsModal}
+                  className="text-[10px] text-teal-600 dark:text-teal-400 font-bold underline hover:opacity-80 inline-flex items-center gap-1"
+                >
+                  <FileText className="w-2.5 h-2.5" />
+                  <span>Jetzt lesen & prüfen</span>
+                </button>
+              )}
+            </div>
+            <p className="text-[10px] mt-0.5 opacity-80 leading-normal" style={{ color: 'var(--text-secondary)' }}>
+              Ich habe die{' '}
+              {onOpenTermsModal ? (
+                <button
+                  type="button"
+                  onClick={onOpenTermsModal}
+                  className="text-teal-600 dark:text-teal-400 font-semibold underline hover:opacity-80 inline-flex items-center gap-0.5"
+                >
+                  <span>Nutzungsbedingungen</span>
+                </button>
+              ) : (
+                <a
+                  href={legalConfig.terms_url || 'https://gradus21.de/nutzungsbedingungen.html'}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(ev) => ev.stopPropagation()}
+                  className="text-teal-600 dark:text-teal-400 font-semibold underline hover:opacity-80 inline-flex items-center gap-1"
+                >
+                  <span>Nutzungsbedingungen</span>
+                  <ExternalLink className="w-2.5 h-2.5 opacity-70" />
+                </a>
+              )}{' '}
+              von Gradus21 gelesen und erkläre mich mit ihrer Geltung einverstanden.
+            </p>
+          </div>
+        </div>
+
+        {optInCloudSync ? (
+          <button
+            type="submit"
+            disabled={!termsAccepted}
+            className={`w-full py-2.5 rounded-xl text-xs font-bold text-white shadow-sm flex items-center justify-center gap-2 transition ${
+              !termsAccepted ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-95'
+            }`}
+            style={{ backgroundColor: 'var(--primary-500)' }}
+          >
+            <KeyRound className="w-4 h-4" />
+            <span>Konto anlegen & Sicherheit einrichten</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={!termsAccepted}
+            onClick={onCreateLocalOfflineVault}
+            className={`w-full py-2.5 rounded-xl text-xs font-bold text-white shadow-sm flex items-center justify-center gap-2 transition ${
+              !termsAccepted ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-95'
+            }`}
+            style={{ backgroundColor: 'var(--primary-500)' }}
+          >
+            <Shield className="w-4 h-4" />
+            <span>Rein lokalen Offline-Tresor nutzen (ohne Server)</span>
+          </button>
+        )}
       </form>
     );
   }
@@ -558,6 +672,19 @@ export const VaultRegistrationWizard: React.FC<VaultRegistrationWizardProps> = (
               <Check className="w-4 h-4 stroke-[3]" />
               <span>Zwei-Faktor-Authentifizierung (2FA) aktiv</span>
             </div>
+            {optInCloudSync ? (
+              <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-semibold">
+                <Check className="w-4 h-4 stroke-[3]" />
+                <span>E2EE Cloud-Synchronisation aktiviert</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                <div className="w-4 h-4 rounded-full border border-dashed border-zinc-400 flex items-center justify-center text-[9px] text-zinc-400">
+                  ○
+                </div>
+                <span>Rein lokaler Offline-Modus (Cloud-Sync deaktiviert)</span>
+              </div>
+            )}
             <div className="flex items-center gap-2 font-semibold">
               {regPasskeyDone ? (
                 <>
@@ -577,6 +704,17 @@ export const VaultRegistrationWizard: React.FC<VaultRegistrationWizardProps> = (
                 </>
               )}
             </div>
+          </div>
+
+          {/* Speicherort & Datensicherheit Belehrung (§ 241 Abs. 2 BGB) */}
+          <div className="p-3.5 rounded-2xl border space-y-1.5 text-[11px] bg-amber-500/10 border-amber-500/25 text-amber-950 dark:text-amber-200">
+            <div className="flex items-center gap-1.5 font-bold text-xs text-amber-800 dark:text-amber-300">
+              <Shield className="w-4 h-4 shrink-0" />
+              <span>Wichtiger Hinweis zum Noten-Speicherort:</span>
+            </div>
+            <p className="leading-relaxed opacity-95">
+              „Gradus21 schützt Ihre Daten durch Zero-Knowledge: Standardmäßig verlassen Ihre Noten niemals diesen Browser. Bitte sichern Sie Ihren Tresor regelmäßig als .gradus21-Datei oder aktivieren Sie den verschlüsselten Cloud-Sync.“
+            </p>
           </div>
 
           <button

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, KeyRound, Mail, RefreshCw, ShieldCheck, X } from 'lucide-react';
+import { formatApiErrorMessage } from '../utils/legalConfig';
 
 interface EmailVerificationModalProps {
   isOpen: boolean;
@@ -46,11 +47,22 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
-      const data = await res.json().catch(() => ({}));
+      const rawText = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        // non-JSON response
+      }
+
       if (res.ok) {
         setCooldown(60);
         setRemainingAttempts(5);
-        setSuccessMsg(`Ein 6-stelliger Bestätigungscode wurde an ${email} gesendet.`);
+        if (data.dev_code) {
+          setSuccessMsg(`Test-Modus: Dein Bestätigungscode lautet: ${data.dev_code}`);
+        } else {
+          setSuccessMsg(`Ein 6-stelliger Bestätigungscode wurde an ${email} gesendet.`);
+        }
         // Focus first input
         setTimeout(() => {
           inputRefs.current[0]?.focus();
@@ -59,7 +71,7 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
         setCooldown(data.cooldown_secs || 60);
         setErrorMsg(`Zu viele Anfragen. Bitte warte ${data.cooldown_secs || 60} Sekunden, bevor du einen neuen Code anforderst.`);
       } else {
-        setErrorMsg(data.error || 'Fehler beim Senden des Bestätigungscodes.');
+        setErrorMsg(data.error || formatApiErrorMessage(rawText, res.status));
       }
     } catch {
       setErrorMsg('Der Server konnte nicht erreicht werden.');
@@ -135,7 +147,13 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, code: fullCode }),
       });
-      const data = await res.json().catch(() => ({}));
+      const rawText = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        // non-JSON response
+      }
 
       if (res.ok && data.verified) {
         setSuccessMsg('E-Mail-Adresse erfolgreich bestätigt!');
@@ -153,7 +171,7 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
         } else if (data.error === 'max_attempts_exceeded') {
           setErrorMsg('Maximale Fehlversuche (5) erreicht. Bitte fordere einen neuen Code an.');
         } else {
-          setErrorMsg(data.error || 'Bestätigung fehlgeschlagen.');
+          setErrorMsg(data.error || formatApiErrorMessage(rawText, res.status));
         }
       }
     } catch {

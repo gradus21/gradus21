@@ -7,6 +7,8 @@ import { SettingsModal, SettingsSection } from './components/SettingsModal';
 import { VaultLockAndAuthModal } from './components/VaultLockAndAuthModal';
 import { AdminModal } from './components/admin/AdminModal';
 import { LegalModal, LegalTab } from './components/LegalModal';
+import { useLegalConfig } from './utils/legalConfig';
+import { StorageNoticeModal } from './components/StorageNoticeModal';
 import { EmailVerificationModal } from './components/EmailVerificationModal';
 import { SyncReconciliationModal } from './components/SyncReconciliationModal';
 import { CellDisplayFormat, TermFilterId, INITIAL_CLASS_DATASETS } from './data/demoClasses';
@@ -31,6 +33,7 @@ export type ActiveModal =
   | { type: 'vaultInspector' }
   | { type: 'admin' }
   | { type: 'legal'; tab: LegalTab }
+  | { type: 'storageNotice' }
   | null;
 
 export const App: React.FC = () => {
@@ -77,6 +80,7 @@ export const App: React.FC = () => {
   } = useVaultWorkspaceSync();
 
   // Navigation & Workspace State
+  const legalConfig = useLegalConfig();
   const [mode, setMode] = useState<WorkspaceMode>('matrix');
   const [activeTerm, setActiveTerm] = useState<TermFilterId>('hj1');
   const [selectedAssessmentId, setSelectedAssessmentId] = useState<string>('');
@@ -107,8 +111,24 @@ export const App: React.FC = () => {
   };
 
   const handleCloseModal = () => {
+    if (activeModal?.type === 'storageNotice') {
+      localStorage.setItem('gradus21_storage_notice_ack_v1', 'true');
+    }
     setActiveModal(null);
   };
+
+  // Erstaufruf: Klares Onboarding / Setup-Modal zum Noten-Speicherort (§ 241 Abs. 2 BGB)
+  useEffect(() => {
+    if (!isVaultLocked && wasmReady && syncStatus === 'local_only') {
+      const ack = localStorage.getItem('gradus21_storage_notice_ack_v1');
+      if (!ack) {
+        const timer = setTimeout(() => {
+          setActiveModal({ type: 'storageNotice' });
+        }, 500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [isVaultLocked, wasmReady, syncStatus]);
 
   const handleLoadDemoDataset = () => {
     const demoClass = INITIAL_CLASS_DATASETS[0];
@@ -314,6 +334,10 @@ export const App: React.FC = () => {
         showGuideButtonInHeader={Boolean(userSettings.showGuideButtonInHeader)}
         isAdmin={vaultSession?.isAdmin}
         syncStatus={syncStatus}
+        isPersistentStorage={isPersistentStorage}
+        lastLocalBackupTime={lastLocalBackupTime}
+        onExportEncryptedBackup={handleExportEncryptedBackup}
+        onOpenStorageNotice={() => setActiveModal({ type: 'storageNotice' })}
         privacyBlur={privacyBlur}
         setPrivacyBlur={setPrivacyBlur}
         onLockVault={handleLockVault}
@@ -527,8 +551,30 @@ export const App: React.FC = () => {
             onClick={() => handleOpenLegal('school_guide')}
             className="hover:underline transition hover:text-slate-800 dark:hover:text-slate-200"
           >
-            Schul-Datenschutz & AVV
+            Schul-Datenschutz
           </button>
+          <span>·</span>
+          <a
+            href={legalConfig.terms_url || 'https://gradus21.de/nutzungsbedingungen.html'}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:underline transition hover:text-slate-800 dark:hover:text-slate-200 flex items-center gap-1 font-semibold text-teal-600 dark:text-teal-400"
+            title="Nutzungsbedingungen auf Website öffnen"
+          >
+            <span>Nutzungsbedingungen</span>
+            <ExternalLink className="w-3 h-3 opacity-70" />
+          </a>
+          <span>·</span>
+          <a
+            href={legalConfig.avv_url || 'https://gradus21.de/avv.html'}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:underline transition hover:text-slate-800 dark:hover:text-slate-200 flex items-center gap-1 font-semibold text-teal-600 dark:text-teal-400"
+            title="Offiziellen AVV-Mustervertrag öffnen"
+          >
+            <span>AVV-Mustervertrag</span>
+            <ExternalLink className="w-3 h-3 opacity-70" />
+          </a>
         </div>
       </footer>
 
@@ -654,6 +700,17 @@ export const App: React.FC = () => {
         remoteLastUpdated={reconciliationMeta?.remoteLastUpdated}
         onResolve={handleResolveReconciliation}
         onCancel={handleCancelReconciliation}
+      />
+
+      {/* SPEICHER-AUFKLÄRUNG & SETUP-MODAL (§ 241 Abs. 2 BGB) */}
+      <StorageNoticeModal
+        isOpen={activeModal?.type === 'storageNotice'}
+        onClose={handleCloseModal}
+        syncStatus={syncStatus}
+        isPersistentStorage={isPersistentStorage}
+        lastLocalBackupTime={lastLocalBackupTime}
+        onExportBackup={handleExportEncryptedBackup}
+        onOpenStorageSettings={() => handleOpenSettings('storage')}
       />
     </div>
   );

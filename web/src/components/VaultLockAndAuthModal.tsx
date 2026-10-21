@@ -25,6 +25,7 @@ import {
   Edit2,
   ExternalLink,
   FileCheck,
+  FileText,
   Fingerprint,
   GraduationCap,
   KeyRound,
@@ -68,6 +69,9 @@ import { PasskeyUnlockTab } from './vault/PasskeyUnlockTab';
 import { RecoveryUnlockTab } from './vault/RecoveryUnlockTab';
 import { VaultRegistrationWizard } from './vault/VaultRegistrationWizard';
 import { CryptoEnvelopeInspector } from './vault/CryptoEnvelopeInspector';
+import { useLegalConfig, getDisplayDomain, formatApiErrorMessage } from '../utils/legalConfig';
+import { EmailVerificationModal } from './EmailVerificationModal';
+import { TermsOfServiceModal } from './TermsOfServiceModal';
 
 export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   isLockedScreen,
@@ -106,6 +110,11 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   const [legalTab, setLegalTab] = useState<LegalTab>('impressum');
   const [optInCloudSync, setOptInCloudSync] = useState(false);
   const [showAvvConfirmation, setShowAvvConfirmation] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [showEmailVerificationModal, setShowEmailVerificationModal] = useState(false);
+  const [pendingRegistrationCallback, setPendingRegistrationCallback] = useState<(() => Promise<void>) | null>(null);
+  const legalConfig = useLegalConfig();
 
   const handleOpenLegal = (tab: LegalTab) => {
     setLegalTab(tab);
@@ -1130,6 +1139,12 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     setErrorMsg(null);
     setStatusMsg(null);
 
+    if (!termsAccepted) {
+      setErrorMsg('Bitte lies und akzeptiere zuerst die Nutzungsbedingungen, um fortzufahren.');
+      setShowTermsModal(true);
+      return;
+    }
+
     const trimmedEmail = (email.trim() || 'lehrer@schule.intern').toLowerCase();
     if (password.length < 8) {
       setErrorMsg('Das Master-Passwort muss mindestens 8 Zeichen lang sein.');
@@ -1157,6 +1172,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         email: trimmedEmail,
         isAdmin: false,
         kdfSaltB64: bundle.kdf_salt_b64,
+        authKeyB64: bundle.auth_key_b64,
         dekB64: bundle.dek_b64,
         encryptedDek: bundle.encrypted_dek,
         recoveryEncryptedDek: bundle.recovery_encrypted_dek,
@@ -1177,8 +1193,18 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   // Schritt 1 der Registrierung: Formular ausfüllen & Tresor initialisieren
   const handleStartRegistration = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!optInCloudSync) {
+      return handleCreateLocalOfflineVault(e);
+    }
+
     setErrorMsg(null);
     setStatusMsg(null);
+
+    if (!termsAccepted) {
+      setErrorMsg('Bitte lies und akzeptiere zuerst die Nutzungsbedingungen, um ein Konto zu erstellen.');
+      setShowTermsModal(true);
+      return;
+    }
 
     const trimmedEmail = email.trim().toLowerCase();
     if (!trimmedEmail || !trimmedEmail.includes('@')) {
@@ -1196,88 +1222,126 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       return;
     }
 
-    setStatusMsg('Zero-Knowledge Tresor wird im Browser verschlüsselt...');
+    const emailVerifiedKey = `gradus21_email_verified_${trimmedEmail}`;
+    const isAlreadyVerifiedLocally = localStorage.getItem(emailVerifiedKey) === 'true';
 
+    let emailVerificationRequiredByServer = false;
     try {
-      const bundleJson = wasm_generate_vault(password);
-      const bundle = JSON.parse(bundleJson);
+      const healthRes = await fetch('/api/health');
+      if (healthRes.ok) {
+        const healthData = await healthRes.json();
+        if (healthData.email_verification_required) {
+          emailVerificationRequiredByServer = true;
+        }
+      }
+    } catch {
+      // offline / unreachable
+    }
 
-      saveLocalRecoveryMeta({
-        email: trimmedEmail,
-        recoveryEncryptedDek: bundle.recovery_encrypted_dek,
-      });
+    const executeRegistration = async () => {
+      setStatusMsg('Zero-Knowledge Tresor wird im Browser verschlüsselt...');
 
-      let data: any = null;
       try {
-        const res = await fetch('/api/auth/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: trimmedEmail,
-            auth_key_b64: bundle.auth_key_b64,
-            kdf_salt_b64: bundle.kdf_salt_b64,
-            kdf_params: bundle.kdf_params,
-            encrypted_dek: bundle.encrypted_dek,
-            recovery_encrypted_dek: bundle.recovery_encrypted_dek,
-            recovery_auth_key_b64: bundle.recovery_auth_key_b64,
-          }),
+        const bundleJson = wasm_generate_vault(password);
+        const bundle = JSON.parse(bundleJson);
+
+        saveLocalRecoveryMeta({
+          email: trimmedEmail,
+          recoveryEncryptedDek: bundle.recovery_encrypted_dek,
         });
 
-        if (!res.ok) {
-          const errText = await res.text();
-          setErrorMsg(errText || 'Registrierung fehlgeschlagen.');
-          setStatusMsg(null);
-          return;
+        let data: any = null;
+        try {
+          const res = await fetch('/api/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: trimmedEmail,
+              auth_key_b64: bundle.auth_key_b64,
+              kdf_salt_b64: bundle.kdf_salt_b64,
+              kdf_params: bundle.kdf_params,
+              encrypted_dek: bundle.encrypted_dek,
+              recovery_encrypted_dek: bundle.recovery_encrypted_dek,
+              recovery_auth_key_b64: bundle.recovery_auth_key_b64,
+            }),
+          });
+
+          if (res.status === 403) {
+            const errText = await res.text();
+            if (errText.includes('E-Mail-Verifikation') || errText.includes('verification')) {
+              localStorage.removeItem(emailVerifiedKey);
+              setPendingRegistrationCallback(() => executeRegistration);
+              setShowEmailVerificationModal(true);
+              setStatusMsg(null);
+              return;
+            }
+          }
+
+          if (!res.ok) {
+            const errText = await res.text();
+            setErrorMsg(formatApiErrorMessage(errText, res.status));
+            setStatusMsg(null);
+            return;
+          }
+
+          data = await res.json();
+        } catch {
+          // Server unreachable / offline -> proceed as local offline vault
+          const localUserId = `local_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`;
+          data = {
+            token: '',
+            user_id: localUserId,
+            email: trimmedEmail,
+            is_admin: false,
+          };
         }
 
-        data = await res.json();
-      } catch {
-        // Server unreachable / offline -> proceed as local offline vault
-        const localUserId = `local_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`;
-        data = {
-          token: '',
-          user_id: localUserId,
-          email: trimmedEmail,
-          is_admin: false,
+        setStatusMsg(null);
+
+        const newSession: ActiveVaultSession = {
+          token: data.token || '',
+          userId: data.user_id,
+          email: data.email,
+          isAdmin: data.is_admin ?? false,
+          kdfSaltB64: bundle.kdf_salt_b64,
+          authKeyB64: bundle.auth_key_b64,
+          dekB64: bundle.dek_b64,
+          encryptedDek: bundle.encrypted_dek,
+          recoveryEncryptedDek: bundle.recovery_encrypted_dek,
+          recoveryKeyFormatted: bundle.recovery_key_formatted,
+          totpEnabled: false,
+          totpSetupUri: data.totp_setup_uri,
+          totpSecretBase32: data.totp_secret_base32,
+          serverSyncedCount: 0,
         };
+
+        setRegSession(newSession);
+
+        if (data.totp_setup_uri) {
+          QRCode.toDataURL(data.totp_setup_uri, {
+            width: 240,
+            margin: 3,
+            errorCorrectionLevel: 'M',
+            color: { dark: '#000000', light: '#FFFFFF' },
+          })
+            .then((url) => setRegQrDataUrl(url))
+            .catch(() => setRegQrDataUrl(null));
+        }
+
+        setRegisterStep('recovery');
+      } catch (err: any) {
+        setErrorMsg('Fehler beim Initialisieren des Tresors: ' + String(err));
+        setStatusMsg(null);
       }
+    };
 
-      setStatusMsg(null);
-
-      const newSession: ActiveVaultSession = {
-        token: data.token || '',
-        userId: data.user_id,
-        email: data.email,
-        isAdmin: data.is_admin ?? false,
-        kdfSaltB64: bundle.kdf_salt_b64,
-        dekB64: bundle.dek_b64,
-        encryptedDek: bundle.encrypted_dek,
-        recoveryEncryptedDek: bundle.recovery_encrypted_dek,
-        recoveryKeyFormatted: bundle.recovery_key_formatted,
-        totpEnabled: false,
-        totpSetupUri: data.totp_setup_uri,
-        totpSecretBase32: data.totp_secret_base32,
-        serverSyncedCount: 0,
-      };
-
-      setRegSession(newSession);
-
-      if (data.totp_setup_uri) {
-        QRCode.toDataURL(data.totp_setup_uri, {
-          width: 240,
-          margin: 3,
-          errorCorrectionLevel: 'M',
-          color: { dark: '#000000', light: '#FFFFFF' },
-        })
-          .then((url) => setRegQrDataUrl(url))
-          .catch(() => setRegQrDataUrl(null));
-      }
-
-      setRegisterStep('recovery');
-    } catch (err: any) {
-      setErrorMsg('Fehler beim Initialisieren des Tresors: ' + String(err));
-      setStatusMsg(null);
+    if (emailVerificationRequiredByServer && !isAlreadyVerifiedLocally) {
+      setPendingRegistrationCallback(() => executeRegistration);
+      setShowEmailVerificationModal(true);
+      return;
     }
+
+    await executeRegistration();
   };
 
   // Schritt 2 der Registrierung: Wiederherstellungsschlüssel bestätigt
@@ -1354,14 +1418,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   // Schritt 5 der Registrierung: Registrierung abschließen & Tresor starten
   const handleFinishRegistration = async () => {
     if (!regSession) return;
-    if (optInCloudSync && onToggleCloudSync) {
-      try {
-        await onToggleCloudSync(true);
-      } catch {
-        // ignore sync toggle error
-      }
-    }
-    onUnlockSuccess(regSession);
+    onUnlockSuccess(regSession, { enableCloudSync: Boolean(optInCloudSync) });
   };
 
   const handleLoginVault = async (e: React.FormEvent) => {
@@ -2055,6 +2112,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               optInCloudSync={optInCloudSync}
               setOptInCloudSync={setOptInCloudSync}
               setShowAvvConfirmation={setShowAvvConfirmation}
+              termsAccepted={termsAccepted}
+              setTermsAccepted={setTermsAccepted}
+              onOpenTermsModal={() => setShowTermsModal(true)}
               regSession={regSession}
               recoverySavedConfirmed={recoverySavedConfirmed}
               setRecoverySavedConfirmed={setRecoverySavedConfirmed}
@@ -2214,6 +2274,120 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             isOpen={legalModalOpen}
             initialTab={legalTab}
             onClose={() => setLegalModalOpen(false)}
+          />
+
+          {/* Nutzungsbedingungen Modal mit Annehmen/Ablehnen */}
+          <TermsOfServiceModal
+            isOpen={showTermsModal}
+            onAccept={() => {
+              setTermsAccepted(true);
+              setShowTermsModal(false);
+            }}
+            onDecline={() => {
+              setTermsAccepted(false);
+              setShowTermsModal(false);
+            }}
+            onClose={() => setShowTermsModal(false)}
+          />
+
+          {/* AVV Bestätigungs-Modal (Art. 28 DSGVO) */}
+          {showAvvConfirmation && (
+            <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150">
+              <div
+                className="max-w-md w-full rounded-2xl border p-6 shadow-2xl space-y-4"
+                style={{ backgroundColor: 'var(--bg-surface, #ffffff)', borderColor: 'var(--border-subtle, #e2e8f0)' }}
+              >
+                <div className="flex items-start gap-3.5">
+                  <div className="w-10 h-10 rounded-xl bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0">
+                    <FileCheck className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
+                      Liegt für deine Schule bereits ein AVV vor?
+                    </h4>
+                    <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                      Gemäß Art. 28 DSGVO ist für die verschlüsselte Cloud-Synchronisation von Noten- und Schülerdaten ein Auftragsverarbeitungsvertrag (AVV) erforderlich.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
+                  Falls deine Schulleitung oder der Datenschutzbeauftragte noch nicht zugestimmt hat, leiten wir dich gerne direkt zur Mustervorlage auf {getDisplayDomain(legalConfig.avv_url)} weiter.
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAvvConfirmation(false);
+                      setOptInCloudSync(false);
+                    }}
+                    className="px-3.5 py-2 rounded-xl border text-xs font-semibold hover:opacity-80 transition"
+                    style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
+                  >
+                    Abbrechen
+                  </button>
+
+                  <a
+                    href={legalConfig.avv_url || 'https://gradus21.de/avv.html'}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3.5 py-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 text-xs font-bold hover:bg-indigo-500/20 transition flex items-center justify-center gap-1.5"
+                    title={`AVV-Mustervertrag online auf ${getDisplayDomain(legalConfig.avv_url)} öffnen`}
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>AVV-Muster ({getDisplayDomain(legalConfig.avv_url)})</span>
+                    <ExternalLink className="w-3 h-3 opacity-70" />
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAvvConfirmation(false);
+                      handleOpenLegal('school_guide');
+                    }}
+                    className="px-3.5 py-2 rounded-xl border border-teal-500/30 bg-teal-500/10 text-teal-700 dark:text-teal-300 text-xs font-bold hover:bg-teal-500/20 transition flex items-center justify-center gap-1.5"
+                  >
+                    <GraduationCap className="w-3.5 h-3.5" />
+                    <span>Leitfaden</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAvvConfirmation(false);
+                      setOptInCloudSync(true);
+                    }}
+                    className="px-3.5 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition hover:opacity-95 flex items-center justify-center gap-1.5"
+                    style={{ backgroundColor: 'var(--primary-500)' }}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Ja, AVV liegt vor / genehmigt</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* E-Mail-Verifikation Modal für Registrierung */}
+          <EmailVerificationModal
+            isOpen={showEmailVerificationModal}
+            email={email.trim().toLowerCase()}
+            onSuccess={async () => {
+              setShowEmailVerificationModal(false);
+              const trimmed = email.trim().toLowerCase();
+              localStorage.setItem(`gradus21_email_verified_${trimmed}`, 'true');
+              if (pendingRegistrationCallback) {
+                const cb = pendingRegistrationCallback;
+                setPendingRegistrationCallback(null);
+                await cb();
+              }
+            }}
+            onCancel={() => {
+              setShowEmailVerificationModal(false);
+              setPendingRegistrationCallback(null);
+              setStatusMsg(null);
+            }}
           />
         </div>
       </div>

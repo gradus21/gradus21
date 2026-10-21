@@ -3,6 +3,8 @@ import {
   Building2,
   Check,
   Copy,
+  Download,
+  ExternalLink,
   FileCheck2,
   FileText,
   GraduationCap,
@@ -15,22 +17,9 @@ import {
   ShieldCheck,
   X,
 } from 'lucide-react';
+import { useLegalConfig, getDisplayDomain, LegalConfigData } from '../utils/legalConfig';
 
 export type LegalTab = 'impressum' | 'privacy' | 'school_guide' | 'avv';
-
-interface LegalConfigData {
-  name: string;
-  company?: string | null;
-  address: string;
-  email: string;
-  phone?: string | null;
-  representative?: string | null;
-  register?: string | null;
-  vat_id?: string | null;
-  hosting_provider: string;
-  hosting_location: string;
-  dpo_contact?: string | null;
-}
 
 interface LegalModalProps {
   isOpen: boolean;
@@ -38,27 +27,13 @@ interface LegalModalProps {
   onClose: () => void;
 }
 
-const DEFAULT_LEGAL_CONFIG: LegalConfigData = {
-  name: 'Julian Kallidat',
-  company: null,
-  address: 'Hardtstr. 6, 76467 Bietigheim, Deutschland',
-  email: 'kontakt@gradus21.de',
-  phone: null,
-  representative: null,
-  register: null,
-  vat_id: null,
-  hosting_provider: 'Alfahosting GmbH',
-  hosting_location: 'Leipzig (Deutschland)',
-  dpo_contact: null,
-};
-
 export const LegalModal: React.FC<LegalModalProps> = ({
   isOpen,
   initialTab = 'impressum',
   onClose,
 }) => {
   const [activeTab, setActiveTab] = useState<LegalTab>(initialTab);
-  const [config, setConfig] = useState<LegalConfigData>(DEFAULT_LEGAL_CONFIG);
+  const config = useLegalConfig();
   const [copiedAvv, setCopiedAvv] = useState(false);
   const [schoolName, setSchoolName] = useState('');
   const [schoolStreet, setSchoolStreet] = useState('');
@@ -69,23 +44,6 @@ export const LegalModal: React.FC<LegalModalProps> = ({
   useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    fetch('/api/legal/info')
-      .then((res) => {
-        if (res.ok) return res.json();
-        throw new Error('Endpoint not available');
-      })
-      .then((data: LegalConfigData) => {
-        if (data && data.name) {
-          setConfig(data);
-        }
-      })
-      .catch(() => {
-        // Fallback to defaults
-      });
-  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -182,6 +140,29 @@ export const LegalModal: React.FC<LegalModalProps> = ({
             <FileText className="w-4 h-4" />
             <span>AVV-Mustervertrag (Art. 28)</span>
           </button>
+
+          <div className="ml-auto hidden sm:flex items-center gap-2 shrink-0">
+            <a
+              href={config.terms_url || 'https://gradus21.de/nutzungsbedingungen.html'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400 py-1.5 px-2.5 rounded-lg hover:bg-teal-50 dark:hover:bg-teal-950/30 transition"
+              title="Nutzungsbedingungen auf Website öffnen (neues Fenster)"
+            >
+              <span>Nutzungsbedingungen</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+            <a
+              href={config.avv_url || 'https://gradus21.de/avv.html'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400 py-1.5 px-2.5 rounded-lg hover:bg-teal-50 dark:hover:bg-teal-950/30 transition"
+              title="AVV-Mustervertrag auf Website öffnen (neues Fenster)"
+            >
+              <span>{getDisplayDomain(config.avv_url)}/avv</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </div>
         </div>
 
         {/* Content Body */}
@@ -487,10 +468,17 @@ export const LegalModal: React.FC<LegalModalProps> = ({
                     Einsatz und wählen Sie, ob Sie Gradus21 rein lokal oder mit synchronisiertem Cloud-Sync betreiben möchten.
                   </li>
                   <li>
-                    <strong>2. AVV-Mustervertrag generieren (bei Cloud-Sync):</strong> Wechseln Sie in den Reiter
-                    <em>„AVV-Mustervertrag (Art. 28)“</em>, tragen Sie die Daten Ihrer Schule ein und drucken Sie das Dokument aus
-                    oder speichern Sie es als PDF. Der Vertrag ist durch den Betreiber bereits vorab elektronisch nach
-                    Art. 28 Abs. 9 DSGVO signiert.
+                    <strong>2. AVV-Mustervertrag aufrufen (bei Cloud-Sync):</strong> Öffnen Sie den vorbereiteten{' '}
+                    <a
+                      href={config.avv_url || 'https://gradus21.de/avv.html'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-teal-600 dark:text-teal-400 underline font-semibold inline-flex items-center gap-1"
+                    >
+                      <span>AVV-Mustervertrag auf {getDisplayDomain(config.avv_url)}</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                    {' '}oder nutzen Sie den Reiter <em>„AVV-Mustervertrag (Art. 28)“</em>, tragen Sie die Daten Ihrer Schule ein und drucken Sie das Dokument aus oder speichern Sie es als PDF. Der Vertrag ist durch den Betreiber bereits vorab elektronisch nach Art. 28 Abs. 9 DSGVO signiert.
                   </li>
                   <li>
                     <strong>3. Opt-In in den Einstellungen aktivieren:</strong> Nach Genehmigung aktivieren Sie in Gradus21
@@ -533,13 +521,78 @@ export const LegalModal: React.FC<LegalModalProps> = ({
           {/* TAB 4: AVV-MUSTERVERTRAG */}
           {activeTab === 'avv' && (
             <div className="space-y-6 animate-in fade-in duration-100">
+              {/* Highlight Card: Link to official AVV page (gradus21.de or Docker self-host) */}
+              <div className="p-5 rounded-2xl bg-gradient-to-r from-teal-500/15 via-teal-500/10 to-transparent border border-teal-500/30 space-y-3.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-800 dark:text-teal-200">
+                        Offizielle Vorlage
+                      </span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
+                        Art. 28 DSGVO &amp; TOMs
+                      </span>
+                    </div>
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                      Auftragsverarbeitungsvertrag auf {getDisplayDomain(config.avv_url)}
+                    </h3>
+                    <p className="text-xs text-slate-600 dark:text-slate-300 max-w-2xl leading-relaxed">
+                      Für die verschlüsselte Cloud-Synchronisation von Noten- und Schülerdaten steht der rechtssichere AVV-Mustervertrag online zur Verfügung – mit interaktivem Formular, Dokumentation der technischen &amp; organisatorischen Maßnahmen (TOMs) und 1-Klick-PDF-Export.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
+                    <a
+                      href={config.avv_url || 'https://gradus21.de/avv.html'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs flex items-center gap-2 transition shadow-sm"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>AVV auf {getDisplayDomain(config.avv_url)} öffnen</span>
+                    </a>
+
+                    {config.avv_download_url && (
+                      <a
+                        href={config.avv_download_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs flex items-center gap-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-sm"
+                        title="Vollständigen AVV direkt als PDF herunterladen"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>PDF herunterladen</span>
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                {config.avv_custom_text && (
+                  <div className="p-3 rounded-xl bg-teal-500/10 border border-teal-500/20 text-xs text-teal-900 dark:text-teal-200">
+                    <p className="font-semibold mb-0.5">Spezifischer Hinweis für diese Instanz:</p>
+                    <p>{config.avv_custom_text}</p>
+                  </div>
+                )}
+
+                <div className="pt-2 border-t border-teal-500/20 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                  <span className="flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5 text-teal-600" />
+                    100 % Zero-Knowledge E2EE (AES-256-GCM) · ISO-27001 Server {config.hosting_location}
+                  </span>
+                  <span className="font-mono text-[10px] text-slate-400">
+                    Self-Hosting Docker-Env: <code>LEGAL_AVV_URL</code> / <code>LEGAL_AVV_CUSTOM_TEXT</code>
+                  </span>
+                </div>
+              </div>
+
+              {/* Local interactive editor & print preview */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-teal-500/10 border border-teal-500/20 text-xs">
                 <div>
                   <p className="font-bold text-teal-900 dark:text-teal-200">
-                    Auftragsverarbeitungsvertrag (AVV) gem. Art. 28 DSGVO
+                    Integrierter AVV-Vertragsentwurf (Lokale Voransicht &amp; Direktdruck)
                   </p>
                   <p className="text-teal-800/80 dark:text-teal-300/80">
-                    Interaktives Vertragsformular zur Vorlage bei der Schulleitung und dem behördlichen Datenschutzbeauftragten (bDSB).
+                    Alternativ können Sie die Schuldaten auch direkt hier im Browser eintragen und das Dokument ausdrucken.
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">

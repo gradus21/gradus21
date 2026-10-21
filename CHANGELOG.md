@@ -3,6 +3,28 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] - 2026-10-21
+
+### Bugfixes & Synchronization Resiliency
+- **Multi-Tenant Server Isolation & Zero-Knowledge Collision Fix**:
+  - Implemented composite tenant isolation (`tenant_env_key(&owner_id, &envelope_id)`) across in-memory state, disk persistence (`data/vault_store.json`), and PostgreSQL (`PRIMARY KEY (owner_user_id, id)` with upsert).
+  - Preserved canonical UUIDs as AAD context to guarantee client-side WASM authenticated decryption (`wasm_decrypt_envelope`) without mismatch.
+  - Eliminated `403 Forbidden ("Zugriff verweigert")` errors occurring when multiple tenants save shared default templates (e.g. demo classes or singleton settings `00000000-0000-4000-8000-000000000002`).
+  - Added unit test `test_singleton_settings_envelope_tenant_isolation_in_batch_sync` verifying multi-tenant isolation and OCC version incrementing.
+- **Continuous Cloud-Sync Indicator & Debounced Autosave**:
+  - Synchronized registration opt-in state so newly created accounts immediately enter the dashboard with active `Cloud-Sync (E2EE)` (`synced`) status without requiring manual page reload.
+  - Resolved regression where any edit in grade matrix or classroom views caused the sync badge to drop to `Offline (Lokal)`.
+
+### Legal Compliance & Transparency (DSGVO / GDPR)
+- **Nutzungsbedingungen & Speicherhinweise**:
+  - Introduced dedicated `TermsOfServiceModal` with structured terms covering zero-knowledge architecture, local-first storage, school deployment compliance, and intellectual property.
+  - Introduced `StorageNoticeModal` detailing browser-side storage (IndexedDB / localStorage) and zero-knowledge encrypted cloud transit.
+  - Added dynamic legal configuration (`legalConfig.ts`) with custom URL overrides (`VITE_TERMS_URL`, `VITE_PRIVACY_URL`, `VITE_IMPRINT_URL`) and integrated links in `AppHeader`, `SettingsModal`, `LegalModal`, and `VaultRegistrationWizard`.
+  - Added comprehensive test suites (`TermsOfServiceModal.test.tsx`, `StorageNoticeModal.test.tsx`, `legalConfig.test.ts`, `VaultRegistrationWizard.test.tsx`).
+
+### Versioning & Documentation
+- Bumped workspace version across Cargo workspace, Web client, WASM bindings, and architecture documentation to `v1.2.1`.
+
 ## [1.2.0] - 2026-10-21
 
 ### Mobile, iPad & Responsive Touch Experience

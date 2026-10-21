@@ -18,9 +18,12 @@ import {
   CheckCircle2,
   AlertTriangle,
   GraduationCap,
+  ExternalLink,
+  FileText,
 } from 'lucide-react';
 import { ActiveVaultSession, UserPasskeyItem, LocalPasskeyStoreEntry } from './vaultTypes';
 import { LegalModal, LegalTab } from '../LegalModal';
+import { useLegalConfig, getDisplayDomain } from '../../utils/legalConfig';
 
 interface CryptoEnvelopeInspectorProps {
   session: ActiveVaultSession;
@@ -89,6 +92,7 @@ export const CryptoEnvelopeInspector: React.FC<CryptoEnvelopeInspectorProps> = (
   const [legalTab, setLegalTab] = useState<LegalTab>('impressum');
   const [isTogglingSync, setIsTogglingSync] = useState(false);
   const [isPurgingCloud, setIsPurgingCloud] = useState(false);
+  const legalConfig = useLegalConfig();
 
   const isPasskeyActive = userPasskeys.length > 0 || Boolean(localPasskeyForEmail);
 
@@ -633,8 +637,19 @@ export const CryptoEnvelopeInspector: React.FC<CryptoEnvelopeInspectorProps> = (
             onClick={() => handleOpenLegal('school_guide')}
             className="hover:underline transition hover:opacity-100 text-teal-600 dark:text-teal-400 font-semibold"
           >
-            Schul-Datenschutz & AVV
+            Schul-Datenschutz
           </button>
+          <span>•</span>
+          <a
+            href={legalConfig.avv_url || 'https://gradus21.de/avv.html'}
+            target="_blank"
+            rel="noreferrer"
+            className="hover:underline transition hover:opacity-100 inline-flex items-center gap-1 font-semibold"
+            style={{ color: 'var(--primary-600)' }}
+          >
+            <span>AVV-Mustervertrag</span>
+            <ExternalLink className="w-3 h-3 opacity-70" />
+          </a>
         </div>
       </div>
 
@@ -673,6 +688,18 @@ export const CryptoEnvelopeInspector: React.FC<CryptoEnvelopeInspectorProps> = (
                 Abbrechen
               </button>
 
+              <a
+                href={legalConfig.avv_url || 'https://gradus21.de/avv.html'}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3.5 py-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 text-xs font-bold hover:bg-indigo-500/20 transition flex items-center justify-center gap-1.5"
+                title={`AVV-Mustervertrag online auf ${getDisplayDomain(legalConfig.avv_url)} öffnen`}
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>AVV-Muster ({getDisplayDomain(legalConfig.avv_url)})</span>
+                <ExternalLink className="w-3 h-3 opacity-70" />
+              </a>
+
               <button
                 type="button"
                 onClick={() => {
@@ -682,7 +709,7 @@ export const CryptoEnvelopeInspector: React.FC<CryptoEnvelopeInspectorProps> = (
                 className="px-3.5 py-2 rounded-xl border border-teal-500/30 bg-teal-500/10 text-teal-700 dark:text-teal-300 text-xs font-bold hover:bg-teal-500/20 transition flex items-center justify-center gap-1.5"
               >
                 <GraduationCap className="w-3.5 h-3.5" />
-                <span>Leitfaden öffnen</span>
+                <span>Leitfaden</span>
               </button>
 
               <button

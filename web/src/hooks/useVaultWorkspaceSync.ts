@@ -449,7 +449,8 @@ export function useVaultWorkspaceSync() {
   // Lädt und entschlüsselt den Arbeitsbereich ausschließlich für die übergebene User-ID (strikte Mandantentrennung!)
   const loadIsolatedUserWorkspace = async (
     session: ActiveVaultSession,
-    forceServerFetch = false
+    forceServerFetch = false,
+    initialCloudSync = false
   ) => {
     const { dekB64, userId, token } = session;
     if (!dekB64 || !userId) return;
@@ -457,7 +458,7 @@ export function useVaultWorkspaceSync() {
     const userCacheKey = getUserEncryptedCacheKey(userId);
     const legacyUserCacheKey = getLegacyUserEncryptedCacheKey(userId);
 
-    let isCloudSyncActive = false;
+    let isCloudSyncActive = initialCloudSync;
     const cachedLocalClasses: ClassroomSubjectDataset[] = [];
 
     if (!forceServerFetch) {
@@ -503,7 +504,7 @@ export function useVaultWorkspaceSync() {
                 );
                 lastSerializedSettingsRef.current = decSettings;
                 const parsedSettings = JSON.parse(decSettings);
-                const isSync = Boolean(parsedSettings?.cloudSyncEnabled ?? userSettings.cloudSyncEnabled);
+                const isSync = initialCloudSync || Boolean(parsedSettings?.cloudSyncEnabled ?? userSettings.cloudSyncEnabled);
                 setUserSettings((prev) => ({
                   ...DEFAULT_USER_SYNC_SETTINGS,
                   ...parsedSettings,
@@ -556,7 +557,7 @@ export function useVaultWorkspaceSync() {
                 );
                 lastSerializedSettingsRef.current = decSettings;
                 const parsedSettings = JSON.parse(decSettings);
-                const isSync = Boolean(parsedSettings?.cloudSyncEnabled ?? userSettings.cloudSyncEnabled);
+                const isSync = initialCloudSync || Boolean(parsedSettings?.cloudSyncEnabled ?? userSettings.cloudSyncEnabled);
                 setUserSettings((prev) => ({
                   ...DEFAULT_USER_SYNC_SETTINGS,
                   ...parsedSettings,
@@ -737,7 +738,12 @@ export function useVaultWorkspaceSync() {
               const freshWs = createFreshWorkspaceForNewTeacher(userId);
               setDatasets(freshWs);
               setActiveClassId(freshWs[0].id);
-              setUserSettings((prev) => ({ ...prev, ...DEFAULT_USER_SYNC_SETTINGS }));
+              const initialSync = Boolean(initialCloudSync || isCloudSyncActive);
+              setUserSettings((prev) => ({
+                ...DEFAULT_USER_SYNC_SETTINGS,
+                ...prev,
+                cloudSyncEnabled: initialSync || prev.cloudSyncEnabled,
+              }));
             }
           }
 
@@ -762,9 +768,13 @@ export function useVaultWorkspaceSync() {
       userId === DEMO_OWNER_USER_ID ? INITIAL_CLASS_DATASETS : createFreshWorkspaceForNewTeacher(userId);
     setDatasets(freshOffline);
     setActiveClassId(freshOffline[0].id);
-    setUserSettings(DEFAULT_USER_SYNC_SETTINGS);
+    const initialSync = Boolean(initialCloudSync || isCloudSyncActive || userSettings.cloudSyncEnabled);
+    setUserSettings({
+      ...DEFAULT_USER_SYNC_SETTINGS,
+      cloudSyncEnabled: initialSync,
+    });
     setLoadedUserId(userId);
-    setSyncStatus('local_only');
+    setSyncStatus(initialSync ? 'synced' : 'local_only');
   };
 
   const handleLockVault = () => {
@@ -816,7 +826,10 @@ export function useVaultWorkspaceSync() {
     setIsVaultLocked(true);
   };
 
-  const handleUnlockVault = async (unlockedSession: ActiveVaultSession) => {
+  const handleUnlockVault = async (
+    unlockedSession: ActiveVaultSession,
+    options?: { enableCloudSync?: boolean }
+  ) => {
     localStorage.removeItem(VAULT_LOCKED_STORAGE_KEY);
     localStorage.removeItem(LEGACY_VAULT_LOCKED_STORAGE_KEY);
     localStorage.setItem(ACTIVE_USER_ID_STORAGE_KEY, unlockedSession.userId);
@@ -830,9 +843,24 @@ export function useVaultWorkspaceSync() {
       setStoredAuthKey(unlockedSession.userId, unlockedSession.authKeyB64);
     }
     setVaultSession(unlockedSession);
-    if (unlockedSession.dekB64) {
-      await loadIsolatedUserWorkspace(unlockedSession);
+
+    const shouldEnableCloudSync = Boolean(options?.enableCloudSync);
+    if (shouldEnableCloudSync) {
+      setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: true }));
+      setSyncStatus('synced');
     }
+
+    if (unlockedSession.dekB64) {
+      await loadIsolatedUserWorkspace(unlockedSession, false, shouldEnableCloudSync);
+    }
+
+    if (shouldEnableCloudSync) {
+      setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: true }));
+      setSyncStatus('synced');
+      lastSerializedPerClassRef.current.clear();
+      lastSerializedSettingsRef.current = '';
+    }
+
     setIsVaultLocked(false);
   };
 
@@ -1163,6 +1191,7 @@ export function useVaultWorkspaceSync() {
         }
 
         if (!effectiveToken) {
+          console.warn('[Sync] Kein gültiges Token für Benutzer', vaultSession.userId, 'gefunden — arbeite lokal');
           setSyncStatus('offline_local');
           return;
         }
@@ -1256,6 +1285,12 @@ export function useVaultWorkspaceSync() {
           }
           setSyncStatus('synced');
         } else {
+          console.warn('E2EE auto-save non-OK response:', {
+            batchStatus: batchRes.status,
+            prefStatus: prefRes.status,
+            batchText: await batchRes.text().catch(() => ''),
+            prefText: await prefRes.text().catch(() => ''),
+          });
           setSyncStatus('offline_local');
         }
       } catch (e) {

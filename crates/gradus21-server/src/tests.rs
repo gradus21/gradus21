@@ -51,6 +51,7 @@ fn create_test_state() -> AppState {
         auth_challenges: Arc::new(RwLock::new(HashMap::new())),
         legal_config: LegalConfig::default(),
         mem_email_verifications: Arc::new(RwLock::new(HashMap::new())),
+        app_env: "development".into(),
     }
 }
 
@@ -1449,4 +1450,314 @@ async fn test_envelopes_summary_endpoint() {
     assert!(summary.last_updated_at.is_some());
 
     let _ = fs::remove_file(&state.disk_store_path);
+}
+
+#[tokio::test]
+async fn test_legal_config_avv_defaults_and_customization() {
+    let state = create_test_state();
+    let Json(legal) = get_legal_info(State(state.clone())).await;
+
+    // Verify default AVV and terms endpoints point to gradus21.de
+    assert_eq!(legal.avv_url, "https://gradus21.de/avv.html");
+    assert_eq!(
+        legal.avv_download_url.as_deref(),
+        Some("https://gradus21.de/downloads/gradus21-muster-avv.pdf")
+    );
+    assert!(legal.avv_custom_text.is_none());
+    assert_eq!(legal.terms_url, "https://gradus21.de/nutzungsbedingungen.html");
+
+    // Verify docker / env customization works
+    std::env::set_var("LEGAL_AVV_URL", "https://schule.example.org/datenschutz/avv");
+    std::env::set_var(
+        "LEGAL_AVV_DOWNLOAD_URL",
+        "https://schule.example.org/downloads/avv.pdf",
+    );
+    std::env::set_var(
+        "LEGAL_AVV_CUSTOM_TEXT",
+        "Eigener Schulträger AVV für Realschule Testdorf",
+    );
+    std::env::set_var(
+        "LEGAL_TERMS_URL",
+        "https://schule.example.org/nutzungsbedingungen.html",
+    );
+
+    let custom_legal = LegalConfig::default();
+    assert_eq!(custom_legal.avv_url, "https://schule.example.org/datenschutz/avv");
+    assert_eq!(
+        custom_legal.avv_download_url.as_deref(),
+        Some("https://schule.example.org/downloads/avv.pdf")
+    );
+    assert_eq!(
+        custom_legal.avv_custom_text.as_deref(),
+        Some("Eigener Schulträger AVV für Realschule Testdorf")
+    );
+    assert_eq!(
+        custom_legal.terms_url,
+        "https://schule.example.org/nutzungsbedingungen.html"
+    );
+
+    // Clean up env
+    std::env::remove_var("LEGAL_AVV_URL");
+    std::env::remove_var("LEGAL_AVV_DOWNLOAD_URL");
+    std::env::remove_var("LEGAL_AVV_CUSTOM_TEXT");
+    std::env::remove_var("LEGAL_TERMS_URL");
+}
+
+#[tokio::test]
+async fn test_email_verification_requirement_in_test_and_production_environments() {
+    let mut state = create_test_state();
+    state.app_env = "production".into();
+
+    let bundle1 = generate_vault_bundle("AdminPassword123!").unwrap();
+    let bundle2 = generate_vault_bundle("TeacherPassword456!").unwrap();
+
+    // 1. First user (Admin) can register in production without prior email verification
+    let admin_res = register_user(
+        State(state.clone()),
+        Json(RegisterRequest {
+            email: "first_admin@schule.de".into(),
+            auth_key_b64: bundle1.auth_key_b64.clone(),
+            kdf_salt_b64: bundle1.kdf_salt_b64.clone(),
+            kdf_params: bundle1.kdf_params.clone(),
+            encrypted_dek: bundle1.encrypted_dek.clone(),
+            recovery_encrypted_dek: bundle1.recovery_encrypted_dek.clone(),
+            recovery_auth_key_b64: Some(bundle1.recovery_auth_key_b64.clone()),
+            user_id: None,
+        }),
+    )
+    .await;
+    assert!(admin_res.is_ok(), "First user must register successfully as admin");
+    let admin_auth = admin_res.unwrap().0;
+    assert!(admin_auth.is_admin);
+
+    // 2. Second user (Non-first) attempting registration in production WITHOUT email verification must fail with 403 Forbidden
+    let second_unverified_res = register_user(
+        State(state.clone()),
+        Json(RegisterRequest {
+            email: "second_teacher@schule.de".into(),
+            auth_key_b64: bundle2.auth_key_b64.clone(),
+            kdf_salt_b64: bundle2.kdf_salt_b64.clone(),
+            kdf_params: bundle2.kdf_params.clone(),
+            encrypted_dek: bundle2.encrypted_dek.clone(),
+            recovery_encrypted_dek: bundle2.recovery_encrypted_dek.clone(),
+            recovery_auth_key_b64: Some(bundle2.recovery_auth_key_b64.clone()),
+            user_id: None,
+        }),
+    )
+    .await;
+    assert!(second_unverified_res.is_err(), "Second user without verification must fail");
+    let (status, err_msg) = second_unverified_res.err().unwrap();
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(err_msg.contains("E-Mail-Verifikation erforderlich"));
+
+    // 3. Request verification code for second user
+    let Json(verify_start) = verify_email_start(
+        State(state.clone()),
+        Json(VerifyEmailStartRequest {
+            email: "second_teacher@schule.de".into(),
+        }),
+    )
+    .await
+    .unwrap();
+    let dev_code = verify_start.dev_code.expect("dev code generated");
+
+    // 4. Confirm verification code
+    let confirm_res = verify_email_confirm(
+        State(state.clone()),
+        Json(VerifyEmailConfirmRequest {
+            email: "second_teacher@schule.de".into(),
+            code: dev_code,
+        }),
+    )
+    .await;
+    assert!(confirm_res.is_ok(), "Code confirmation should succeed");
+    assert!(confirm_res.unwrap().0.verified);
+
+    // 5. Now registering second user in production must succeed!
+    let second_verified_res = register_user(
+        State(state.clone()),
+        Json(RegisterRequest {
+            email: "second_teacher@schule.de".into(),
+            auth_key_b64: bundle2.auth_key_b64.clone(),
+            kdf_salt_b64: bundle2.kdf_salt_b64.clone(),
+            kdf_params: bundle2.kdf_params.clone(),
+            encrypted_dek: bundle2.encrypted_dek.clone(),
+            recovery_encrypted_dek: bundle2.recovery_encrypted_dek.clone(),
+            recovery_auth_key_b64: Some(bundle2.recovery_auth_key_b64.clone()),
+            user_id: None,
+        }),
+    )
+    .await;
+    assert!(second_verified_res.is_ok(), "Second user with verified email must register successfully");
+    let second_auth = second_verified_res.unwrap().0;
+    assert!(!second_auth.is_admin);
+
+    // 6. In development environment, non-first user can register without verification
+    let mut dev_state = create_test_state();
+    dev_state.app_env = "development".into();
+    // Insert an existing user so users is not empty
+    dev_state.mem_users.write().unwrap().insert(Uuid::new_v4(), UserRecord {
+        id: Uuid::new_v4(),
+        email: "existing@schule.de".into(),
+        auth_key_hash: "hash".into(),
+        kdf_salt: "salt".into(),
+        kdf_params: bundle1.kdf_params.clone(),
+        encrypted_dek: "enc_dek".into(),
+        recovery_encrypted_dek: "rec_dek".into(),
+        recovery_auth_key_hash: "rec_hash".into(),
+        totp_secret_server_encrypted: None,
+        totp_enabled: false,
+        passkey_credential_id: None,
+        passkey_label: None,
+        passkey_encrypted_dek: None,
+        passkey_prf_salt: None,
+        ui_preferences: serde_json::json!({}),
+        is_admin: true,
+        is_active: true,
+        created_at: Some(Utc::now()),
+        last_login_at: Some(Utc::now()),
+        email_verified: true,
+        email_verification_code: None,
+        email_verification_expires_at: None,
+        email_verification_attempts: 0,
+        email_verification_cooldown_until: None,
+    });
+
+    let bundle3 = generate_vault_bundle("DevTeacher789!").unwrap();
+    let dev_user_res = register_user(
+        State(dev_state.clone()),
+        Json(RegisterRequest {
+            email: "dev_teacher@schule.de".into(),
+            auth_key_b64: bundle3.auth_key_b64.clone(),
+            kdf_salt_b64: bundle3.kdf_salt_b64.clone(),
+            kdf_params: bundle3.kdf_params.clone(),
+            encrypted_dek: bundle3.encrypted_dek.clone(),
+            recovery_encrypted_dek: bundle3.recovery_encrypted_dek.clone(),
+            recovery_auth_key_b64: Some(bundle3.recovery_auth_key_b64.clone()),
+            user_id: None,
+        }),
+    )
+    .await;
+    assert!(dev_user_res.is_ok(), "In development mode, non-first user can register directly");
+}
+
+#[tokio::test]
+async fn test_singleton_settings_envelope_tenant_isolation_in_batch_sync() {
+    use gradus21_core::crypto::generate_vault_bundle;
+
+    let state = create_test_state();
+    let default_demo_owner = Uuid::parse_str("7f9c2a10-58e4-4c9b-9b1a-123456789abc").unwrap();
+    let static_pref = Uuid::parse_str("00000000-0000-4000-8000-000000000002").unwrap();
+    let demo_class_id = Uuid::parse_str("c1a55000-0000-4000-8000-000000000001").unwrap();
+
+    // 1. Simulate demo user having static_pref and demo_class_id in mem_envelopes
+    {
+        let mut store = state.mem_envelopes.write().unwrap();
+        store.insert(
+            tenant_env_key(&default_demo_owner, &static_pref),
+            EncryptedEnvelopeRecord {
+                id: static_pref,
+                owner_user_id: default_demo_owner,
+                entity_type: "user_settings".into(),
+                parent_id: None,
+                class_id: None,
+                encrypted_payload: "demo_encrypted_payload".into(),
+                version: 1,
+                updated_at: Utc::now(),
+            },
+        );
+        store.insert(
+            tenant_env_key(&default_demo_owner, &demo_class_id),
+            EncryptedEnvelopeRecord {
+                id: demo_class_id,
+                owner_user_id: default_demo_owner,
+                entity_type: "class_dataset".into(),
+                parent_id: None,
+                class_id: Some(demo_class_id),
+                encrypted_payload: "demo_class_encrypted".into(),
+                version: 1,
+                updated_at: Utc::now(),
+            },
+        );
+    }
+
+    // 2. Register a brand new teacher
+    let bundle = generate_vault_bundle("FreshTeacher2026!").expect("vault bundle");
+    let reg_resp = register_user(
+        State(state.clone()),
+        Json(RegisterRequest {
+            email: "fresh_teacher@schule.de".into(),
+            auth_key_b64: bundle.auth_key_b64.clone(),
+            kdf_salt_b64: bundle.kdf_salt_b64.clone(),
+            kdf_params: bundle.kdf_params.clone(),
+            encrypted_dek: bundle.encrypted_dek.clone(),
+            recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
+            recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
+            user_id: None,
+        }),
+    )
+    .await
+    .expect("register_user")
+    .0;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "authorization",
+        HeaderValue::from_str(&format!("Bearer {}", reg_resp.token)).unwrap(),
+    );
+
+    // 3. New teacher performs batch sync with singleton static_pref AND the exact same demo class ID
+    let batch_res = batch_sync_envelopes(
+        State(state.clone()),
+        headers.clone(),
+        Json(BatchSyncRequest {
+            envelopes: vec![
+                BatchUpsertItem {
+                    id: demo_class_id,
+                    entity_type: "class_dataset".into(),
+                    parent_id: None,
+                    class_id: Some(demo_class_id),
+                    encrypted_payload: "teacher_class_enc".into(),
+                    expected_version: None,
+                },
+                BatchUpsertItem {
+                    id: static_pref,
+                    entity_type: "user_settings".into(),
+                    parent_id: None,
+                    class_id: None,
+                    encrypted_payload: "teacher_settings_enc".into(),
+                    expected_version: None,
+                },
+            ],
+        }),
+    )
+    .await;
+
+    assert!(
+        batch_res.is_ok(),
+        "Batch sync with static_pref and demo_class_id must succeed for new teacher without 403: {:?}",
+        batch_res.err()
+    );
+
+    let synced = batch_res.unwrap().0;
+    assert_eq!(synced.len(), 2);
+    assert_eq!(synced[0].id, demo_class_id);
+    assert_eq!(synced[1].id, static_pref);
+
+    // 4. Verify tenant isolation preserved demo envelopes while adding isolated envelope for new teacher
+    let store = state.mem_envelopes.read().unwrap();
+    let demo_pref = store.get(&tenant_env_key(&default_demo_owner, &static_pref)).expect("demo env exists");
+    assert_eq!(demo_pref.owner_user_id, default_demo_owner);
+
+    let demo_class = store.get(&tenant_env_key(&default_demo_owner, &demo_class_id)).expect("demo class exists");
+    assert_eq!(demo_class.owner_user_id, default_demo_owner);
+
+    let new_teacher_id = reg_resp.user_id;
+    let teacher_pref = store.get(&tenant_env_key(&new_teacher_id, &static_pref)).expect("teacher pref exists");
+    assert_eq!(teacher_pref.owner_user_id, new_teacher_id);
+    assert_eq!(teacher_pref.encrypted_payload, "teacher_settings_enc");
+
+    let teacher_class = store.get(&tenant_env_key(&new_teacher_id, &demo_class_id)).expect("teacher class exists");
+    assert_eq!(teacher_class.owner_user_id, new_teacher_id);
+    assert_eq!(teacher_class.encrypted_payload, "teacher_class_enc");
 }

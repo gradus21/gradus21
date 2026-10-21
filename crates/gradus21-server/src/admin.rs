@@ -625,12 +625,17 @@ pub async fn restore_backup(
         serde_json::from_value(users_val.clone())
             .map_err(|e| (StatusCode::BAD_REQUEST, format!("Fehler beim Parsen der Benutzer:innen: {}", e)))?;
 
-    let mut restored_envelopes: std::collections::HashMap<Uuid, EncryptedEnvelopeRecord> =
+    let raw_envelopes: std::collections::HashMap<String, EncryptedEnvelopeRecord> =
         serde_json::from_value(envelopes_val.clone())
             .map_err(|e| (StatusCode::BAD_REQUEST, format!("Fehler beim Parsen der Envelopes: {}", e)))?;
 
-    // Filter out orphaned envelopes whose owner does not exist in restored_users
-    restored_envelopes.retain(|_, env| restored_users.contains_key(&env.owner_user_id));
+    let mut restored_envelopes: std::collections::HashMap<String, EncryptedEnvelopeRecord> = std::collections::HashMap::new();
+    for (_, env) in raw_envelopes {
+        if restored_users.contains_key(&env.owner_user_id) {
+            let key = crate::state::tenant_env_key(&env.owner_user_id, &env.id);
+            restored_envelopes.insert(key, env);
+        }
+    }
 
     // 1. Wipe and replace memory
     {
