@@ -2,7 +2,9 @@ import React from 'react';
 import {
   AssessmentConfig,
   ClassroomSubjectDataset,
+  gradeToPercent,
   GRADING_CURVE_PRESETS,
+  percentToGradeThreshold,
   StudentProfile,
   TermFilterId,
   UserSyncSettings,
@@ -196,6 +198,28 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
                     <span className="px-2 sm:px-2.5 py-1 rounded-lg bg-amber-100 text-amber-800 text-xs font-semibold">
                       Entschuldigt
                     </span>
+                  ) : entry?.percent_value != null ? (
+                    <span
+                      className="text-xs font-mono hidden sm:inline"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      {entry.raw_points ??
+                        Math.round(
+                          (entry.percent_value / 100) *
+                            (activeAssessment.max_points || 15)
+                        )}
+                      /{activeAssessment.max_points || 15} Pkt ={' '}
+                      <strong>{entry.percent_value}%</strong>
+                      <span className="ml-1.5 font-bold text-teal-600 dark:text-teal-400">
+                        → Note:{' '}
+                        {entry.direct_grade_value ??
+                          percentToGradeThreshold(
+                            entry.percent_value,
+                            activeDataset.config,
+                            stu.level
+                          ).display_label}
+                      </span>
+                    </span>
                   ) : entry?.direct_grade_value != null ? (
                     <span
                       className="text-xs font-mono hidden sm:inline"
@@ -209,22 +233,7 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
                           : ''}
                       </strong>
                     </span>
-                  ) : (
-                    entry?.percent_value != null && (
-                      <span
-                        className="text-xs font-mono hidden sm:inline"
-                        style={{ color: 'var(--text-secondary)' }}
-                      >
-                        {entry.raw_points ??
-                          Math.round(
-                            (entry.percent_value / 100) *
-                              (activeAssessment.max_points || 15)
-                          )}
-                        /{activeAssessment.max_points || 15} Pkt ={' '}
-                        <strong>{entry.percent_value}%</strong>
-                      </span>
-                    )
-                  )}
+                  ) : null}
 
                   <input
                     type="text"
@@ -234,10 +243,32 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
                       entry?.status === 'excused'
                         ? 'K'
                         : speedInputMode === 'grade_scale'
-                        ? entry?.direct_grade_value ?? ''
+                        ? entry?.direct_grade_value ??
+                          (entry?.percent_value != null
+                            ? percentToGradeThreshold(
+                                entry.percent_value,
+                                activeDataset.config,
+                                stu.level
+                              ).numeric_value
+                            : '')
                         : speedInputMode === 'points'
-                        ? entry?.raw_points ?? ''
-                        : entry?.percent_value ?? ''
+                        ? entry?.raw_points ??
+                          (entry?.percent_value != null
+                            ? Math.round(
+                                ((entry.percent_value / 100) *
+                                  (activeAssessment.max_points || 15)) *
+                                  10
+                              ) / 10
+                            : '')
+                        : entry?.percent_value ??
+                          (entry?.direct_grade_value != null
+                            ? Math.round(
+                                gradeToPercent(
+                                  entry.direct_grade_value,
+                                  activeDataset.config
+                                )
+                              )
+                            : '')
                     }
                     placeholder={
                       speedInputMode === 'grade_scale'

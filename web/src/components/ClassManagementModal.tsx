@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   AssessmentConfig,
+  AssessmentInputMode,
   ClassroomSubjectDataset,
   StudentProfile,
 } from '../data/demoClasses';
@@ -771,6 +772,31 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
                                 <option value="hj1">1. Halbjahr</option>
                                 <option value="hj2">2. Halbjahr</option>
                               </select>
+
+                              <div className="flex items-center gap-1">
+                                <span className="text-[11px] opacity-70">Modus:</span>
+                                <select
+                                  value={assess.input_mode || 'percent'}
+                                  onChange={(e) =>
+                                    updateAssessmentField(assess.id, {
+                                      input_mode: e.target.value as AssessmentInputMode,
+                                    })
+                                  }
+                                  className="px-2 py-1 rounded-lg border text-[11px] font-semibold bg-transparent"
+                                  style={{
+                                    borderColor: 'var(--border-subtle)',
+                                    color: 'var(--text-primary)',
+                                  }}
+                                >
+                                  <option value="percent">% Prozent</option>
+                                  <option value="points">Rohpunkte</option>
+                                  <option value="grade_scale">
+                                    {dataset.config.scale_id === 'de_oberstufe_0_to_15'
+                                      ? 'Notenpunkte'
+                                      : 'Schulnote (1–6)'}
+                                  </option>
+                                </select>
+                              </div>
 
                               <div className="flex items-center gap-1">
                                 <span className="text-[11px] opacity-70">Max. Pkt:</span>

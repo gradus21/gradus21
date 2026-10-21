@@ -424,6 +424,10 @@ export const App: React.FC = () => {
             }}
             onSelectAssessment={(assessmentId) => {
               setSelectedAssessmentId(assessmentId);
+              const assess = activeDataset.assessments.find((a) => a.id === assessmentId);
+              if (assess?.input_mode) {
+                setSpeedInputMode(assess.input_mode);
+              }
               setMode('speed_grading');
             }}
             setMode={setMode}

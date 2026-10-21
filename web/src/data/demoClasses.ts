@@ -250,6 +250,120 @@ export const GRADING_CURVE_PRESETS: Record<
   },
 };
 
+export const DEFAULT_THRESHOLDS_DE_CLASSIC: GradeThreshold[] = [
+  { min_percent: 95.0, display_label: '1+', numeric_value: 0.75, semantic_tier: 1 },
+  { min_percent: 90.0, display_label: '1', numeric_value: 1.0, semantic_tier: 1 },
+  { min_percent: 85.0, display_label: '1-', numeric_value: 1.25, semantic_tier: 1 },
+  { min_percent: 80.0, display_label: '2+', numeric_value: 1.75, semantic_tier: 2 },
+  { min_percent: 75.0, display_label: '2', numeric_value: 2.0, semantic_tier: 2 },
+  { min_percent: 70.0, display_label: '2-', numeric_value: 2.25, semantic_tier: 2 },
+  { min_percent: 65.0, display_label: '3+', numeric_value: 2.75, semantic_tier: 3 },
+  { min_percent: 58.0, display_label: '3', numeric_value: 3.0, semantic_tier: 3 },
+  { min_percent: 52.0, display_label: '3-', numeric_value: 3.25, semantic_tier: 3 },
+  { min_percent: 48.0, display_label: '4+', numeric_value: 3.75, semantic_tier: 4 },
+  { min_percent: 42.0, display_label: '4', numeric_value: 4.0, semantic_tier: 4 },
+  { min_percent: 36.0, display_label: '4-', numeric_value: 4.25, semantic_tier: 4 },
+  { min_percent: 28.0, display_label: '5+', numeric_value: 4.75, semantic_tier: 5 },
+  { min_percent: 20.0, display_label: '5', numeric_value: 5.0, semantic_tier: 5 },
+  { min_percent: 12.0, display_label: '5-', numeric_value: 5.25, semantic_tier: 5 },
+  { min_percent: 0.0, display_label: '6', numeric_value: 6.0, semantic_tier: 6 },
+];
+
+export const DEFAULT_THRESHOLDS_DE_OBERSTUFE: GradeThreshold[] = [
+  { min_percent: 95.0, display_label: '15 Pkt (1+)', numeric_value: 15.0, semantic_tier: 1 },
+  { min_percent: 90.0, display_label: '14 Pkt (1)', numeric_value: 14.0, semantic_tier: 1 },
+  { min_percent: 85.0, display_label: '13 Pkt (1-)', numeric_value: 13.0, semantic_tier: 1 },
+  { min_percent: 80.0, display_label: '12 Pkt (2+)', numeric_value: 12.0, semantic_tier: 2 },
+  { min_percent: 75.0, display_label: '11 Pkt (2)', numeric_value: 11.0, semantic_tier: 2 },
+  { min_percent: 70.0, display_label: '10 Pkt (2-)', numeric_value: 10.0, semantic_tier: 2 },
+  { min_percent: 65.0, display_label: '9 Pkt (3+)', numeric_value: 9.0, semantic_tier: 3 },
+  { min_percent: 60.0, display_label: '8 Pkt (3)', numeric_value: 8.0, semantic_tier: 3 },
+  { min_percent: 55.0, display_label: '7 Pkt (3-)', numeric_value: 7.0, semantic_tier: 3 },
+  { min_percent: 50.0, display_label: '6 Pkt (4+)', numeric_value: 6.0, semantic_tier: 4 },
+  { min_percent: 45.0, display_label: '5 Pkt (4)', numeric_value: 5.0, semantic_tier: 4 },
+  { min_percent: 40.0, display_label: '4 Pkt (4-)', numeric_value: 4.0, semantic_tier: 4 },
+  { min_percent: 33.0, display_label: '3 Pkt (5+)', numeric_value: 3.0, semantic_tier: 5 },
+  { min_percent: 27.0, display_label: '2 Pkt (5)', numeric_value: 2.0, semantic_tier: 5 },
+  { min_percent: 20.0, display_label: '1 Pkt (5-)', numeric_value: 1.0, semantic_tier: 5 },
+  { min_percent: 0.0, display_label: '0 Pkt (6)', numeric_value: 0.0, semantic_tier: 6 },
+];
+
+export const DEFAULT_THRESHOLDS_US_LETTER: GradeThreshold[] = [
+  { min_percent: 97.0, display_label: 'A+', numeric_value: 4.0, semantic_tier: 1 },
+  { min_percent: 93.0, display_label: 'A', numeric_value: 4.0, semantic_tier: 1 },
+  { min_percent: 90.0, display_label: 'A-', numeric_value: 3.7, semantic_tier: 1 },
+  { min_percent: 87.0, display_label: 'B+', numeric_value: 3.3, semantic_tier: 2 },
+  { min_percent: 83.0, display_label: 'B', numeric_value: 3.0, semantic_tier: 2 },
+  { min_percent: 80.0, display_label: 'B-', numeric_value: 2.7, semantic_tier: 2 },
+  { min_percent: 77.0, display_label: 'C+', numeric_value: 2.3, semantic_tier: 3 },
+  { min_percent: 73.0, display_label: 'C', numeric_value: 2.0, semantic_tier: 3 },
+  { min_percent: 70.0, display_label: 'C-', numeric_value: 1.7, semantic_tier: 3 },
+  { min_percent: 65.0, display_label: 'D', numeric_value: 1.0, semantic_tier: 4 },
+  { min_percent: 0.0, display_label: 'F', numeric_value: 0.0, semantic_tier: 6 },
+];
+
+export function getDefaultThresholds(scaleId: GradingScaleId = 'de_classic_1_to_6'): GradeThreshold[] {
+  switch (scaleId) {
+    case 'de_oberstufe_0_to_15':
+      return DEFAULT_THRESHOLDS_DE_OBERSTUFE;
+    case 'us_letter_gpa':
+      return DEFAULT_THRESHOLDS_US_LETTER;
+    case 'de_classic_1_to_6':
+    default:
+      return DEFAULT_THRESHOLDS_DE_CLASSIC;
+  }
+}
+
+export function percentToGradeThreshold(
+  percent: number,
+  config?: SubjectGradingConfig,
+  studentLevel?: string | null
+): GradeThreshold {
+  const cleanPercent = Number.isFinite(percent) ? percent : 0;
+  const offset =
+    config?.enable_student_levels && studentLevel
+      ? config.level_threshold_offsets?.[studentLevel] ?? 0
+      : 0;
+  const adjusted = Math.max(0, Math.min(100, cleanPercent - offset));
+
+  const thresholds =
+    config?.custom_thresholds && config.custom_thresholds.length > 0
+      ? config.custom_thresholds
+      : getDefaultThresholds(config?.scale_id);
+
+  const sorted = [...thresholds].sort((a, b) => b.min_percent - a.min_percent);
+  for (const t of sorted) {
+    if (adjusted >= t.min_percent) {
+      return t;
+    }
+  }
+  return sorted[sorted.length - 1];
+}
+
+export function gradeToPercent(
+  grade: number,
+  config?: SubjectGradingConfig
+): number {
+  const scale = config?.scale_id || 'de_classic_1_to_6';
+  const thresholds =
+    config?.custom_thresholds && config.custom_thresholds.length > 0
+      ? config.custom_thresholds
+      : getDefaultThresholds(scale);
+
+  if (scale === 'de_oberstufe_0_to_15') {
+    const match = thresholds.find((t) => Math.abs(t.numeric_value - grade) < 0.25);
+    if (match) return match.min_percent;
+    return Math.max(0, Math.min(100, (grade / 15) * 100));
+  } else if (scale === 'us_letter_gpa') {
+    return Math.max(0, Math.min(100, (grade / 4) * 100));
+  } else {
+    // classic 1 to 6
+    const match = thresholds.find((t) => Math.abs(t.numeric_value - grade) < 0.15);
+    if (match) return match.min_percent;
+    return Math.max(0, Math.min(100, ((6 - grade) / 5) * 100));
+  }
+}
+
 /**
  * Exact 29 students & Test 1 scores from /home/julian/Downloads/Englisch 6 SJ 2627.xlsx
  */

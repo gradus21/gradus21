@@ -6,6 +6,7 @@ import {
   ClassroomSubjectDataset,
   GradeEntry,
   GradeThreshold,
+  percentToGradeThreshold,
   StudentProfile,
   TermFilterId,
 } from '../data/demoClasses';
@@ -305,7 +306,14 @@ export function useClassroomCalculations({
       const num = parseFloat(trimmed.replace(',', '.'));
       if (isNaN(num)) return ds;
 
-      if (inputType === 'grade_scale') {
+      const student = ds.students.find((s) => s.id === studentId);
+
+      // Intelligent detection: If user typed e.g. "80" or "80%" into a grade_scale field (where max grade is 6), treat as percentage
+      const isPercentInputInGradeField =
+        inputType === 'grade_scale' &&
+        (inputValue.includes('%') || (ds.config.scale_id !== 'de_oberstufe_0_to_15' && num > 6));
+
+      if (inputType === 'grade_scale' && !isPercentInputInGradeField) {
         const newEntry: GradeEntry = {
           student_id: studentId,
           assessment_id: assessmentId,
@@ -325,13 +333,20 @@ export function useClassroomCalculations({
       const pts =
         inputType === 'points' ? num : Math.round(((pct / 100) * maxPts) * 10) / 10;
 
+      // Automatically calculate and populate the corresponding grade from percent/points
+      const calculatedThreshold = percentToGradeThreshold(
+        pct,
+        ds.config,
+        student?.level
+      );
+
       const newEntry: GradeEntry = {
         student_id: studentId,
         assessment_id: assessmentId,
         status: 'graded',
         percent_value: pct,
         raw_points: pts,
-        direct_grade_value: null,
+        direct_grade_value: calculatedThreshold.numeric_value,
         comment: null,
       };
       return { ...ds, grades: [...filtered, newEntry] };

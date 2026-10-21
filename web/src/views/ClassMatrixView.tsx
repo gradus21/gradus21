@@ -4,6 +4,8 @@ import {
   AssessmentInputMode,
   CellDisplayFormat,
   ClassroomSubjectDataset,
+  gradeToPercent,
+  percentToGradeThreshold,
   StudentProfile,
   TermFilterId,
   UserSyncSettings,
@@ -618,7 +620,13 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                               {assess.title}
                             </span>
                             <span className="text-[10px] opacity-70">
-                              {assess.max_points ? `max. ${assess.max_points} Pkt` : '%'} · ⚡
+                              {assess.input_mode === 'grade_scale'
+                                ? activeDataset.config.scale_id === 'de_oberstufe_0_to_15'
+                                  ? '0–15 Pkt'
+                                  : 'Note (1–6)'
+                                : assess.input_mode === 'points'
+                                ? `max. ${assess.max_points || 15} Pkt`
+                                : '%'} · ⚡
                             </span>
                           </div>
                         </th>
@@ -827,16 +835,29 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                                       assess.input_mode === 'grade_scale'
                                         ? entry?.direct_grade_value != null
                                           ? String(entry.direct_grade_value)
+                                          : entry?.percent_value != null
+                                          ? String(percentToGradeThreshold(entry.percent_value, activeDataset.config, stu.level).numeric_value)
                                           : ''
                                         : assess.input_mode === 'points'
                                         ? entry?.raw_points != null
                                           ? String(entry.raw_points)
+                                          : entry?.percent_value != null
+                                          ? String(Math.round(((entry.percent_value / 100) * (assess.max_points || 15)) * 10) / 10)
                                           : ''
                                         : entry?.percent_value != null
                                         ? String(entry.percent_value)
+                                        : entry?.direct_grade_value != null
+                                        ? String(Math.round(gradeToPercent(entry.direct_grade_value, activeDataset.config)))
                                         : ''
                                     }
                                     placeholder="—"
+                                    title={
+                                      entry?.status === 'excused'
+                                        ? 'Attest / Entschuldigt'
+                                        : entry?.percent_value != null || entry?.direct_grade_value != null
+                                        ? `Note: ${entry?.direct_grade_value ?? (entry?.percent_value != null ? percentToGradeThreshold(entry.percent_value, activeDataset.config, stu.level).display_label : '—')} | ${entry?.percent_value != null ? `${entry.percent_value}%` : '—'} | ${entry?.raw_points != null ? `${entry.raw_points} Pkt` : '—'}`
+                                        : 'Wert eintragen'
+                                    }
                                     onChange={(e) =>
                                       updateGradeEntry(
                                         stu.id,

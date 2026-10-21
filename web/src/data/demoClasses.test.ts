@@ -3,6 +3,8 @@ import {
   ensureValidUuid,
   buildCurveThresholdsFromMainCutoffs,
   INITIAL_CLASS_DATASETS,
+  percentToGradeThreshold,
+  gradeToPercent,
 } from './demoClasses';
 
 describe('demoClasses - ensureValidUuid', () => {
@@ -49,6 +51,32 @@ describe('demoClasses - buildCurveThresholdsFromMainCutoffs', () => {
     for (let i = 0; i < thresholds.length - 1; i++) {
       expect(thresholds[i].min_percent).toBeGreaterThanOrEqual(thresholds[i + 1].min_percent);
     }
+  });
+});
+
+describe('demoClasses - percentToGradeThreshold and gradeToPercent', () => {
+  it('converts percent to correct grade threshold', () => {
+    const t95 = percentToGradeThreshold(95);
+    expect(t95.display_label).toBe('1+');
+    expect(t95.numeric_value).toBe(0.75);
+
+    const t80 = percentToGradeThreshold(80);
+    expect(t80.display_label).toBe('2+');
+    expect(t80.numeric_value).toBe(1.75);
+
+    const t50 = percentToGradeThreshold(50);
+    expect(t50.display_label).toBe('4+');
+
+    const t10 = percentToGradeThreshold(10);
+    expect(t10.display_label).toBe('6');
+  });
+
+  it('converts direct grade to percent', () => {
+    const p1 = gradeToPercent(1.0);
+    expect(p1).toBe(90);
+
+    const p2 = gradeToPercent(2.0);
+    expect(p2).toBe(75);
   });
 });
 
