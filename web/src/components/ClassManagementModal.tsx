@@ -13,37 +13,55 @@ import {
   CheckCircle2,
   ClipboardList,
   Clock,
+  Layers,
+  PieChart,
   Plus,
+  SlidersHorizontal,
   Trash2,
   Users,
   X,
 } from 'lucide-react';
 
-interface ClassManagementModalProps {
+export interface ClassManagementModalProps {
   dataset: ClassroomSubjectDataset;
   canDeleteClass: boolean;
+  initialTab?: 'students' | 'assessments' | 'meta';
+  highlightAssessmentId?: string;
   onUpdateDataset: (updater: (ds: ClassroomSubjectDataset) => ClassroomSubjectDataset) => void;
   onDeleteClass: (classId: string) => void;
   onClose: () => void;
+  onOpenConfigurator?: () => void;
 }
 
 export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
   dataset,
   canDeleteClass,
+  initialTab = 'students',
+  highlightAssessmentId,
   onUpdateDataset,
   onDeleteClass,
   onClose,
+  onOpenConfigurator,
 }) => {
-  const [activeTab, setActiveTab] = useState<'students' | 'assessments' | 'meta'>('students');
+  const [activeTab, setActiveTab] = useState<'students' | 'assessments' | 'meta'>(initialTab);
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentLevel, setNewStudentLevel] = useState<'G' | 'M' | 'E'>('M');
   const [confirmDeleteClass, setConfirmDeleteClass] = useState(false);
 
-  // Quick generator state for assessments
+  // Dedicated single-assessment creator form state
+  const [newAssessTitle, setNewAssessTitle] = useState('');
+  const [newAssessCategoryId, setNewAssessCategoryId] = useState(dataset.categories[0]?.id || '');
+  const [newAssessTermId, setNewAssessTermId] = useState<'hj1' | 'hj2'>('hj1');
+  const [newAssessInputMode, setNewAssessInputMode] = useState<AssessmentInputMode>('percent');
+  const [newAssessMaxPoints, setNewAssessMaxPoints] = useState<number>(15);
+  const [newAssessWeight, setNewAssessWeight] = useState<number>(1.0);
+
+  // Quick batch generator state for assessments
   const [genCategoryId, setGenCategoryId] = useState(dataset.categories[0]?.id || '');
   const [genPrefix, setGenPrefix] = useState('Test');
   const [genTargetCount, setGenTargetCount] = useState(4);
   const [genTermId, setGenTermId] = useState<'hj1' | 'hj2'>('hj1');
+  const [genInputMode, setGenInputMode] = useState<AssessmentInputMode>('percent');
   const [genMaxPoints, setGenMaxPoints] = useState<number>(15);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
   const [studentPendingDelete, setStudentPendingDelete] = useState<StudentProfile | null>(null);
@@ -187,6 +205,27 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
     showToast(`Prüfungsspalte „${title}“ wurde entfernt.`);
   };
 
+  const handleCreateSingleAssessment = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newAssessTitle.trim()) return;
+    const cat = dataset.categories.find((c) => c.id === newAssessCategoryId) || dataset.categories[0];
+    const newAssess: AssessmentConfig = {
+      id: `assess_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      category_id: cat ? cat.id : (dataset.categories[0]?.id || ''),
+      title: newAssessTitle.trim(),
+      term_id: newAssessTermId,
+      weight: newAssessWeight,
+      input_mode: newAssessInputMode,
+      max_points: newAssessInputMode === 'grade_scale' ? undefined : (newAssessMaxPoints || 15),
+    };
+    onUpdateDataset((ds) => ({
+      ...ds,
+      assessments: [...ds.assessments, newAssess],
+    }));
+    setNewAssessTitle('');
+    showToast(`Prüfung „${newAssess.title}“ angelegt.`);
+  };
+
   const addSingleAssessment = (categoryId: string, termId: 'hj1' | 'hj2') => {
     const cat = dataset.categories.find((c) => c.id === categoryId) || dataset.categories[0];
     const existingInCat = dataset.assessments.filter(
@@ -232,8 +271,8 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
             title: `${genPrefix.trim() || 'Prüfung'} ${i}`,
             term_id: genTermId,
             weight: 1.0,
-            input_mode: 'percent',
-            max_points: genMaxPoints || 15,
+            input_mode: genInputMode,
+            max_points: genInputMode === 'grade_scale' ? undefined : (genMaxPoints || 15),
           });
         }
         return {
@@ -599,6 +638,219 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
              ================================================================= */}
           {activeTab === 'assessments' && (
             <div className="space-y-6">
+              {/* Category Weights Banner & Transparency */}
+              {(() => {
+                const totalCatWeight = dataset.categories.reduce(
+                  (acc, c) => acc + Math.max(0.01, c.weight),
+                  0
+                );
+                return (
+                  <div
+                    className="p-4 rounded-2xl border space-y-3"
+                    style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <PieChart className="w-4 h-4 text-teal-600 shrink-0" />
+                        <div>
+                          <div className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
+                            Gewichtung der Notenbereiche (Kategorien)
+                          </div>
+                          <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                            Diese prozentuale Gewichtung fließt in die automatische Berechnung des Gesamtschnitts ein.
+                          </div>
+                        </div>
+                      </div>
+                      {onOpenConfigurator && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onClose();
+                            onOpenConfigurator();
+                          }}
+                          className="px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 hover:bg-teal-500/10 text-teal-700 dark:text-teal-300 transition shrink-0"
+                          style={{ borderColor: 'var(--border-subtle)' }}
+                        >
+                          <SlidersHorizontal className="w-3.5 h-3.5" />
+                          <span>Gewichtung im Konfigurator anpassen</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 pt-1">
+                      {dataset.categories.map((c) => {
+                        const pct = Math.round((c.weight / totalCatWeight) * 100);
+                        const countHj1 = dataset.assessments.filter((a) => a.category_id === c.id && a.term_id === 'hj1').length;
+                        const countHj2 = dataset.assessments.filter((a) => a.category_id === c.id && a.term_id === 'hj2').length;
+                        return (
+                          <div
+                            key={c.id}
+                            className="p-3 rounded-xl border flex flex-col justify-between gap-1 shadow-xs"
+                            style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-bold text-xs truncate" style={{ color: 'var(--text-primary)' }}>
+                                {c.name}
+                              </span>
+                              <span className="px-2 py-0.5 rounded-md font-mono text-xs font-bold bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30 shrink-0">
+                                {pct}%
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                              <span>Kürzel: <strong className="font-mono">{c.short_code}</strong></span>
+                              <span>{countHj1} (HJ1) · {countHj2} (HJ2)</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Form: Neue Prüfung gezielt anlegen */}
+              <form
+                onSubmit={handleCreateSingleAssessment}
+                className="p-4 rounded-2xl border space-y-3.5"
+                style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-bold flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
+                    <Plus className="w-4 h-4 text-teal-600" />
+                    <span>Neue Prüfung anlegen & Bewertungsart festlegen</span>
+                  </div>
+                  <span className="text-[11px] opacity-70">
+                    Erscheint sofort als Spalte in der Klassen-Matrix
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end text-xs">
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
+                      Bezeichnung der Prüfung
+                    </label>
+                    <input
+                      type="text"
+                      value={newAssessTitle}
+                      onChange={(e) => setNewAssessTitle(e.target.value)}
+                      placeholder="z.B. Vokabeltest Unit 2 oder Klausur 1"
+                      className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
+                      Kategorie
+                    </label>
+                    <select
+                      value={newAssessCategoryId}
+                      onChange={(e) => {
+                        const catId = e.target.value;
+                        setNewAssessCategoryId(catId);
+                        const c = dataset.categories.find((cat) => cat.id === catId);
+                        if (c?.short_code.toLowerCase().includes('lnw')) {
+                          setNewAssessMaxPoints(45);
+                        }
+                      }}
+                      className="w-full px-2.5 py-2 rounded-xl border bg-transparent font-medium"
+                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                    >
+                      {dataset.categories.map((c) => (
+                        <option key={c.id} value={c.id} className="dark:bg-slate-900">
+                          {c.name} ({c.short_code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
+                      Halbjahr
+                    </label>
+                    <select
+                      value={newAssessTermId}
+                      onChange={(e) => setNewAssessTermId(e.target.value as 'hj1' | 'hj2')}
+                      className="w-full px-2.5 py-2 rounded-xl border bg-transparent font-medium"
+                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                    >
+                      <option value="hj1" className="dark:bg-slate-900">1. Halbjahr</option>
+                      <option value="hj2" className="dark:bg-slate-900">2. Halbjahr</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
+                      Bewertungsart (Modus)
+                    </label>
+                    <select
+                      value={newAssessInputMode}
+                      onChange={(e) => setNewAssessInputMode(e.target.value as AssessmentInputMode)}
+                      className="w-full px-2.5 py-2 rounded-xl border bg-transparent font-semibold"
+                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                    >
+                      <option value="percent" className="dark:bg-slate-900">% Prozent (0–100%)</option>
+                      <option value="points" className="dark:bg-slate-900">Rohpunkte (Punkte / Max)</option>
+                      <option value="grade_scale" className="dark:bg-slate-900">
+                        {dataset.config.scale_id === 'de_oberstufe_0_to_15'
+                          ? 'Notenpunkte (0–15)'
+                          : 'Schulnote (1–6)'}
+                      </option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
+                      {newAssessInputMode === 'grade_scale' ? 'Skala' : 'Max. Punkte'}
+                    </label>
+                    {newAssessInputMode === 'grade_scale' ? (
+                      <div className="w-full px-2.5 py-2 rounded-xl border bg-slate-100 dark:bg-slate-800 text-slate-500 font-mono text-center text-xs">
+                        {dataset.config.scale_id === 'de_oberstufe_0_to_15' ? '0–15 MSS' : '1–6'}
+                      </div>
+                    ) : (
+                      <input
+                        type="number"
+                        min={1}
+                        max={500}
+                        value={newAssessMaxPoints}
+                        onChange={(e) => setNewAssessMaxPoints(Number(e.target.value) || 15)}
+                        className="w-full px-2.5 py-2 rounded-xl border font-mono font-bold bg-transparent text-center"
+                        style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                      />
+                    )}
+                  </div>
+
+                  <div className="sm:col-span-6 flex flex-wrap items-center justify-between gap-3 pt-1 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="text-[11px] font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                        Prüfungs-Gewichtung (in Kategorie):
+                      </span>
+                      <select
+                        value={newAssessWeight}
+                        onChange={(e) => setNewAssessWeight(Number(e.target.value))}
+                        className="px-2.5 py-1 rounded-lg border text-xs bg-transparent font-mono"
+                        style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                      >
+                        <option value={0.5} className="dark:bg-slate-900">0.5x (Halbes Gewicht)</option>
+                        <option value={1} className="dark:bg-slate-900">1.0x (Normal)</option>
+                        <option value={1.5} className="dark:bg-slate-900">1.5x</option>
+                        <option value={2} className="dark:bg-slate-900">2.0x (Doppeltes Gewicht)</option>
+                      </select>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={!newAssessTitle.trim()}
+                      className="px-4 py-2 rounded-xl text-xs font-bold text-white shadow-sm flex items-center gap-1.5 transition disabled:opacity-50"
+                      style={{ backgroundColor: 'var(--primary-500)' }}
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Prüfung hinzufügen</span>
+                    </button>
+                  </div>
+                </div>
+              </form>
+
               {/* Quick Batch Generator: "Anzahl der Tests / LNW festlegen" */}
               <form
                 onSubmit={handleSetCategoryAssessmentCount}
@@ -606,9 +858,9 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
                 style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
               >
                 <div className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
-                  Schnell-Generator: Anzahl der Prüfungen / Tests für eine Kategorie festlegen
+                  Schnell-Generator: Mehrere Prüfungen auf einmal erzeugen
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end text-xs">
                   <div>
                     <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
                       Kategorie
@@ -648,7 +900,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
 
                   <div>
                     <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-                      Bezeichnung (Präfix)
+                      Bezeichnung
                     </label>
                     <input
                       type="text"
@@ -662,200 +914,265 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
 
                   <div>
                     <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-                      Gewünschte Anzahl
+                      Bewertungsart
                     </label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={15}
-                      value={genTargetCount}
-                      onChange={(e) => setGenTargetCount(Number(e.target.value))}
-                      className="w-full px-2.5 py-2 rounded-xl border font-mono font-bold bg-white dark:bg-slate-900"
+                    <select
+                      value={genInputMode}
+                      onChange={(e) => setGenInputMode(e.target.value as AssessmentInputMode)}
+                      className="w-full px-2.5 py-2 rounded-xl border bg-white dark:bg-slate-900 font-semibold"
                       style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
-                    />
+                    >
+                      <option value="percent">% Prozent</option>
+                      <option value="points">Rohpunkte</option>
+                      <option value="grade_scale">
+                        {dataset.config.scale_id === 'de_oberstufe_0_to_15' ? 'Notenpunkte' : 'Schulnote (1–6)'}
+                      </option>
+                    </select>
                   </div>
 
-                  <button
-                    type="submit"
-                    className="px-4 py-2 rounded-xl text-xs font-bold text-white shadow-sm"
-                    style={{ backgroundColor: 'var(--primary-500)' }}
-                  >
-                    Anzahl übernehmen
-                  </button>
+                  <div>
+                    <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
+                      {genInputMode === 'grade_scale' ? 'Skala' : 'Max. Pkt'}
+                    </label>
+                    {genInputMode === 'grade_scale' ? (
+                      <div className="w-full px-2.5 py-2 rounded-xl border bg-slate-100 dark:bg-slate-800 text-slate-500 font-mono text-center text-xs">
+                        1–6
+                      </div>
+                    ) : (
+                      <input
+                        type="number"
+                        min={1}
+                        max={500}
+                        value={genMaxPoints}
+                        onChange={(e) => setGenMaxPoints(Number(e.target.value) || 15)}
+                        className="w-full px-2.5 py-2 rounded-xl border font-mono font-bold bg-white dark:bg-slate-900 text-center"
+                        style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                      />
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1">
+                      <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
+                        Anzahl
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={15}
+                        value={genTargetCount}
+                        onChange={(e) => setGenTargetCount(Number(e.target.value))}
+                        className="w-full px-2.5 py-2 rounded-xl border font-mono font-bold bg-white dark:bg-slate-900 text-center"
+                        style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="px-3.5 py-2 rounded-xl text-xs font-bold text-white shadow-sm shrink-0 self-end"
+                      style={{ backgroundColor: 'var(--primary-500)' }}
+                    >
+                      Setzen
+                    </button>
+                  </div>
                 </div>
               </form>
 
               {/* Grouped by Category */}
-              {dataset.categories.map((cat) => {
-                const catAssessments = dataset.assessments.filter((a) => a.category_id === cat.id);
-                return (
-                  <div
-                    key={cat.id}
-                    className="rounded-2xl border p-4 space-y-3"
-                    style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
-                          {cat.name} ({cat.short_code})
-                        </span>
-                        <span className="ml-2 text-xs font-mono opacity-75">
-                          {catAssessments.length} Spalten
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => addSingleAssessment(cat.id, 'hj1')}
-                          className="px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1"
-                          style={{
-                            backgroundColor: 'var(--bg-subtle)',
-                            borderColor: 'var(--border-subtle)',
-                            color: 'var(--text-primary)',
-                          }}
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>+ 1. HJ</span>
-                        </button>
-                        <button
-                          onClick={() => addSingleAssessment(cat.id, 'hj2')}
-                          className="px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1"
-                          style={{
-                            backgroundColor: 'var(--bg-subtle)',
-                            borderColor: 'var(--border-subtle)',
-                            color: 'var(--text-primary)',
-                          }}
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>+ 2. HJ</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {catAssessments.length === 0 ? (
-                      <div className="text-xs italic opacity-60 py-2">
-                        Noch keine Prüfungen in dieser Kategorie angelegt.
-                      </div>
-                    ) : (
-                      <div className="divide-y border rounded-xl" style={{ borderColor: 'var(--border-subtle)' }}>
-                        {catAssessments.map((assess) => (
-                          <div
-                            key={assess.id}
-                            className="p-2.5 px-3 flex flex-wrap items-center justify-between gap-3 text-xs"
-                          >
-                            <div className="flex items-center gap-2 flex-1 min-w-[180px]">
-                              <input
-                                type="text"
-                                value={assess.title}
-                                onChange={(e) =>
-                                  updateAssessmentField(assess.id, { title: e.target.value })
-                                }
-                                className="px-2.5 py-1 rounded-lg border font-semibold bg-transparent flex-1"
-                                style={{
-                                  borderColor: 'var(--border-subtle)',
-                                  color: 'var(--text-primary)',
-                                }}
-                              />
-                            </div>
-
-                            <div className="flex flex-wrap items-center gap-2">
-                              <select
-                                value={assess.term_id}
-                                onChange={(e) =>
-                                  updateAssessmentField(assess.id, { term_id: e.target.value })
-                                }
-                                className="px-2 py-1 rounded-lg border text-[11px] font-semibold bg-transparent"
-                                style={{
-                                  borderColor: 'var(--border-subtle)',
-                                  color: 'var(--text-primary)',
-                                }}
-                              >
-                                <option value="hj1">1. Halbjahr</option>
-                                <option value="hj2">2. Halbjahr</option>
-                              </select>
-
-                              <div className="flex items-center gap-1">
-                                <span className="text-[11px] opacity-70">Modus:</span>
-                                <select
-                                  value={assess.input_mode || 'percent'}
-                                  onChange={(e) =>
-                                    updateAssessmentField(assess.id, {
-                                      input_mode: e.target.value as AssessmentInputMode,
-                                    })
-                                  }
-                                  className="px-2 py-1 rounded-lg border text-[11px] font-semibold bg-transparent"
-                                  style={{
-                                    borderColor: 'var(--border-subtle)',
-                                    color: 'var(--text-primary)',
-                                  }}
-                                >
-                                  <option value="percent">% Prozent</option>
-                                  <option value="points">Rohpunkte</option>
-                                  <option value="grade_scale">
-                                    {dataset.config.scale_id === 'de_oberstufe_0_to_15'
-                                      ? 'Notenpunkte'
-                                      : 'Schulnote (1–6)'}
-                                  </option>
-                                </select>
-                              </div>
-
-                              <div className="flex items-center gap-1">
-                                <span className="text-[11px] opacity-70">Max. Pkt:</span>
-                                <input
-                                  type="number"
-                                  min={1}
-                                  max={500}
-                                  value={assess.max_points || 15}
-                                  onChange={(e) =>
-                                    updateAssessmentField(assess.id, {
-                                      max_points: Number(e.target.value) || 15,
-                                    })
-                                  }
-                                  className="w-16 px-2 py-1 rounded-lg border font-mono text-center bg-transparent"
-                                  style={{
-                                    borderColor: 'var(--border-subtle)',
-                                    color: 'var(--text-primary)',
-                                  }}
-                                />
-                              </div>
-
-                              <div className="flex items-center gap-1">
-                                <span className="text-[11px] opacity-70">Gewicht:</span>
-                                <select
-                                  value={assess.weight}
-                                  onChange={(e) =>
-                                    updateAssessmentField(assess.id, {
-                                      weight: Number(e.target.value),
-                                    })
-                                  }
-                                  className="px-2 py-1 rounded-lg border font-mono text-[11px] bg-transparent"
-                                  style={{
-                                    borderColor: 'var(--border-subtle)',
-                                    color: 'var(--text-primary)',
-                                  }}
-                                >
-                                  <option value={0.5}>0.5x (Halb)</option>
-                                  <option value={1}>1x (Normal)</option>
-                                  <option value={1.5}>1.5x</option>
-                                  <option value={2}>2x (Doppelt)</option>
-                                </select>
-                              </div>
-
-                              <button
-                                onClick={() => deleteAssessment(assess.id, assess.title)}
-                                className="p-1.5 rounded-lg border text-rose-600 hover:bg-rose-500/10"
-                                style={{ borderColor: 'var(--border-subtle)' }}
-                                title="Prüfungsspalte löschen"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+              {(() => {
+                const totalCatWeight = dataset.categories.reduce(
+                  (acc, c) => acc + Math.max(0.01, c.weight),
+                  0
                 );
-              })}
+                return dataset.categories.map((cat) => {
+                  const catAssessments = dataset.assessments.filter((a) => a.category_id === cat.id);
+                  const catPct = Math.round((cat.weight / totalCatWeight) * 100);
+                  return (
+                    <div
+                      key={cat.id}
+                      className="rounded-2xl border p-4 space-y-3"
+                      style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                            {cat.name} ({cat.short_code})
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-teal-500/10 text-teal-700 dark:text-teal-300">
+                            Gewichtung: {catPct}%
+                          </span>
+                          <span className="text-xs font-mono opacity-70">
+                            · {catAssessments.length} Spalten
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => addSingleAssessment(cat.id, 'hj1')}
+                            className="px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1 hover:bg-teal-500/10 transition"
+                            style={{
+                              backgroundColor: 'var(--bg-subtle)',
+                              borderColor: 'var(--border-subtle)',
+                              color: 'var(--text-primary)',
+                            }}
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>+ 1. HJ</span>
+                          </button>
+                          <button
+                            onClick={() => addSingleAssessment(cat.id, 'hj2')}
+                            className="px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1 hover:bg-teal-500/10 transition"
+                            style={{
+                              backgroundColor: 'var(--bg-subtle)',
+                              borderColor: 'var(--border-subtle)',
+                              color: 'var(--text-primary)',
+                            }}
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>+ 2. HJ</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {catAssessments.length === 0 ? (
+                        <div className="text-xs italic opacity-60 py-2">
+                          Noch keine Prüfungen in dieser Kategorie angelegt.
+                        </div>
+                      ) : (
+                        <div className="divide-y border rounded-xl" style={{ borderColor: 'var(--border-subtle)' }}>
+                          {catAssessments.map((assess) => {
+                            const isHighlighted = assess.id === highlightAssessmentId;
+                            return (
+                              <div
+                                key={assess.id}
+                                className={`p-2.5 px-3 flex flex-wrap items-center justify-between gap-3 text-xs transition ${
+                                  isHighlighted
+                                    ? 'bg-teal-500/15 ring-2 ring-teal-500 rounded-lg shadow-sm'
+                                    : ''
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 flex-1 min-w-[180px]">
+                                  {isHighlighted && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-teal-600 text-white shrink-0">
+                                      Fokus
+                                    </span>
+                                  )}
+                                  <input
+                                    type="text"
+                                    value={assess.title}
+                                    onChange={(e) =>
+                                      updateAssessmentField(assess.id, { title: e.target.value })
+                                    }
+                                    className="px-2.5 py-1 rounded-lg border font-semibold bg-transparent flex-1"
+                                    style={{
+                                      borderColor: 'var(--border-subtle)',
+                                      color: 'var(--text-primary)',
+                                    }}
+                                  />
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <select
+                                    value={assess.term_id}
+                                    onChange={(e) =>
+                                      updateAssessmentField(assess.id, { term_id: e.target.value as 'hj1' | 'hj2' })
+                                    }
+                                    className="px-2 py-1 rounded-lg border text-[11px] font-semibold bg-transparent"
+                                    style={{
+                                      borderColor: 'var(--border-subtle)',
+                                      color: 'var(--text-primary)',
+                                    }}
+                                  >
+                                    <option value="hj1" className="dark:bg-slate-900">1. Halbjahr</option>
+                                    <option value="hj2" className="dark:bg-slate-900">2. Halbjahr</option>
+                                  </select>
+
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[11px] opacity-70">Modus:</span>
+                                    <select
+                                      value={assess.input_mode || 'percent'}
+                                      onChange={(e) =>
+                                        updateAssessmentField(assess.id, {
+                                          input_mode: e.target.value as AssessmentInputMode,
+                                        })
+                                      }
+                                      className="px-2 py-1 rounded-lg border text-[11px] font-bold bg-transparent"
+                                      style={{
+                                        borderColor: 'var(--border-subtle)',
+                                        color: 'var(--text-primary)',
+                                      }}
+                                    >
+                                      <option value="percent" className="dark:bg-slate-900">% Prozent</option>
+                                      <option value="points" className="dark:bg-slate-900">Rohpunkte</option>
+                                      <option value="grade_scale" className="dark:bg-slate-900">
+                                        {dataset.config.scale_id === 'de_oberstufe_0_to_15'
+                                          ? 'Notenpunkte'
+                                          : 'Schulnote (1–6)'}
+                                      </option>
+                                    </select>
+                                  </div>
+
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[11px] opacity-70">Max. Pkt:</span>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      max={500}
+                                      disabled={assess.input_mode === 'grade_scale'}
+                                      value={assess.max_points || 15}
+                                      onChange={(e) =>
+                                        updateAssessmentField(assess.id, {
+                                          max_points: Number(e.target.value) || 15,
+                                        })
+                                      }
+                                      className={`w-16 px-2 py-1 rounded-lg border font-mono text-center bg-transparent ${
+                                        assess.input_mode === 'grade_scale' ? 'opacity-30 cursor-not-allowed' : ''
+                                      }`}
+                                      style={{
+                                        borderColor: 'var(--border-subtle)',
+                                        color: 'var(--text-primary)',
+                                      }}
+                                    />
+                                  </div>
+
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[11px] opacity-70">Gewicht:</span>
+                                    <select
+                                      value={assess.weight}
+                                      onChange={(e) =>
+                                        updateAssessmentField(assess.id, {
+                                          weight: Number(e.target.value),
+                                        })
+                                      }
+                                      className="px-2 py-1 rounded-lg border font-mono text-[11px] bg-transparent"
+                                      style={{
+                                        borderColor: 'var(--border-subtle)',
+                                        color: 'var(--text-primary)',
+                                      }}
+                                    >
+                                      <option value={0.5} className="dark:bg-slate-900">0.5x</option>
+                                      <option value={1} className="dark:bg-slate-900">1.0x</option>
+                                      <option value={1.5} className="dark:bg-slate-900">1.5x</option>
+                                      <option value={2} className="dark:bg-slate-900">2.0x</option>
+                                    </select>
+                                  </div>
+
+                                  <button
+                                    onClick={() => deleteAssessment(assess.id, assess.title)}
+                                    className="p-1.5 rounded-lg border text-rose-600 hover:bg-rose-500/10 transition"
+                                    style={{ borderColor: 'var(--border-subtle)' }}
+                                    title="Prüfungsspalte löschen"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
             </div>
           )}
 

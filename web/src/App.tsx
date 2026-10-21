@@ -28,7 +28,7 @@ import { APP_VERSION } from './version';
 
 export type ActiveModal =
   | { type: 'classWizard' }
-  | { type: 'classManager' }
+  | { type: 'classManager'; initialTab?: 'students' | 'assessments' | 'meta'; highlightAssessmentId?: string }
   | { type: 'settings'; section?: SettingsSection }
   | { type: 'vaultInspector' }
   | { type: 'admin' }
@@ -416,7 +416,9 @@ export const App: React.FC = () => {
             setShowArchivedInMatrix={setShowArchivedInMatrix}
             showOnDemandReportCardCol={showOnDemandReportCardCol}
             setShowOnDemandReportCardCol={setShowOnDemandReportCardCol}
-            onOpenClassManager={() => setActiveModal({ type: 'classManager' })}
+            onOpenClassManager={(initialTab, highlightAssessmentId) =>
+              setActiveModal({ type: 'classManager', initialTab, highlightAssessmentId })
+            }
             onOpenClassWizard={() => setActiveModal({ type: 'classWizard' })}
             onSelectStudent={(studentId) => {
               setSelectedStudentId(studentId);
@@ -600,9 +602,12 @@ export const App: React.FC = () => {
         <ClassManagementModal
           dataset={activeDataset}
           canDeleteClass={datasets.length > 1}
+          initialTab={activeModal.initialTab}
+          highlightAssessmentId={activeModal.highlightAssessmentId}
           onUpdateDataset={updateSubjectConfig}
           onDeleteClass={handleDeleteClass}
           onClose={handleCloseModal}
+          onOpenConfigurator={() => setMode('configurator')}
         />
       )}
 

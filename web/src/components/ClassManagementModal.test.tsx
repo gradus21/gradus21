@@ -95,4 +95,42 @@ describe('ClassManagementModal - Student Safety & Retention Mechanism', () => {
     expect(screen.getByRole('button', { name: /jetzt bereinigen\.\.\./i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /aufbewahrung verlängern/i })).toBeInTheDocument();
   });
+
+  it('renders assessment tab with category weights, custom assessment creator and mode selector', () => {
+    const ds = getBaseDataset();
+    const handleUpdate = vi.fn();
+
+    render(
+      <ClassManagementModal
+        dataset={ds}
+        canDeleteClass={false}
+        initialTab="assessments"
+        onUpdateDataset={handleUpdate}
+        onDeleteClass={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+
+    // Category weights banner must be visible
+    expect(screen.getByText(/Gewichtung der Notenbereiche/i)).toBeInTheDocument();
+
+    // Dedicated single assessment creator form
+    expect(
+      screen.getByText(/Neue Prüfung anlegen & Bewertungsart festlegen/i)
+    ).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/z\.B\. Vokabeltest/i)).toBeInTheDocument();
+
+    // Mode options should be selectable
+    const modeSelects = screen.getAllByRole('combobox');
+    expect(modeSelects.length).toBeGreaterThan(0);
+
+    // Create a new assessment
+    const titleInput = screen.getByPlaceholderText(/z\.B\. Vokabeltest/i);
+    fireEvent.change(titleInput, { target: { value: 'Grammatiktest 1' } });
+
+    const createBtn = screen.getByRole('button', { name: /prüfung hinzufügen/i });
+    fireEvent.click(createBtn);
+
+    expect(handleUpdate).toHaveBeenCalled();
+  });
 });

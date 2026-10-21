@@ -30,6 +30,7 @@ import {
   FileSpreadsheet,
   Plus,
   Printer,
+  Settings,
   Sliders,
   UserPlus,
 } from 'lucide-react';
@@ -46,7 +47,7 @@ export interface ClassMatrixViewProps {
   setShowArchivedInMatrix: React.Dispatch<React.SetStateAction<boolean>>;
   showOnDemandReportCardCol: boolean;
   setShowOnDemandReportCardCol: React.Dispatch<React.SetStateAction<boolean>>;
-  onOpenClassManager: () => void;
+  onOpenClassManager: (initialTab?: 'students' | 'assessments' | 'meta', highlightAssessmentId?: string) => void;
   onOpenClassWizard: () => void;
   onSelectStudent: (studentId: string) => void;
   onSelectAssessment: (assessmentId: string) => void;
@@ -368,12 +369,13 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
 
           {/* Primary Action: Prüfung */}
           <button
-            onClick={() => setShowNewAssessmentForm((s) => !s)}
+            onClick={() => onOpenClassManager('assessments')}
             className="px-3 sm:px-3.5 py-1.5 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1.5 shadow-sm transition active:scale-[0.98] hover:opacity-95"
             style={{ backgroundColor: 'var(--primary-500)' }}
+            title="Prüfungen im Detail verwalten, anlegen oder Bewertungsart ändern"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Prüfung ({activeTerm.toUpperCase()})</span>
+            <span>+ Prüfung verwalten</span>
           </button>
         </div>
       </div>
@@ -606,28 +608,61 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                       {catAssessments.map((assess) => (
                         <th
                           key={assess.id}
-                          className="py-2.5 px-2.5 text-center min-w-[92px] group cursor-pointer hover:bg-teal-500/5 transition"
+                          className="py-2.5 px-2 text-center min-w-[100px] group cursor-pointer hover:bg-teal-500/5 transition select-none"
                           onClick={() => {
                             onSelectAssessment(assess.id);
                             setMode('speed_grading');
                           }}
+                          title={`Klick: Speed-Grading für „${assess.title}“`}
                         >
-                          <div className="flex flex-col items-center">
-                            <span
-                              className="font-semibold group-hover:underline"
-                              style={{ color: 'var(--text-primary)' }}
-                            >
-                              {assess.title}
-                            </span>
-                            <span className="text-[10px] opacity-70">
-                              {assess.input_mode === 'grade_scale'
-                                ? activeDataset.config.scale_id === 'de_oberstufe_0_to_15'
-                                  ? '0–15 Pkt'
-                                  : 'Note (1–6)'
-                                : assess.input_mode === 'points'
-                                ? `max. ${assess.max_points || 15} Pkt`
-                                : '%'} · ⚡
-                            </span>
+                          <div className="flex flex-col items-center gap-1">
+                            <div className="flex items-center justify-center gap-1 w-full">
+                              <span
+                                className="font-bold text-xs truncate group-hover:underline max-w-[85px]"
+                                style={{ color: 'var(--text-primary)' }}
+                                title={assess.title}
+                              >
+                                {assess.title}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onOpenClassManager('assessments', assess.id);
+                                }}
+                                title={`Prüfung „${assess.title}“ konfigurieren (Bewertungsart, Max-Punkte, Gewichtung)`}
+                                className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition shrink-0"
+                              >
+                                <Settings className="w-3 h-3" />
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              {assess.input_mode === 'grade_scale' ? (
+                                <span
+                                  className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/25 tracking-tight"
+                                  title="Bewertungsmodus: Direkte Note"
+                                >
+                                  {activeDataset.config.scale_id === 'de_oberstufe_0_to_15' ? '0–15 MSS' : 'Note (1–6)'}
+                                </span>
+                              ) : assess.input_mode === 'points' ? (
+                                <span
+                                  className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/25 tracking-tight"
+                                  title={`Bewertungsmodus: Rohpunkte (max. ${assess.max_points || 15} Pkt)`}
+                                >
+                                  max. {assess.max_points || 15} Pkt
+                                </span>
+                              ) : (
+                                <span
+                                  className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/25 tracking-tight"
+                                  title="Bewertungsmodus: Prozent (0–100%)"
+                                >
+                                  % Prozent
+                                </span>
+                              )}
+                              <span className="text-[10px] text-teal-600 dark:text-teal-400 font-bold" title="Speed-Grading verfügbar">
+                                ⚡
+                              </span>
+                            </div>
                           </div>
                         </th>
                       ))}
