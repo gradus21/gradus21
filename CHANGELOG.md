@@ -22,7 +22,8 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   - Added dynamic legal configuration (`legalConfig.ts`) with custom URL overrides (`VITE_TERMS_URL`, `VITE_PRIVACY_URL`, `VITE_IMPRINT_URL`) and integrated links in `AppHeader`, `SettingsModal`, `LegalModal`, and `VaultRegistrationWizard`.
   - Added comprehensive test suites (`TermsOfServiceModal.test.tsx`, `StorageNoticeModal.test.tsx`, `legalConfig.test.ts`, `VaultRegistrationWizard.test.tsx`).
 
-### Versioning & Documentation
+### Versioning, Infrastructure & Documentation
+- Migrated GitHub repository to the official `Gradus21` organization and updated Docker container registry image paths in `docker-compose.yml`.
 - Bumped workspace version across Cargo workspace, Web client, WASM bindings, and architecture documentation to `v1.2.1`.
 
 ## [1.2.0] - 2026-10-21
