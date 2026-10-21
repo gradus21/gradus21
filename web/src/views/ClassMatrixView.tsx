@@ -364,14 +364,14 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
             )}
           </div>
 
-          {/* Primary Action: + Prüfung */}
+          {/* Primary Action: Prüfung */}
           <button
             onClick={() => setShowNewAssessmentForm((s) => !s)}
-            className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 shadow-sm transition active:scale-[0.98] hover:opacity-95"
+            className="px-3 sm:px-3.5 py-1.5 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1.5 shadow-sm transition active:scale-[0.98] hover:opacity-95"
             style={{ backgroundColor: 'var(--primary-500)' }}
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>+ Prüfung ({activeTerm.toUpperCase()})</span>
+            <span>Prüfung ({activeTerm.toUpperCase()})</span>
           </button>
         </div>
       </div>

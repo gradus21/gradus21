@@ -149,7 +149,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             <button
               onClick={onOpenClassManager}
               data-tour="header-class-manager-btn"
-              className="px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition hover:opacity-90 border shrink-0"
+              className="w-10 h-10 md:w-auto md:h-auto p-0 md:px-2.5 md:py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition hover:opacity-90 border shrink-0"
               style={{
                 backgroundColor: 'var(--bg-surface)',
                 borderColor: 'var(--border-subtle)',
@@ -157,23 +157,23 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               }}
               title="Aktuelle Klasse bearbeiten"
             >
-              <Edit3 className="w-3.5 h-3.5" style={{ color: 'var(--primary-500)' }} />
+              <Edit3 className="w-4 h-4 md:w-3.5 md:h-3.5" style={{ color: 'var(--primary-500)' }} />
               <span className="hidden md:inline">Klasse bearbeiten</span>
             </button>
 
             <button
               onClick={onOpenClassWizard}
               data-tour="header-class-wizard-btn"
-              className="px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition hover:opacity-90 shrink-0"
+              className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition hover:opacity-90 shrink-0"
               style={{
                 backgroundColor: 'var(--primary-soft)',
                 color: 'var(--primary-text)',
               }}
               title="Neue Klasse erstellen oder .xlsx Excel-Datei importieren"
             >
-              <FolderPlus className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">+ Neue Klasse</span>
-              <span className="sm:hidden">+ Neu</span>
+              <FolderPlus className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+              <span className="hidden sm:inline">Neue Klasse</span>
+              <span className="sm:hidden">Neu</span>
             </button>
           </div>
         </div>
@@ -185,7 +185,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             <button
               onClick={onOpenInteractiveGuide}
               data-tour="header-guide-btn"
-              className="px-2 sm:px-2.5 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition hover:opacity-90"
+              className="w-10 h-10 xl:w-auto xl:h-auto p-0 xl:px-2.5 xl:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition hover:opacity-90 shrink-0"
               style={{
                 backgroundColor: 'var(--bg-subtle)',
                 color: 'var(--text-secondary)',
@@ -193,7 +193,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               }}
               title="Interaktive Demo & Funktions-Guide (Taste ?)"
             >
-              <HelpCircle className="w-3.5 h-3.5" style={{ color: 'var(--primary-500)' }} />
+              <HelpCircle className="w-4 h-4 xl:w-3.5 xl:h-3.5" style={{ color: 'var(--primary-500)' }} />
               <span className="hidden xl:inline">Guide</span>
             </button>
           )}
@@ -201,7 +201,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           <button
             onClick={() => onOpenSettings('storage')}
             data-tour="header-sync-status"
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer hover:opacity-90"
+            className="w-10 h-10 lg:w-auto lg:h-auto p-0 lg:px-3 lg:py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer hover:opacity-90 flex items-center justify-center gap-1.5 shrink-0"
             style={{
               backgroundColor: 'var(--bg-subtle)',
               borderColor: 'var(--border-subtle)',
@@ -225,13 +225,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             }
           >
             {syncStatus === 'syncing' ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" style={{ color: 'var(--primary-500)' }} />
+              <RefreshCw className="w-4 h-4 lg:w-3.5 lg:h-3.5 animate-spin" style={{ color: 'var(--primary-500)' }} />
             ) : syncStatus === 'synced' ? (
-              <Cloud className="w-3.5 h-3.5 text-emerald-600" />
+              <Cloud className="w-4 h-4 lg:w-3.5 lg:h-3.5 text-emerald-600" />
             ) : syncStatus === 'local_only' ? (
-              <Shield className="w-3.5 h-3.5" style={{ color: 'var(--primary-500)' }} />
+              <Shield className="w-4 h-4 lg:w-3.5 lg:h-3.5" style={{ color: 'var(--primary-500)' }} />
             ) : (
-              <CloudOff className="w-3.5 h-3.5 text-amber-600" />
+              <CloudOff className="w-4 h-4 lg:w-3.5 lg:h-3.5 text-amber-600" />
             )}
             <span className="hidden lg:inline">
               {syncStatus === 'syncing'
@@ -247,7 +247,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           <button
             onClick={() => onOpenSettings()}
             data-tour="header-settings-btn"
-            className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition hover:opacity-90"
+            className="w-10 h-10 xl:w-auto xl:h-auto p-0 xl:px-3 xl:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition hover:opacity-90 shrink-0"
             style={{
               backgroundColor: 'var(--bg-subtle)',
               color: 'var(--text-primary)',
@@ -256,14 +256,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             title="Einstellungen"
             aria-label="Einstellungen"
           >
-            <Settings className="w-3.5 h-3.5" style={{ color: 'var(--primary-500)' }} />
+            <Settings className="w-4 h-4 xl:w-3.5 xl:h-3.5" style={{ color: 'var(--primary-500)' }} />
             <span className="hidden xl:inline">Einstellungen</span>
           </button>
 
           <button
             onClick={onOpenVaultInspector}
             data-tour="header-vault-btn"
-            className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition hover:opacity-90"
+            className="w-10 h-10 lg:w-auto lg:h-auto p-0 lg:px-3 lg:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition hover:opacity-90 shrink-0"
             style={{
               backgroundColor: 'var(--primary-soft)',
               color: 'var(--primary-text)',
@@ -272,14 +272,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             title="Konto & Schutz"
             aria-label="Konto & Schutz"
           >
-            <KeyRound className="w-3.5 h-3.5" />
+            <KeyRound className="w-4 h-4 lg:w-3.5 lg:h-3.5" />
             <span className="hidden lg:inline">Konto & Schutz</span>
           </button>
 
           {isAdmin && (
             <button
               onClick={onOpenAdmin}
-              className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition hover:opacity-90 shadow-sm"
+              className="w-10 h-10 xl:w-auto xl:h-auto p-0 xl:px-3 xl:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition hover:opacity-90 shadow-sm shrink-0"
               style={{
                 backgroundColor: 'rgba(239, 68, 68, 0.1)',
                 color: '#dc2626',
@@ -288,7 +288,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               title="Admin-Bereich"
               aria-label="Admin-Bereich"
             >
-              <Shield className="w-3.5 h-3.5 text-red-600" />
+              <Shield className="w-4 h-4 xl:w-3.5 xl:h-3.5 text-red-600" />
               <span className="hidden xl:inline">Admin</span>
             </button>
           )}
@@ -296,7 +296,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           <button
             onClick={() => setPrivacyBlur((b) => !b)}
             data-tour="header-privacy-blur"
-            className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition ${
+            className={`w-10 h-10 md:w-auto md:h-auto p-0 md:px-3 md:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition shrink-0 ${
               privacyBlur ? 'ring-2 ring-amber-500 bg-amber-500/10 text-amber-600' : ''
             }`}
             style={
@@ -311,13 +311,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             title="Namen & Noten unscharf schalten (Alt+P)"
             aria-label="Datenschutz Unschärfe umschalten"
           >
-            {privacyBlur ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+            {privacyBlur ? <Eye className="w-4 h-4 md:w-3.5 md:h-3.5" /> : <EyeOff className="w-4 h-4 md:w-3.5 md:h-3.5" />}
             <span className="hidden md:inline">{privacyBlur ? 'Namen zeigen' : 'Namen ausblenden'}</span>
           </button>
 
           <button
             onClick={onLockVault}
-            className="px-2.5 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition hover:opacity-90"
+            className="w-10 h-10 sm:w-auto sm:h-auto p-0 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition hover:opacity-90 shrink-0"
             style={{
               backgroundColor: 'var(--bg-subtle)',
               color: 'var(--text-secondary)',
@@ -326,7 +326,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             title="Gradus21 sperren"
             aria-label="Abmelden und sperren"
           >
-            <Lock className="w-3.5 h-3.5" />
+            <Lock className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
             <span className="hidden sm:inline">Abmelden</span>
           </button>
         </div>
