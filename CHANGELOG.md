@@ -3,6 +3,29 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.2] - 2026-10-22
+
+### Sicherheits- & Löschprüfungen (Context-Aware Delete Safety)
+- **Kontextsensitive Bestätigungsmodale für Prüfungen (Assessments)**:
+  - Direktes, unbestätigtes Löschen von Leistungsnachweisen und Prüfungen vollständig durch ein fokussiertes Sicherheitsmodal (`assessmentPendingDelete`) ersetzt.
+  - Ermittelt dynamisch die Anzahl bereits gepflegter Noteneinträge (`raw_points`, `percent_value`, `direct_grade_value`, `comment`).
+  - Zeigt bei vorhandenen Noten einen deutlichen Warnhinweis inklusive genauer Notenzahl an, um versehentlichen Datenverlust im Unterrichtsalltag unmissverständlich auszuschließen.
+- **Kategorie-Löschschutz mit Noten- & Prüfungsprüfung (Grading Configurator & Class Management)**:
+  - Sichere Bestätigungsdialoge beim Entfernen von Notenkategorien in `ClassManagementModal` und `GradingConfiguratorView`.
+  - Prüft zugeordnete Prüfungen sowie bestehende Noteneinträge im Kontext und informiert transparent darüber, dass Prüfungen und Noten in eine verbleibende Fallback-Kategorie übertragen werden.
+  - Verhindert das Entfernen der letzten verbleibenden Kategorie.
+- **Klassen-Löschung mit Live-Datenmetriken**:
+  - `confirmDeleteClass` um Live-Metriken-Badges erweitert (`X Schüler:innen`, `Y Prüfungen`, `Z Noteneinträge`).
+  - Zeigt eine klare Warnmeldung mit Zusammenfassung des Umfangs vor der endgültigen Löschung einer Klasse an.
+- **Vorlagen-Löschschutz**:
+  - Eigene Notenvorlagen in `SettingsModal` verfügen nun über eine dedizierte Bestätigungsabfrage vor dem Entfernen.
+- **Code-Qualität & Bereinigung**:
+  - Unerreichbaren toten Code in `ClassMatrixView.tsx` (verwaistes `showNewAssessmentForm`-State und Formular-Markup) bereinigt.
+  - Vollständige Testabdeckung in `ClassManagementModal.test.tsx` für alle Sicherheits- und Kontextprüfungen ergänzt (52 Tests erfolgreich).
+
+### Versioning & Dokumentation
+- Bumped workspace version across Cargo workspace, Web client, WASM bindings und Dokumentation auf `v1.2.2`.
+
 ## [1.2.1] - 2026-10-21
 
 ### Bugfixes & Synchronization Resiliency

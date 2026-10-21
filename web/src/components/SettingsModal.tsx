@@ -11,6 +11,7 @@ import {
 } from '../data/demoClasses';
 import {
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   Cloud,
   CloudOff,
@@ -106,6 +107,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   }, [initialSection]);
   const [showAvvConfirmation, setShowAvvConfirmation] = useState(false);
+  const [templatePendingDelete, setTemplatePendingDelete] = useState<{ id: string; name: string } | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [savedIndicator, setSavedIndicator] = useState(false);
   const [systemIsDark, setSystemIsDark] = useState<boolean>(() => {
@@ -443,10 +445,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           </div>
                         </div>
                         <button
-                          onClick={() => deleteCustomTemplate(tpl.id)}
-                          className="p-1.5 rounded-lg border text-rose-600 hover:bg-rose-500/10"
+                          onClick={() => setTemplatePendingDelete({ id: tpl.id, name: tpl.name })}
+                          className="p-1.5 rounded-lg border text-rose-600 hover:bg-rose-500/10 transition"
                           style={{ borderColor: 'var(--border-subtle)' }}
-                          title="Vorlage löschen"
+                          title="Vorlage löschen..."
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -1205,6 +1207,68 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 <span>Ja, AVV liegt vor / genehmigt</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Safety Confirmation for Custom Template Deletion */}
+      {templatePendingDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div
+            className="max-w-md w-full rounded-2xl border p-5 shadow-2xl space-y-4"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-subtle)',
+            }}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/10 text-rose-600 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                    Vorlage löschen?
+                  </h4>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    {templatePendingDelete.name}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setTemplatePendingDelete(null)}
+                className="w-8 h-8 rounded-lg opacity-50 hover:opacity-100 transition inline-flex items-center justify-center shrink-0"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              Möchtest du die eigene Gewichtungsvorlage <strong>„{templatePendingDelete.name}“</strong> wirklich aus deinen Einstellungen entfernen?
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setTemplatePendingDelete(null)}
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold border transition hover:bg-black/5 dark:hover:bg-white/5"
+                style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  deleteCustomTemplate(templatePendingDelete.id);
+                  setTemplatePendingDelete(null);
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition flex items-center gap-1.5 shadow-sm"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Vorlage löschen</span>
               </button>
             </div>
           </div>

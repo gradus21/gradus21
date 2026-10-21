@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { BookmarkPlus, Globe, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, BookmarkPlus, Globe, Plus, Trash2, X } from 'lucide-react';
 import {
   CategoryConfig,
   ClassroomSubjectDataset,
@@ -81,6 +81,22 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
     0
   );
 
+  const [categoryPendingDelete, setCategoryPendingDelete] = useState<CategoryConfig | null>(null);
+
+  const getCategoryStats = (catId: string) => {
+    const assessments = activeDataset.assessments.filter((a) => a.category_id === catId);
+    const assessIds = new Set(assessments.map((a) => a.id));
+    const gradeCount = (activeDataset.grades || []).filter(
+      (g) =>
+        assessIds.has(g.assessment_id) &&
+        (g.raw_points !== null ||
+          g.percent_value !== null ||
+          g.direct_grade_value !== null ||
+          (g.comment !== null && g.comment.trim() !== ''))
+    ).length;
+    return { assessmentCount: assessments.length, gradeCount };
+  };
+
   const displayedWeightingPresets = useMemo(() => {
     if (showAllWeightingPresets) return WEIGHTING_PRESET_CATALOG;
     const favs = WEIGHTING_PRESET_CATALOG.filter((p) =>
@@ -110,6 +126,19 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
 
   const handleDeleteCategory = (catId: string) => {
     if (activeDataset.categories.length <= 1) return;
+    const cat = activeDataset.categories.find((c) => c.id === catId);
+    if (cat) {
+      setCategoryPendingDelete(cat);
+    }
+  };
+
+  const handleConfirmDeleteCategory = () => {
+    if (!categoryPendingDelete) return;
+    const catId = categoryPendingDelete.id;
+    if (activeDataset.categories.length <= 1) {
+      setCategoryPendingDelete(null);
+      return;
+    }
     const fallbackCatId =
       activeDataset.categories.find((c) => c.id !== catId)?.id || activeDataset.categories[0].id;
     updateSubjectConfig((ds) => ({
@@ -119,6 +148,7 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
         a.category_id === catId ? { ...a, category_id: fallbackCatId } : a
       ),
     }));
+    setCategoryPendingDelete(null);
   };
 
   const handleSaveCurrentAsCustomTemplate = (e: React.FormEvent) => {
@@ -1414,6 +1444,92 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
             </div>
           </div>
         )}
+
+        {/* Category Deletion Safety Confirmation Modal */}
+        {categoryPendingDelete && (() => {
+          const { assessmentCount, gradeCount } = getCategoryStats(categoryPendingDelete.id);
+          const fallbackCat = activeDataset.categories.find((c) => c.id !== categoryPendingDelete.id);
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+              <div
+                className="max-w-md w-full rounded-2xl border p-5 shadow-2xl space-y-4"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  borderColor: 'var(--border-subtle)',
+                }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-rose-500/10 text-rose-600 flex items-center justify-center shrink-0">
+                      <AlertTriangle className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                        Kategorie löschen?
+                      </h4>
+                      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        „{categoryPendingDelete.name}“ ({Math.round(categoryPendingDelete.weight * 100)}%)
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setCategoryPendingDelete(null)}
+                    className="w-8 h-8 rounded-lg opacity-50 hover:opacity-100 transition inline-flex items-center justify-center shrink-0"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Context info on affected assessments & grades */}
+                <div
+                  className="p-3 rounded-xl border text-xs space-y-1.5"
+                  style={{
+                    backgroundColor: 'var(--bg-subtle)',
+                    borderColor: 'var(--border-subtle)',
+                  }}
+                >
+                  <div className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                    Betroffene Prüfungen & Noten:
+                  </div>
+                  <div className="text-[11px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                    {assessmentCount > 0 ? (
+                      <>
+                        In dieser Kategorie befinden sich aktuell <strong>{assessmentCount} Prüfung(en)</strong> mit insgesamt <strong>{gradeCount} Noteneinträgen</strong>.
+                        {fallbackCat && (
+                          <div className="mt-1 text-teal-700 dark:text-teal-300 font-medium">
+                            ℹ️ Diese Prüfungen werden automatisch in die verbleibende Kategorie <strong>„{fallbackCat.name}“</strong> übertragen.
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <span>In dieser Kategorie sind zurzeit keine Prüfungen angelegt. Die Kategorie kann ohne Auswirkung auf bestehende Noten entfernt werden.</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setCategoryPendingDelete(null)}
+                    className="px-3.5 py-2 rounded-xl text-xs font-semibold border transition hover:bg-black/5 dark:hover:bg-white/5"
+                    style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                  >
+                    Abbrechen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmDeleteCategory}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition flex items-center gap-1.5 shadow-sm"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Kategorie löschen</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

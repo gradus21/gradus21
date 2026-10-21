@@ -61,7 +61,7 @@ export interface ClassMatrixViewProps {
   toggleStudentNotGraded: (studentId: string) => void;
   toggleStudentArchived: (studentId: string) => void;
   onAddStudent: (name: string, level: 'G' | 'M' | 'E') => void;
-  onAddAssessment: (
+  onAddAssessment?: (
     title: string,
     categoryId: string,
     inputMode: AssessmentInputMode
@@ -92,21 +92,13 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
   toggleStudentNotGraded,
   toggleStudentArchived,
   onAddStudent,
-  onAddAssessment,
+  onAddAssessment: _onAddAssessment,
   onUpdateDatasetMeta,
 }) => {
   const [showExportConfigModal, setShowExportConfigModal] = useState(false);
   const [showNewStudentForm, setShowNewStudentForm] = useState(false);
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentLevel, setNewStudentLevel] = useState<'G' | 'M' | 'E'>('M');
-
-  const [showNewAssessmentForm, setShowNewAssessmentForm] = useState(false);
-  const [newAssessmentTitle, setNewAssessmentTitle] = useState('');
-  const [newAssessmentCategoryId, setNewAssessmentCategoryId] = useState(
-    activeDataset.categories[0]?.id || ''
-  );
-  const [newAssessmentInputMode, setNewAssessmentInputMode] =
-    useState<AssessmentInputMode>('percent');
   const [showExportMenu, setShowExportMenu] = useState(false);
 
   const visibleStudents = React.useMemo(
@@ -148,18 +140,6 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
     onAddStudent(newStudentName.trim(), newStudentLevel);
     setNewStudentName('');
     setShowNewStudentForm(false);
-  };
-
-  const handleCreateAssessment = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newAssessmentTitle.trim()) return;
-    onAddAssessment(
-      newAssessmentTitle.trim(),
-      newAssessmentCategoryId || activeDataset.categories[0]?.id || '',
-      newAssessmentInputMode
-    );
-    setNewAssessmentTitle('');
-    setShowNewAssessmentForm(false);
   };
 
   return (
@@ -407,72 +387,6 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
             style={{ backgroundColor: 'var(--primary-500)' }}
           >
             Schüler:in hinzufügen
-          </button>
-        </form>
-      )}
-
-      {/* Inline New Assessment Creator */}
-      {showNewAssessmentForm && (
-        <form
-          onSubmit={handleCreateAssessment}
-          className="p-4 rounded-2xl border flex flex-wrap items-end gap-3 shadow-sm"
-          style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
-        >
-          <div>
-            <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-              Bezeichnung der Prüfung
-            </label>
-            <input
-              type="text"
-              value={newAssessmentTitle}
-              onChange={(e) => setNewAssessmentTitle(e.target.value)}
-              placeholder="z.B. Vokabeltest Unit 2"
-              className="px-3 py-1.5 rounded-lg border text-xs bg-transparent"
-              style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
-            />
-          </div>
-          <div>
-            <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-              Kategorie-Topf
-            </label>
-            <select
-              value={newAssessmentCategoryId}
-              onChange={(e) => setNewAssessmentCategoryId(e.target.value)}
-              className="px-3 py-1.5 rounded-lg border text-xs bg-transparent"
-              style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
-            >
-              {activeDataset.categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({Math.round((c.weight / totalCatWeight) * 100)}%)
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-              Bewertungsmodus
-            </label>
-            <select
-              value={newAssessmentInputMode}
-              onChange={(e) => setNewAssessmentInputMode(e.target.value as AssessmentInputMode)}
-              className="px-3 py-1.5 rounded-lg border text-xs bg-transparent"
-              style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
-            >
-              <option value="percent">Prozent (0–100%)</option>
-              <option value="points">Rohpunkte (Punkte / Max)</option>
-              <option value="grade_scale">
-                {activeDataset.config.scale_id === 'de_oberstufe_0_to_15'
-                  ? 'Notenpunkte (0–15)'
-                  : 'Direkte Note (1–6)'}
-              </option>
-            </select>
-          </div>
-          <button
-            type="submit"
-            className="px-4 py-1.5 rounded-lg text-xs font-bold text-white"
-            style={{ backgroundColor: 'var(--primary-500)' }}
-          >
-            Spalte anlegen
           </button>
         </form>
       )}

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  AssessmentCategory,
   AssessmentConfig,
   AssessmentInputMode,
   ClassroomSubjectDataset,
@@ -58,6 +59,8 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
   const [newAssessWeight, setNewAssessWeight] = useState<number>(1.0);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
   const [studentPendingDelete, setStudentPendingDelete] = useState<StudentProfile | null>(null);
+  const [assessmentPendingDelete, setAssessmentPendingDelete] = useState<AssessmentConfig | null>(null);
+  const [categoryPendingDelete, setCategoryPendingDelete] = useState<AssessmentCategory | null>(null);
   const [pendingBulkClean, setPendingBulkClean] = useState(false);
   const [retentionDays] = useState(30);
   const [showCategoryEditor, setShowCategoryEditor] = useState(false);
@@ -69,9 +72,45 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
     return dataset.grades.filter(
       (g) =>
         g.student_id === studentId &&
-        (g.raw_points !== null || g.percent_value !== null || g.direct_grade_value !== null)
+        (g.raw_points !== null ||
+          g.percent_value !== null ||
+          g.direct_grade_value !== null ||
+          (g.comment !== null && g.comment.trim() !== ''))
     ).length;
   };
+
+  const getAssessmentGradeCount = (assessmentId: string) => {
+    return (dataset.grades || []).filter(
+      (g) =>
+        g.assessment_id === assessmentId &&
+        (g.raw_points !== null ||
+          g.percent_value !== null ||
+          g.direct_grade_value !== null ||
+          (g.comment !== null && g.comment.trim() !== ''))
+    ).length;
+  };
+
+  const getCategoryStats = (catId: string) => {
+    const assessments = dataset.assessments.filter((a) => a.category_id === catId);
+    const assessIds = new Set(assessments.map((a) => a.id));
+    const gradeCount = (dataset.grades || []).filter(
+      (g) =>
+        assessIds.has(g.assessment_id) &&
+        (g.raw_points !== null ||
+          g.percent_value !== null ||
+          g.direct_grade_value !== null ||
+          (g.comment !== null && g.comment.trim() !== ''))
+    ).length;
+    return { assessmentCount: assessments.length, gradeCount };
+  };
+
+  const totalClassGradesCount = (dataset.grades || []).filter(
+    (g) =>
+      g.raw_points !== null ||
+      g.percent_value !== null ||
+      g.direct_grade_value !== null ||
+      (g.comment !== null && g.comment.trim() !== '')
+  ).length;
 
   const getRetentionInfo = (archivedAt?: string) => {
     if (!archivedAt) {
@@ -211,6 +250,21 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
       showToast('Es muss mindestens eine Kategorie vorhanden bleiben.');
       return;
     }
+    const cat = dataset.categories.find((c) => c.id === catId);
+    if (cat) {
+      setCategoryPendingDelete(cat);
+    }
+  };
+
+  const handleConfirmDeleteCategory = () => {
+    if (!categoryPendingDelete) return;
+    const catId = categoryPendingDelete.id;
+    const name = categoryPendingDelete.name;
+    if (dataset.categories.length <= 1) {
+      showToast('Es muss mindestens eine Kategorie vorhanden bleiben.');
+      setCategoryPendingDelete(null);
+      return;
+    }
     const fallbackCatId = dataset.categories.find((c) => c.id !== catId)?.id || dataset.categories[0].id;
     onUpdateDataset((ds) => ({
       ...ds,
@@ -219,6 +273,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
         a.category_id === catId ? { ...a, category_id: fallbackCatId } : a
       ),
     }));
+    setCategoryPendingDelete(null);
     showToast(`Kategorie „${name}“ entfernt. Prüfungen wurden übernommen.`);
   };
 
@@ -237,6 +292,12 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
       grades: ds.grades.filter((g) => g.assessment_id !== assessmentId),
     }));
     showToast(`Prüfungsspalte „${title}“ wurde entfernt.`);
+  };
+
+  const handleConfirmDeleteAssessment = () => {
+    if (!assessmentPendingDelete) return;
+    deleteAssessment(assessmentPendingDelete.id, assessmentPendingDelete.title);
+    setAssessmentPendingDelete(null);
   };
 
   const handleCreateAssessments = (e: React.FormEvent) => {
@@ -1165,10 +1226,10 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
                                   </div>
 
                                   <button
-                                    onClick={() => deleteAssessment(assess.id, assess.title)}
+                                    onClick={() => setAssessmentPendingDelete(assess)}
                                     className="p-1.5 rounded-lg border text-rose-600 hover:bg-rose-500/10 transition"
                                     style={{ borderColor: 'var(--border-subtle)' }}
-                                    title="Prüfungsspalte löschen"
+                                    title="Prüfungsspalte löschen..."
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
@@ -1289,39 +1350,71 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
               </div>
 
               {canDeleteClass && (
-                <div className="p-4 rounded-2xl border border-rose-500/30 bg-rose-500/5 flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="text-xs font-bold text-rose-600">
-                      Gesamte Klasse löschen
+                <div className="p-4 rounded-2xl border border-rose-500/30 bg-rose-500/5 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-bold text-rose-600 flex items-center gap-1.5">
+                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                        <span>Gesamte Klasse löschen</span>
+                      </div>
+                      <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                        Entfernt diese Klasse, alle Schüler:innen, Prüfungen und Noten unwiderruflich.
+                      </div>
                     </div>
-                    <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-                      Entfernt diese Klasse und alle zugehörigen Noten unwiderruflich.
-                    </div>
+                    {!confirmDeleteClass && (
+                      <button
+                        onClick={() => setConfirmDeleteClass(true)}
+                        className="px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white transition"
+                      >
+                        Klasse löschen...
+                      </button>
+                    )}
                   </div>
-                  {!confirmDeleteClass ? (
-                    <button
-                      onClick={() => setConfirmDeleteClass(true)}
-                      className="px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-600 text-white"
-                    >
-                      Klasse löschen...
-                    </button>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => {
-                          onDeleteClass(dataset.id);
-                          onClose();
-                        }}
-                        className="px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-700 text-white"
-                      >
-                        Ja, endgültig löschen
-                      </button>
-                      <button
-                        onClick={() => setConfirmDeleteClass(false)}
-                        className="px-3 py-2 rounded-xl text-xs font-semibold border"
-                      >
-                        Abbrechen
-                      </button>
+
+                  {confirmDeleteClass && (
+                    <div className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 space-y-3 animate-in fade-in duration-150">
+                      <div className="text-xs font-bold text-rose-700 dark:text-rose-300">
+                        Sicherheitsprüfung vor dem Löschen:
+                      </div>
+                      <div className="flex flex-wrap gap-2 text-xs">
+                        <span className="px-2.5 py-1 rounded-lg font-medium bg-rose-500/20 text-rose-800 dark:text-rose-200">
+                          👥 {dataset.students.length} Schüler:innen ({activeStudents.length} aktiv, {archivedStudents.length} archiviert)
+                        </span>
+                        <span className="px-2.5 py-1 rounded-lg font-medium bg-rose-500/20 text-rose-800 dark:text-rose-200">
+                          📝 {dataset.assessments.length} Prüfungen
+                        </span>
+                        <span className="px-2.5 py-1 rounded-lg font-medium bg-rose-500/20 text-rose-800 dark:text-rose-200">
+                          🎯 {totalClassGradesCount} Noteneinträge
+                        </span>
+                      </div>
+                      {totalClassGradesCount > 0 ? (
+                        <p className="text-[11px] text-rose-700 dark:text-rose-300 font-semibold leading-relaxed">
+                          ⚠️ Achtung: Es sind bereits {totalClassGradesCount} Noten in dieser Klasse gepflegt. Beim Bestätigen werden all diese Leistungsdaten unwiderruflich vernichtet!
+                        </p>
+                      ) : (
+                        <p className="text-[11px] text-rose-700 dark:text-rose-300 leading-relaxed">
+                          Es sind keine Noteneinträge vorhanden. Die Stammdaten und Prüfungsspalten werden entfernt.
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          onClick={() => {
+                            onDeleteClass(dataset.id);
+                            onClose();
+                          }}
+                          className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-700 hover:bg-rose-800 text-white transition flex items-center gap-1.5 shadow-sm"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Ja, endgültig löschen</span>
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteClass(false)}
+                          className="px-3.5 py-2 rounded-xl text-xs font-semibold border hover:bg-black/5 dark:hover:bg-white/5 transition"
+                          style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                        >
+                          Abbrechen
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1543,6 +1636,183 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
             </div>
           </div>
         )}
+
+        {/* Assessment Deletion Safety Confirmation Modal */}
+        {assessmentPendingDelete && (() => {
+          const gradeCount = getAssessmentGradeCount(assessmentPendingDelete.id);
+          const cat = dataset.categories.find((c) => c.id === assessmentPendingDelete.category_id);
+          const termName = assessmentPendingDelete.term_id === 'hj1' ? '1. Halbjahr' : '2. Halbjahr';
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+              <div
+                className="max-w-md w-full rounded-2xl border p-5 shadow-2xl space-y-4"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  borderColor: 'var(--border-subtle)',
+                }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-rose-500/10 text-rose-600 flex items-center justify-center shrink-0">
+                      <AlertTriangle className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                        Prüfungsspalte löschen?
+                      </h4>
+                      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        „{assessmentPendingDelete.title}“ · {termName} {cat ? `· ${cat.name}` : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setAssessmentPendingDelete(null)}
+                    className="w-8 h-8 rounded-lg opacity-50 hover:opacity-100 transition inline-flex items-center justify-center shrink-0"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Info on maintained grades */}
+                <div
+                  className={`p-3 rounded-xl border text-xs space-y-1.5 ${
+                    gradeCount > 0
+                      ? 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300'
+                      : 'border-[var(--border-subtle)] bg-[var(--bg-subtle)]'
+                  }`}
+                >
+                  <div className="font-semibold flex items-center gap-1.5">
+                    {gradeCount > 0 ? (
+                      <>
+                        <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
+                        <span>Achtung: Noteneinträge vorhanden!</span>
+                      </>
+                    ) : (
+                      <span style={{ color: 'var(--text-primary)' }}>Prüfungsinhalt:</span>
+                    )}
+                  </div>
+                  <p className="text-[11px] leading-relaxed">
+                    {gradeCount > 0 ? (
+                      <>
+                        Für diese Prüfung sind aktuell <strong>{gradeCount} Noteneinträge</strong> erfasst. Beim Löschen werden diese Noten <strong>unwiderruflich vernichtet</strong>.
+                      </>
+                    ) : (
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        Für diese Prüfung sind noch keine Noten eingetragen. Die Spalte kann ohne Datenverlust entfernt werden.
+                      </span>
+                    )}
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setAssessmentPendingDelete(null)}
+                    className="px-3.5 py-2 rounded-xl text-xs font-semibold border transition hover:bg-black/5 dark:hover:bg-white/5"
+                    style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                  >
+                    Abbrechen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmDeleteAssessment}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition flex items-center gap-1.5 shadow-sm"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Prüfung unwiderruflich löschen</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Category Deletion Safety Confirmation Modal */}
+        {categoryPendingDelete && (() => {
+          const { assessmentCount, gradeCount } = getCategoryStats(categoryPendingDelete.id);
+          const fallbackCat = dataset.categories.find((c) => c.id !== categoryPendingDelete.id);
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+              <div
+                className="max-w-md w-full rounded-2xl border p-5 shadow-2xl space-y-4"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  borderColor: 'var(--border-subtle)',
+                }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-rose-500/10 text-rose-600 flex items-center justify-center shrink-0">
+                      <AlertTriangle className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                        Kategorie löschen?
+                      </h4>
+                      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        „{categoryPendingDelete.name}“ ({Math.round(categoryPendingDelete.weight * 100)}%)
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setCategoryPendingDelete(null)}
+                    className="w-8 h-8 rounded-lg opacity-50 hover:opacity-100 transition inline-flex items-center justify-center shrink-0"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Context info on affected assessments & grades */}
+                <div
+                  className="p-3 rounded-xl border text-xs space-y-1.5"
+                  style={{
+                    backgroundColor: 'var(--bg-subtle)',
+                    borderColor: 'var(--border-subtle)',
+                  }}
+                >
+                  <div className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                    Betroffene Prüfungen & Noten:
+                  </div>
+                  <div className="text-[11px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                    {assessmentCount > 0 ? (
+                      <>
+                        In dieser Kategorie befinden sich aktuell <strong>{assessmentCount} Prüfung(en)</strong> mit insgesamt <strong>{gradeCount} Noteneinträgen</strong>.
+                        {fallbackCat && (
+                          <div className="mt-1 text-teal-700 dark:text-teal-300 font-medium">
+                            ℹ️ Diese Prüfungen werden automatisch in die verbleibende Kategorie <strong>„{fallbackCat.name}“</strong> übertragen.
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <span>In dieser Kategorie sind zurzeit keine Prüfungen angelegt. Die Kategorie kann ohne Auswirkung auf bestehende Noten entfernt werden.</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setCategoryPendingDelete(null)}
+                    className="px-3.5 py-2 rounded-xl text-xs font-semibold border transition hover:bg-black/5 dark:hover:bg-white/5"
+                    style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                  >
+                    Abbrechen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmDeleteCategory}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition flex items-center gap-1.5 shadow-sm"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Kategorie jetzt entfernen</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

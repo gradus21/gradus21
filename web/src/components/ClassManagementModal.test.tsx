@@ -165,4 +165,117 @@ describe('ClassManagementModal - Student Safety & Retention Mechanism', () => {
     const createdTitles = updatedDs.assessments.slice(-3).map((a) => a.title);
     expect(createdTitles).toEqual(['Kurzarbeit 1', 'Kurzarbeit 2', 'Kurzarbeit 3']);
   });
+
+  it('requires confirmation before deleting an assessment and alerts when grades exist', () => {
+    const ds = getBaseDataset();
+    const handleUpdate = vi.fn();
+    const targetAssess = ds.assessments[0];
+
+    // Ensure there is at least one grade for this assessment
+    ds.grades.push({
+      student_id: ds.students[0].id,
+      assessment_id: targetAssess.id,
+      status: 'graded',
+      percent_value: 85,
+      raw_points: null,
+      direct_grade_value: null,
+      comment: null,
+    });
+
+    render(
+      <ClassManagementModal
+        dataset={ds}
+        canDeleteClass={false}
+        initialTab="assessments"
+        onUpdateDataset={handleUpdate}
+        onDeleteClass={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+
+    // Find delete button for the first assessment
+    const deleteButtons = screen.getAllByTitle('Prüfungsspalte löschen...');
+    expect(deleteButtons.length).toBeGreaterThan(0);
+    fireEvent.click(deleteButtons[0]);
+
+    // Safety modal must appear with warning about existing grades
+    expect(screen.getByText('Prüfungsspalte löschen?')).toBeInTheDocument();
+    expect(screen.getByText(/Achtung: Noteneinträge vorhanden!/i)).toBeInTheDocument();
+    expect(screen.getByText(/unwiderruflich vernichtet/i)).toBeInTheDocument();
+    expect(handleUpdate).not.toHaveBeenCalled(); // No immediate deletion!
+
+    // Click confirm deletion
+    const confirmBtn = screen.getByRole('button', { name: /prüfung unwiderruflich löschen/i });
+    fireEvent.click(confirmBtn);
+
+    expect(handleUpdate).toHaveBeenCalled();
+  });
+
+  it('requires confirmation before deleting a category and shows fallback info', () => {
+    const ds = getBaseDataset();
+    const handleUpdate = vi.fn();
+
+    render(
+      <ClassManagementModal
+        dataset={ds}
+        canDeleteClass={false}
+        initialTab="assessments"
+        onUpdateDataset={handleUpdate}
+        onDeleteClass={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+
+    // Toggle category editor
+    const editCatBtn = screen.getByRole('button', { name: /kategorien.*bearbeiten/i });
+    fireEvent.click(editCatBtn);
+
+    // Find category delete button
+    const deleteCatButtons = screen.getAllByTitle('Kategorie löschen (Prüfungen werden übertragen)');
+    expect(deleteCatButtons.length).toBeGreaterThan(0);
+    fireEvent.click(deleteCatButtons[0]);
+
+    // Confirmation modal appears
+    expect(screen.getByText('Kategorie löschen?')).toBeInTheDocument();
+    expect(screen.getByText(/Betroffene Prüfungen & Noten:/i)).toBeInTheDocument();
+    expect(handleUpdate).not.toHaveBeenCalled();
+
+    // Confirm deletion
+    const confirmBtn = screen.getByRole('button', { name: /kategorie jetzt entfernen/i });
+    fireEvent.click(confirmBtn);
+
+    expect(handleUpdate).toHaveBeenCalled();
+  });
+
+  it('displays detailed metrics (students, exams, grades) before deleting an entire class', () => {
+    const ds = getBaseDataset();
+    const handleDeleteClass = vi.fn();
+
+    render(
+      <ClassManagementModal
+        dataset={ds}
+        canDeleteClass={true}
+        initialTab="meta"
+        onUpdateDataset={vi.fn()}
+        onDeleteClass={handleDeleteClass}
+        onClose={vi.fn()}
+      />
+    );
+
+    // Initial button
+    const deleteClassBtn = screen.getByRole('button', { name: /klasse löschen\.\.\./i });
+    fireEvent.click(deleteClassBtn);
+
+    // Should display metrics
+    expect(screen.getByText('Sicherheitsprüfung vor dem Löschen:')).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`${ds.students.length} Schüler:innen`, 'i'))).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`${ds.assessments.length} Prüfungen`, 'i'))).toBeInTheDocument();
+    expect(screen.getByText(/gespeicherte Noten|Noteneinträge/i)).toBeInTheDocument();
+
+    // Confirm button
+    const finalConfirmBtn = screen.getByRole('button', { name: /ja, endgültig löschen/i });
+    fireEvent.click(finalConfirmBtn);
+
+    expect(handleDeleteClass).toHaveBeenCalledWith(ds.id);
+  });
 });
