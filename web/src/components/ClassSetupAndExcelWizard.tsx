@@ -3,6 +3,7 @@ import {
   AssessmentConfig,
   CategoryConfig,
   ClassroomSubjectDataset,
+  CustomWeightingTemplate,
   GradeEntry,
   GradingScaleId,
   StudentProfile,
@@ -15,6 +16,7 @@ interface ClassSetupAndExcelWizardProps {
   onClose: () => void;
   onCreateClass: (newClass: ClassroomSubjectDataset) => void;
   globalTemplates?: GlobalTemplateRecord[];
+  userTemplates?: CustomWeightingTemplate[];
   onLoadDemoClass?: () => void;
 }
 
@@ -30,6 +32,7 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
   onClose,
   onCreateClass,
   globalTemplates = [],
+  userTemplates = [],
   onLoadDemoClass,
 }) => {
   const [activeTab, setActiveTab] = useState<'excel' | 'wizard'>('excel');
@@ -42,19 +45,49 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
   const [scaleId, setScaleId] = useState<GradingScaleId>('de_classic_1_to_6');
 
   const availableTemplates = useMemo(() => {
-    const globals = (globalTemplates || []).filter((t) => t.template_type === 'weighting');
-    if (globals.length > 0) {
-      return globals.map((t) => ({
-        id: t.id,
-        title: t.title,
-        desc: t.description || t.payload?.desc,
-        categories: t.payload?.categories,
-        weights: t.payload?.weights,
-        scale_id: t.payload?.scale_id as GradingScaleId | undefined,
-        isGlobal: true,
-      }));
+    const list: Array<{
+      id: string;
+      title: string;
+      desc: string;
+      categories?: CategoryConfig[];
+      weights?: number[];
+      scale_id?: GradingScaleId;
+      badge: 'user' | 'global' | 'standard';
+    }> = [];
+
+    // 1. User's own saved templates (highest priority)
+    if (userTemplates && userTemplates.length > 0) {
+      for (const ut of userTemplates) {
+        list.push({
+          id: ut.id,
+          title: ut.name,
+          desc:
+            ut.description ||
+            `${ut.categories.length} Kategorien (${ut.categories.map((c) => c.short_code).join(', ')})`,
+          categories: ut.categories.map((c) => ({ ...c })),
+          weights: ut.categories.map((c) => c.weight),
+          scale_id: undefined,
+          badge: 'user',
+        });
+      }
     }
-    return [
+
+    // 2. Global school templates
+    const globals = (globalTemplates || []).filter((t) => t.template_type === 'weighting');
+    for (const gt of globals) {
+      list.push({
+        id: gt.id,
+        title: gt.title,
+        desc: gt.description || gt.payload?.desc || 'Schulweite Vorlage',
+        categories: gt.payload?.categories,
+        weights: gt.payload?.weights,
+        scale_id: gt.payload?.scale_id as GradingScaleId | undefined,
+        badge: 'global',
+      });
+    }
+
+    // 3. System standards
+    list.push(
       {
         id: 'three_pillars',
         title: '3-Säulen (LNW / Mündl / Tests)',
@@ -66,7 +99,7 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
         ],
         weights: [0.5, 0.3, 0.2],
         scale_id: undefined,
-        isGlobal: false,
+        badge: 'standard',
       },
       {
         id: 'main_50_50',
@@ -78,7 +111,7 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
         ],
         weights: [0.5, 0.5],
         scale_id: undefined,
-        isGlobal: false,
+        badge: 'standard',
       },
       {
         id: 'oberstufe',
@@ -90,10 +123,12 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
         ],
         weights: [0.5, 0.5],
         scale_id: 'de_oberstufe_0_to_15' as GradingScaleId,
-        isGlobal: false,
-      },
-    ];
-  }, [globalTemplates]);
+        badge: 'standard',
+      }
+    );
+
+    return list;
+  }, [globalTemplates, userTemplates]);
 
   const [templatePreset, setTemplatePreset] = useState<string>(() => availableTemplates[0]?.id || 'three_pillars');
 
@@ -642,13 +677,21 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
                       borderColor: 'var(--border-subtle)',
                     }}
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="font-bold text-xs" style={{ color: 'var(--text-primary)' }}>
+                    <div className="flex items-center justify-between gap-1">
+                      <div className="font-bold text-xs truncate" style={{ color: 'var(--text-primary)' }}>
                         {tpl.title}
                       </div>
-                      {tpl.isGlobal && (
-                        <span className="text-[9px] px-1 bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded font-semibold ml-1 shrink-0">
-                          Global
+                      {tpl.badge === 'user' ? (
+                        <span className="text-[9px] px-1.5 py-0.5 bg-teal-100 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300 rounded-md font-bold shrink-0 border border-teal-500/30">
+                          Eigene Vorlage
+                        </span>
+                      ) : tpl.badge === 'global' ? (
+                        <span className="text-[9px] px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded-md font-semibold shrink-0 border border-indigo-500/30">
+                          Schule
+                        </span>
+                      ) : (
+                        <span className="text-[9px] px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-md font-medium shrink-0">
+                          Standard
                         </span>
                       )}
                     </div>

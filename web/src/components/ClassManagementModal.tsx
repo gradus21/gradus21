@@ -67,6 +67,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
   const [studentPendingDelete, setStudentPendingDelete] = useState<StudentProfile | null>(null);
   const [pendingBulkClean, setPendingBulkClean] = useState(false);
   const [retentionDays] = useState(30);
+  const [showCategoryEditor, setShowCategoryEditor] = useState(false);
 
   const activeStudents = dataset.students.filter((s) => !s.is_archived);
   const archivedStudents = dataset.students.filter((s) => s.is_archived);
@@ -188,6 +189,46 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
     showToast(`„${name}“ und zugehörige Noten wurden endgültig gelöscht.`);
   };
 
+  // --- Category Actions ---
+  const updateCategoryField = (categoryId: string, patch: Partial<CategoryConfig>) => {
+    onUpdateDataset((ds) => ({
+      ...ds,
+      categories: ds.categories.map((c) => (c.id === categoryId ? { ...c, ...patch } : c)),
+    }));
+  };
+
+  const handleAddCategory = () => {
+    const nextNum = dataset.categories.length + 1;
+    const newCat: CategoryConfig = {
+      id: `cat_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+      name: `Neuer Bereich ${nextNum}`,
+      short_code: `B${nextNum}`,
+      weight: 0.2,
+      drop_lowest_count: 0,
+    };
+    onUpdateDataset((ds) => ({
+      ...ds,
+      categories: [...ds.categories, newCat],
+    }));
+    showToast(`Kategorie „${newCat.name}“ angelegt.`);
+  };
+
+  const handleDeleteCategory = (catId: string, name: string) => {
+    if (dataset.categories.length <= 1) {
+      showToast('Es muss mindestens eine Kategorie vorhanden bleiben.');
+      return;
+    }
+    const fallbackCatId = dataset.categories.find((c) => c.id !== catId)?.id || dataset.categories[0].id;
+    onUpdateDataset((ds) => ({
+      ...ds,
+      categories: ds.categories.filter((c) => c.id !== catId),
+      assessments: ds.assessments.map((a) =>
+        a.category_id === catId ? { ...a, category_id: fallbackCatId } : a
+      ),
+    }));
+    showToast(`Kategorie „${name}“ entfernt. Prüfungen wurden übernommen.`);
+  };
+
   // --- Assessment / Exam Actions ---
   const updateAssessmentField = (assessmentId: string, patch: Partial<AssessmentConfig>) => {
     onUpdateDataset((ds) => ({
@@ -298,7 +339,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
       <div
-        className="max-w-4xl w-full rounded-2xl border p-4 sm:p-6 shadow-xl space-y-4 sm:space-y-5 max-h-[95vh] sm:max-h-[90vh] flex flex-col"
+        className="max-w-5xl lg:max-w-6xl w-full rounded-2xl border p-4 sm:p-6 shadow-xl space-y-4 sm:space-y-5 max-h-[95vh] sm:max-h-[90vh] flex flex-col"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
         {/* Header */}
@@ -661,49 +702,152 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
                           </div>
                         </div>
                       </div>
-                      {onOpenConfigurator && (
+                      <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => {
-                            onClose();
-                            onOpenConfigurator();
-                          }}
+                          onClick={() => setShowCategoryEditor((prev) => !prev)}
                           className="px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 hover:bg-teal-500/10 text-teal-700 dark:text-teal-300 transition shrink-0"
                           style={{ borderColor: 'var(--border-subtle)' }}
                         >
                           <SlidersHorizontal className="w-3.5 h-3.5" />
-                          <span>Gewichtung im Konfigurator anpassen</span>
+                          <span>{showCategoryEditor ? 'Kategorie-Editor schließen' : 'Kategorien & Anteile bearbeiten'}</span>
                         </button>
-                      )}
+                        {onOpenConfigurator && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onClose();
+                              onOpenConfigurator();
+                            }}
+                            className="px-2.5 py-1.5 rounded-xl text-xs font-semibold border text-slate-600 dark:text-slate-400 hover:bg-slate-500/10 transition shrink-0 hidden sm:inline-flex"
+                            style={{ borderColor: 'var(--border-subtle)' }}
+                            title="Erweiterte Konfiguration (G/M/E-Schwellen etc.) öffnen"
+                          >
+                            <span>Konfigurator-Ansicht</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 pt-1">
-                      {dataset.categories.map((c) => {
-                        const pct = Math.round((c.weight / totalCatWeight) * 100);
-                        const countHj1 = dataset.assessments.filter((a) => a.category_id === c.id && a.term_id === 'hj1').length;
-                        const countHj2 = dataset.assessments.filter((a) => a.category_id === c.id && a.term_id === 'hj2').length;
-                        return (
-                          <div
-                            key={c.id}
-                            className="p-3 rounded-xl border flex flex-col justify-between gap-1 shadow-xs"
-                            style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
+                    {/* Inline Category Editor if toggled */}
+                    {showCategoryEditor ? (
+                      <div
+                        className="p-3.5 rounded-xl border space-y-3 bg-white dark:bg-slate-900 shadow-sm"
+                        style={{ borderColor: 'var(--border-subtle)' }}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
+                            Kategorienamen, Kürzel und Gewichtungsfaktoren anpassen:
+                          </span>
+                          <button
+                            type="button"
+                            onClick={handleAddCategory}
+                            className="px-2.5 py-1 rounded-lg text-xs font-bold text-white flex items-center gap-1 shadow-xs"
+                            style={{ backgroundColor: 'var(--primary-500)' }}
                           >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-bold text-xs truncate" style={{ color: 'var(--text-primary)' }}>
-                                {c.name}
-                              </span>
-                              <span className="px-2 py-0.5 rounded-md font-mono text-xs font-bold bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30 shrink-0">
-                                {pct}%
-                              </span>
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>+ Kategorie hinzufügen</span>
+                          </button>
+                        </div>
+
+                        <div className="divide-y text-xs" style={{ borderColor: 'var(--border-subtle)' }}>
+                          {dataset.categories.map((c) => {
+                            const pct = Math.round((c.weight / totalCatWeight) * 100);
+                            return (
+                              <div
+                                key={c.id}
+                                className="py-2.5 flex flex-wrap items-center justify-between gap-2.5"
+                              >
+                                <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                                  <input
+                                    type="text"
+                                    value={c.name}
+                                    onChange={(e) => updateCategoryField(c.id, { name: e.target.value })}
+                                    placeholder="Kategoriename"
+                                    className="px-2.5 py-1 rounded-lg border font-semibold bg-transparent flex-1"
+                                    style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                                  />
+                                  <input
+                                    type="text"
+                                    value={c.short_code}
+                                    onChange={(e) => updateCategoryField(c.id, { short_code: e.target.value })}
+                                    placeholder="Kürzel"
+                                    className="w-20 px-2 py-1 rounded-lg border font-mono font-bold text-center bg-transparent"
+                                    style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                                  />
+                                </div>
+
+                                <div className="flex items-center gap-3">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[11px] opacity-70">Gewicht:</span>
+                                    <select
+                                      value={c.weight}
+                                      onChange={(e) => updateCategoryField(c.id, { weight: Number(e.target.value) || 0.1 })}
+                                      className="px-2 py-1 rounded-lg border font-mono text-xs bg-transparent"
+                                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                                    >
+                                      <option value={0.1} className="dark:bg-slate-900">0.1 (Sehr gering)</option>
+                                      <option value={0.2} className="dark:bg-slate-900">0.2 (20 %)</option>
+                                      <option value={0.3} className="dark:bg-slate-900">0.3 (30 %)</option>
+                                      <option value={0.4} className="dark:bg-slate-900">0.4 (40 %)</option>
+                                      <option value={0.5} className="dark:bg-slate-900">0.5 (50 %)</option>
+                                      <option value={0.6} className="dark:bg-slate-900">0.6 (60 %)</option>
+                                      <option value={0.7} className="dark:bg-slate-900">0.7 (70 %)</option>
+                                      <option value={1.0} className="dark:bg-slate-900">1.0 (Normal)</option>
+                                      <option value={2.0} className="dark:bg-slate-900">2.0 (Doppelt)</option>
+                                    </select>
+                                  </div>
+
+                                  <span className="px-2 py-0.5 rounded-md font-mono text-xs font-bold bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30">
+                                    = {pct}%
+                                  </span>
+
+                                  {dataset.categories.length > 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteCategory(c.id, c.name)}
+                                      className="p-1.5 rounded-lg border text-rose-600 hover:bg-rose-500/10 transition"
+                                      style={{ borderColor: 'var(--border-subtle)' }}
+                                      title="Kategorie löschen (Prüfungen werden übertragen)"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 pt-1">
+                        {dataset.categories.map((c) => {
+                          const pct = Math.round((c.weight / totalCatWeight) * 100);
+                          const countHj1 = dataset.assessments.filter((a) => a.category_id === c.id && a.term_id === 'hj1').length;
+                          const countHj2 = dataset.assessments.filter((a) => a.category_id === c.id && a.term_id === 'hj2').length;
+                          return (
+                            <div
+                              key={c.id}
+                              className="p-3 rounded-xl border flex flex-col justify-between gap-1 shadow-xs"
+                              style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-bold text-xs truncate" style={{ color: 'var(--text-primary)' }}>
+                                  {c.name}
+                                </span>
+                                <span className="px-2 py-0.5 rounded-md font-mono text-xs font-bold bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30 shrink-0">
+                                  {pct}%
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                                <span>Kürzel: <strong className="font-mono">{c.short_code}</strong></span>
+                                <span>{countHj1} (HJ1) · {countHj2} (HJ2)</span>
+                              </div>
                             </div>
-                            <div className="flex items-center justify-between text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-                              <span>Kürzel: <strong className="font-mono">{c.short_code}</strong></span>
-                              <span>{countHj1} (HJ1) · {countHj2} (HJ2)</span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })()}
@@ -1070,6 +1214,28 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
                                 </div>
 
                                 <div className="flex flex-wrap items-center gap-2">
+                                  {/* Category selector to allow reassigning/moving the assessment */}
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[11px] opacity-70">Topf:</span>
+                                    <select
+                                      value={assess.category_id}
+                                      onChange={(e) =>
+                                        updateAssessmentField(assess.id, { category_id: e.target.value })
+                                      }
+                                      className="px-2 py-1 rounded-lg border text-[11px] font-bold bg-transparent"
+                                      style={{
+                                        borderColor: 'var(--border-subtle)',
+                                        color: 'var(--text-primary)',
+                                      }}
+                                    >
+                                      {dataset.categories.map((c) => (
+                                        <option key={c.id} value={c.id} className="dark:bg-slate-900">
+                                          {c.name} ({c.short_code})
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+
                                   <select
                                     value={assess.term_id}
                                     onChange={(e) =>

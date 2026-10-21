@@ -372,9 +372,9 @@ export const App: React.FC = () => {
 
       {/* MAIN WORKSPACE CONTENT */}
       <main
-        className={`flex-1 p-3 sm:p-4 md:p-6 max-w-[1600px] w-full mx-auto transition pb-safe ${
-          privacyBlur ? 'privacy-blur-active' : ''
-        }`}
+        className={`flex-1 p-2 sm:p-4 md:p-6 w-full mx-auto transition pb-safe ${
+          mode === 'matrix' ? 'max-w-none px-2 sm:px-4 lg:px-6' : 'max-w-[1600px]'
+        } ${privacyBlur ? 'privacy-blur-active' : ''}`}
       >
         {syncConflictNotice && (
           <div className="mb-4 p-3.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200 flex items-center justify-between text-xs font-medium shadow-sm gap-3">
@@ -588,6 +588,7 @@ export const App: React.FC = () => {
       {activeModal?.type === 'classWizard' && (
         <ClassSetupAndExcelWizard
           globalTemplates={globalTemplates}
+          userTemplates={userSettings.customWeightingTemplates}
           onClose={handleCloseModal}
           onLoadDemoClass={handleLoadDemoDataset}
           onCreateClass={(newDataset) => {

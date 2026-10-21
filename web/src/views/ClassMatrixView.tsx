@@ -618,7 +618,7 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                           <div className="flex flex-col items-center gap-1">
                             <div className="flex items-center justify-center gap-1 w-full">
                               <span
-                                className="font-bold text-xs truncate group-hover:underline max-w-[85px]"
+                                className="font-bold text-xs truncate group-hover:underline max-w-[120px] sm:max-w-[160px]"
                                 style={{ color: 'var(--text-primary)' }}
                                 title={assess.title}
                               >
