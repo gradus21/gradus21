@@ -3,14 +3,14 @@ import { GuideChapter } from '../../types/guide';
 export const GUIDE_CHAPTERS: GuideChapter[] = [
   {
     id: 'overview_all',
-    title: 'Kapitel 1: Der große Überblick (Alle Kernfunktionen)',
+    title: 'Kapitel 1: Der große Überblick (Start & Kernfunktionen)',
     shortTitle: 'Großer App-Rundgang',
-    subtitle: 'Lerne alle 4 Arbeitsmodi und Kernkonzepte von Gradus21 kennen',
+    subtitle: 'Starte mit eigener Klasse oder Beispieldaten und lerne alle 4 Arbeitsmodi kennen',
     description:
-      'Eine umfassende Tour durch die Matrix, Speed-Grading, 360°-Akte, den Gewichtungs-Baukasten und den Beamer-Schutz.',
+      'Starte mit dem Import deiner eigenen Klasse oder lade eine Beispielklasse, um danach Matrix, Speed-Grading, 360°-Akte, Gewichtungs-Baukasten und Beamer-Schutz live zu erleben.',
     iconName: 'Compass',
     estimatedMinutes: 3,
-    tags: ['Einführung', 'Alle Modi', 'Überblick'],
+    tags: ['Einführung', 'Klassen-Start', 'Alle Modi', 'Überblick'],
     steps: [
       {
         id: 'ov_welcome',
@@ -19,10 +19,49 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           'Gradus21 revolutioniert die Notenverwaltung für Lehrkräfte:\n\n' +
           '- **100 % Client-Side Rust/WASM**: Deterministische Berechnungen direkt im Browser\n' +
           '- **Zero-Knowledge-Verschlüsselung**: Schülerdaten bleiben auf deinem Gerät geschützt (AES-256-GCM)\n' +
-          '- **Didaktik ohne Formel-Chaos**: Keine Formelabbrüche bei Attest (`K`), Streichnoten oder leeren Fächern',
+          '- **Didaktik ohne Formel-Chaos**: Keine Formelabbrüche bei Attest (`K`), Streichnoten oder leeren Fächern\n\n' +
+          '👉 **Direkter Einstieg:** Du kannst sofort deine eigene Klasse importieren (.xlsx / Assistent) oder eine fertige Beispielklasse mit Noten laden, um alle Funktionen live auszuprobieren.',
         placement: 'center',
         badge: 'Zero-Knowledge & Rust/WASM',
-        tip: 'Tipp: Du kannst diese interaktive Demo jederzeit über die Pfeiltasten (← / →) steuern oder mit der Esc-Taste beenden.',
+        actions: [
+          {
+            label: 'Eigene Klasse importieren / anlegen',
+            actionType: 'open_class_wizard',
+            variant: 'primary',
+          },
+          {
+            label: 'Beispielklasse laden (mit Noten)',
+            actionType: 'load_demo_dataset',
+            variant: 'secondary',
+          },
+        ],
+        tip: 'Tipp: Du kannst diesen interaktiven Guide jederzeit über die Pfeiltasten (← / →) steuern oder mit der Esc-Taste beenden.',
+      },
+      {
+        id: 'ov_class_start',
+        title: 'Schritt 1: Eigene Klasse importieren oder Beispielklasse laden 📂',
+        content:
+          'Um Noten zu erfassen und zu berechnen, benötigt Gradus21 eine Klasse als Arbeitsgrundlage. Du hast zwei Möglichkeiten:\n\n' +
+          '- **Weg 1: Eigene Klasse importieren**: Klicke auf **Eigene Klasse importieren**, um deine bestehende Excel-Tabelle (.xlsx) per Drag & Drop einzulesen oder eine neue Klasse aus Vorlagen zu erstellen.\n' +
+          '- **Weg 2: Beispielklasse laden**: Klicke auf **Beispielklasse laden**, um sofort eine Musterklasse (Englisch 6a mit 12 Schüler:innen, Arbeiten & Noten) einzusetzen.\n\n' +
+          'Wähle eine Option oder klicke auf Weiter (→), falls du dich erst umsehen möchtest.',
+        targetId: 'header-class-wizard-btn',
+        placement: 'bottom',
+        targetMode: 'matrix',
+        badge: 'Start & Datenbasis',
+        actions: [
+          {
+            label: 'Eigene Klasse importieren / anlegen',
+            actionType: 'open_class_wizard',
+            variant: 'primary',
+          },
+          {
+            label: 'Beispielklasse laden (mit Noten)',
+            actionType: 'load_demo_dataset',
+            variant: 'secondary',
+          },
+        ],
+        tip: 'Tipp: Nach dem Laden der Beispielklasse siehst du sofort alle Schnittstellen und Notenberechnungen live.',
       },
       {
         id: 'ov_modes',
@@ -108,36 +147,60 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
     id: 'class_setup_excel',
     title: 'Kapitel 2: Erste Klasse einrichten & Excel-Import',
     shortTitle: 'Erste Klasse einrichten',
-    subtitle: 'Neue Klassen erstellen, Vorlagen wählen oder bestehende Excel-Listen importieren',
+    subtitle: 'Neue Klassen erstellen, Vorlagen wählen, Excel-Listen importieren oder Demoklasse laden',
     description:
-      'Lerne Schritt für Schritt, wie du eine neue Klasse erstellst, Schüler hinzufügst oder deine bestehende .xlsx-Tabelle per Drag & Drop migrierst.',
+      'Lerne Schritt für Schritt, wie du eine neue Klasse erstellst, Schüler hinzufügst, deine bestehende .xlsx-Tabelle per Drag & Drop migrierst oder eine Demoklasse lädst.',
     iconName: 'FolderPlus',
     estimatedMinutes: 2,
-    tags: ['Klassen', 'Excel-Import', 'Start'],
+    tags: ['Klassen', 'Excel-Import', 'Start', 'Demoklasse'],
     steps: [
       {
         id: 'setup_intro',
-        title: 'Klassenverwaltung in Gradus21 🏫',
+        title: 'Start: Eigene Klasse importieren oder Beispielklasse laden 🏫',
         content:
-          'In Gradus21 kannst du beliebig viele Klassen und Kurse parallel verwalten. Jede Klasse hat ihr eigenes Fach, ihr eigenes Schuljahr und ihr individuelles Notenmodell.',
-        targetId: 'header-class-switcher',
+          'In Gradus21 verwaltest du deine Klassen und Kurse vollkommen flexibel. Für den Einstieg stehen dir zwei komfortable Wege offen:\n\n' +
+          '- **Eigene Klasse importieren**: Bestehende Excel-Tabelle (.xlsx) per Drag & Drop hineinziehen oder Vorlage wählen.\n' +
+          '- **Beispielklasse laden**: Sofort eine vollständige Klasse (Englisch 6a mit 12 Schüler:innen & Noten) zum Ausprobieren laden.\n\n' +
+          'Starte jetzt direkt mit einem Klick:',
+        targetId: 'header-class-wizard-btn',
         placement: 'bottom',
         targetMode: 'matrix',
-        badge: 'Klassen-Manager',
+        badge: 'Klassen-Start',
+        actions: [
+          {
+            label: 'Eigene Klasse importieren / anlegen',
+            actionType: 'open_class_wizard',
+            variant: 'primary',
+          },
+          {
+            label: 'Beispielklasse laden (mit Noten)',
+            actionType: 'load_demo_dataset',
+            variant: 'secondary',
+          },
+        ],
       },
       {
         id: 'setup_new_button',
         title: 'Der Klassen-Assistent (+ Neue Klasse) ✨',
         content:
-          'Über die Schaltfläche **+ Neue Klasse** öffnest du den Einrichtungs-Assistenten. Hier stehen dir zwei Wege offen: Der native **.xlsx Excel-Import** oder der **Manuelle Assistent** mit Vorlagen.',
+          'Über die Schaltfläche **+ Neue Klasse** öffnest du den Einrichtungs-Assistenten. Hier stehen dir zwei Wege offen: Der native **.xlsx Excel-Import** oder der **Manuelle Assistent** mit Vorlagen.\n\n' +
+          'Auch im Assistenten kannst du jederzeit mit einem Klick die fertige Demoklasse laden.',
         targetId: 'header-class-wizard-btn',
         placement: 'bottom',
         targetMode: 'matrix',
         badge: 'Wizard',
-        action: {
-          label: 'Assistenten jetzt öffnen',
-          actionType: 'open_class_wizard',
-        },
+        actions: [
+          {
+            label: 'Assistenten jetzt öffnen',
+            actionType: 'open_class_wizard',
+            variant: 'primary',
+          },
+          {
+            label: 'Beispielklasse laden',
+            actionType: 'load_demo_dataset',
+            variant: 'secondary',
+          },
+        ],
       },
       {
         id: 'setup_wizard_modal',

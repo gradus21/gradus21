@@ -578,7 +578,7 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
                       {activeDataset.categories.length > 1 && (
                         <button
                           onClick={() => handleDeleteCategory(cat.id)}
-                          className="p-1.5 rounded-lg border text-rose-600 hover:bg-rose-500/10"
+                          className="w-8 h-8 rounded-lg border text-rose-600 hover:bg-rose-500/10 inline-flex items-center justify-center shrink-0"
                           style={{ borderColor: 'var(--border-subtle)' }}
                           title="Kategorie entfernen"
                         >

@@ -380,9 +380,15 @@ export function useClassroomCalculations({
   const toggleStudentArchived = (studentId: string) => {
     updateSubjectConfig((ds) => ({
       ...ds,
-      students: ds.students.map((s) =>
-        s.id === studentId ? { ...s, is_archived: !s.is_archived } : s
-      ),
+      students: ds.students.map((s) => {
+        if (s.id !== studentId) return s;
+        const willBeArchived = !s.is_archived;
+        return {
+          ...s,
+          is_archived: willBeArchived,
+          archived_at: willBeArchived ? new Date().toISOString() : undefined,
+        };
+      }),
     }));
   };
 

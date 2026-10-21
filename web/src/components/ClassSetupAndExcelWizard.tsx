@@ -370,10 +370,10 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
       <div
         data-tour="wizard-dialog-card"
-        className="max-w-3xl w-full rounded-2xl border p-6 shadow-xl space-y-5 max-h-[90vh] overflow-y-auto"
+        className="max-w-3xl w-full rounded-2xl border p-4 sm:p-6 shadow-xl space-y-4 sm:space-y-5 max-h-[95vh] sm:max-h-[90vh] overflow-y-auto"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
         <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border-subtle)' }}>
@@ -390,7 +390,7 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg border"
+            className="w-9 h-9 rounded-lg border inline-flex items-center justify-center shrink-0"
             style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
           >
             <X className="w-4 h-4" />

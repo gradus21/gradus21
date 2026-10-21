@@ -72,7 +72,7 @@ export const SyncReconciliationModal: React.FC<SyncReconciliationModalProps> = (
           type="button"
           onClick={onCancel}
           disabled={isApplying}
-          className="absolute top-4 right-4 p-2 rounded-xl text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800/50 disabled:opacity-50 transition-colors"
+          className="absolute top-4 right-4 w-10 h-10 rounded-xl text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800/50 disabled:opacity-50 transition-colors inline-flex items-center justify-center shrink-0"
           aria-label="Abbrechen"
         >
           <X className="w-5 h-5" />

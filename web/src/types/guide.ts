@@ -21,6 +21,7 @@ export interface GuideStepAction {
     | 'trigger_custom'
     | 'load_demo_dataset';
   payload?: any;
+  variant?: 'primary' | 'secondary';
 }
 
 export interface GuideStep {
@@ -31,6 +32,7 @@ export interface GuideStep {
   placement?: 'top' | 'bottom' | 'left' | 'right' | 'center';
   targetMode?: WorkspaceMode; // Automatically switch to this workspace mode
   action?: GuideStepAction;
+  actions?: GuideStepAction[];
   highlightPadding?: number;
   badge?: string;
   tip?: string;

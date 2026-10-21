@@ -3,7 +3,9 @@ import {
   ArrowLeft,
   ArrowRight,
   BookOpen,
+  Check,
   CheckCircle,
+  FolderPlus,
   HelpCircle,
   Pause,
   Play,
@@ -172,6 +174,7 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
   const [targetRect, setTargetRect] = useState<TargetRect | null>(null);
   const [isAutoPlaying, setIsAutoPlaying] = useState<boolean>(false);
   const [autoPlayProgress, setAutoPlayProgress] = useState<number>(0);
+  const [demoLoadedSuccess, setDemoLoadedSuccess] = useState<boolean>(false);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   const currentChapter: GuideChapter | undefined = GUIDE_CHAPTERS.find(
@@ -243,6 +246,11 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
       window.removeEventListener('scroll', handleResizeOrScroll, true);
     };
   }, [updateTargetPosition, stepIndex, chapterId]);
+
+  // Reset demo loaded success state on step or chapter change
+  useEffect(() => {
+    setDemoLoadedSuccess(false);
+  }, [stepIndex, chapterId]);
 
   // Handle Step Forward
   const handleNext = useCallback(() => {
@@ -335,11 +343,11 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
       zIndex: 60,
     };
   } else if (targetRect) {
-    const cardWidth = 440;
-    const cardEstimatedHeight = 280;
-    const gap = 16;
     const windowW = window.innerWidth;
     const windowH = window.innerHeight;
+    const cardWidth = Math.min(440, Math.max(280, windowW - 32));
+    const cardEstimatedHeight = 280;
+    const gap = 16;
 
     let placement = currentStep.placement || 'bottom';
 
@@ -432,7 +440,7 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
       {/* FLOATING INTERACTIVE CARD */}
       <div
         ref={popoverRef}
-        className="w-full max-w-[480px] rounded-3xl border shadow-2xl overflow-hidden transition-all duration-300 ease-out animate-scale-up pointer-events-auto"
+        className="w-full max-w-[calc(100vw-32px)] sm:max-w-[480px] rounded-3xl border shadow-2xl overflow-hidden transition-all duration-300 ease-out animate-scale-up pointer-events-auto"
         style={{
           ...popoverStyle,
           backgroundColor: 'var(--bg-surface)',
@@ -481,7 +489,7 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
             {/* Auto-Play Toggle */}
             <button
               onClick={() => setIsAutoPlaying((p) => !p)}
-              className={`p-1.5 rounded-lg border text-[11px] font-bold flex items-center gap-1 transition ${
+              className={`min-h-[36px] min-w-[36px] sm:min-w-0 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold inline-flex items-center justify-center gap-1.5 transition ${
                 isAutoPlaying
                   ? 'bg-amber-500/20 text-amber-600 border-amber-500/40'
                   : 'hover:opacity-80'
@@ -499,12 +507,12 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
             >
               {isAutoPlaying ? (
                 <>
-                  <Pause className="w-3.5 h-3.5" />
+                  <Pause className="w-3.5 h-3.5 shrink-0" />
                   <span className="hidden sm:inline">Pausieren</span>
                 </>
               ) : (
                 <>
-                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <Play className="w-3.5 h-3.5 fill-current shrink-0" />
                   <span className="hidden sm:inline">Auto-Play</span>
                 </>
               )}
@@ -516,7 +524,7 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
                 setIsAutoPlaying(false);
                 onOpenChapterSelect();
               }}
-              className="p-1.5 rounded-lg border transition hover:opacity-80 text-xs font-semibold"
+              className="w-9 h-9 rounded-lg border transition hover:opacity-80 text-xs font-semibold inline-flex items-center justify-center shrink-0"
               style={{
                 backgroundColor: 'var(--bg-surface)',
                 borderColor: 'var(--border-subtle)',
@@ -530,7 +538,7 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
             {/* Close */}
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg border transition hover:opacity-80 text-xs"
+              className="w-9 h-9 rounded-lg border transition hover:opacity-80 text-xs inline-flex items-center justify-center shrink-0"
               style={{
                 backgroundColor: 'var(--bg-surface)',
                 borderColor: 'var(--border-subtle)',
@@ -581,25 +589,59 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
             </div>
           )}
 
-          {/* Interactive Step Action Button */}
-          {currentStep.action && onExecuteAction && (
-            <div className="pt-1">
-              <button
-                onClick={() => {
-                  if (currentStep.action) {
-                    onExecuteAction(currentStep.action.actionType, currentStep.action.payload);
-                  }
-                }}
-                className="w-full py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition hover:opacity-95"
-                style={{
-                  backgroundColor: 'var(--primary-soft)',
-                  color: 'var(--primary-text)',
-                  border: '1px solid var(--border-subtle)',
-                }}
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>{currentStep.action.label}</span>
-              </button>
+          {/* Interactive Step Action Button(s) */}
+          {(currentStep.actions || currentStep.action) && onExecuteAction && (
+            <div className="pt-1 flex flex-col sm:flex-row gap-2">
+              {(currentStep.actions || (currentStep.action ? [currentStep.action] : [])).map((act, idx) => {
+                const isPrimary = act.variant === 'primary' || (!act.variant && idx === 0);
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      onExecuteAction(act.actionType, act.payload);
+                      if (act.actionType === 'load_demo_dataset') {
+                        setDemoLoadedSuccess(true);
+                      }
+                    }}
+                    className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition hover:opacity-95 cursor-pointer ${
+                      isPrimary ? 'text-white' : ''
+                    }`}
+                    style={
+                      isPrimary
+                        ? { backgroundColor: 'var(--primary-500)' }
+                        : {
+                            backgroundColor: 'var(--primary-soft)',
+                            color: 'var(--primary-text)',
+                            border: '1px solid var(--border-subtle)',
+                          }
+                    }
+                  >
+                    {act.actionType === 'load_demo_dataset' ? (
+                      <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                    ) : act.actionType === 'open_class_wizard' ? (
+                      <FolderPlus className="w-3.5 h-3.5 shrink-0" />
+                    ) : (
+                      <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                    )}
+                    <span>{act.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Feedback badge when demo dataset was loaded */}
+          {demoLoadedSuccess && (
+            <div
+              className="p-2.5 rounded-xl text-[11px] font-semibold flex items-center gap-2 animate-in fade-in"
+              style={{
+                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                color: '#059669',
+                border: '1px solid rgba(16, 185, 129, 0.25)',
+              }}
+            >
+              <Check className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <span>Beispielklasse (Englisch 6a) erfolgreich geladen! Klicke auf „Weiter (→)“, um die Arbeitsmodi zu erkunden.</span>
             </div>
           )}
         </div>
@@ -621,7 +663,7 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
                   onStepChange(i);
                   setAutoPlayProgress(0);
                 }}
-                className={`h-2 rounded-full transition-all ${
+                className={`step-dot compact-touch h-2 rounded-full transition-all ${
                   i === stepIndex
                     ? 'w-6 bg-teal-500'
                     : i < stepIndex
@@ -638,28 +680,28 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
             {!isFirstStep && (
               <button
                 onClick={handlePrev}
-                className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1 transition hover:opacity-80"
+                className="px-3 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center justify-center gap-1 transition hover:opacity-80"
                 style={{
                   backgroundColor: 'var(--bg-surface)',
                   borderColor: 'var(--border-subtle)',
                   color: 'var(--text-primary)',
                 }}
               >
-                <ArrowLeft className="w-3.5 h-3.5" />
+                <ArrowLeft className="w-3.5 h-3.5 shrink-0" />
                 <span>Zurück</span>
               </button>
             )}
 
             <button
               onClick={handleNext}
-              className="px-4 py-1.5 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 shadow-sm transition hover:opacity-95"
+              className="px-4 py-1.5 rounded-xl text-xs font-bold text-white inline-flex items-center justify-center gap-1.5 shadow-sm transition hover:opacity-95"
               style={{ backgroundColor: 'var(--primary-500)' }}
             >
               <span>{isLastStep ? 'Kapitel abschließen' : 'Weiter'}</span>
               {isLastStep ? (
-                <CheckCircle className="w-3.5 h-3.5" />
+                <CheckCircle className="w-3.5 h-3.5 shrink-0" />
               ) : (
-                <ArrowRight className="w-3.5 h-3.5" />
+                <ArrowRight className="w-3.5 h-3.5 shrink-0" />
               )}
             </button>
           </div>

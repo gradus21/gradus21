@@ -24,6 +24,15 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useInteractiveGuide } from './hooks/useInteractiveGuide';
 import { APP_VERSION } from './version';
 
+export type ActiveModal =
+  | { type: 'classWizard' }
+  | { type: 'classManager' }
+  | { type: 'settings'; section?: SettingsSection }
+  | { type: 'vaultInspector' }
+  | { type: 'admin' }
+  | { type: 'legal'; tab: LegalTab }
+  | null;
+
 export const App: React.FC = () => {
   const {
     wasmReady,
@@ -86,19 +95,19 @@ export const App: React.FC = () => {
   const [simCategoryId] = useState<string>('cat_lnw');
   const [simTargetPercent] = useState<number>(75);
 
-  // Modal Dialogs
-  const [showClassWizard, setShowClassWizard] = useState<boolean>(false);
-  const [showClassManager, setShowClassManager] = useState<boolean>(false);
-  const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
-  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection>('favorites');
-  const [showVaultInspector, setShowVaultInspector] = useState<boolean>(false);
-  const [showAdminModal, setShowAdminModal] = useState<boolean>(false);
-  const [showLegalModal, setShowLegalModal] = useState<boolean>(false);
-  const [legalTab, setLegalTab] = useState<LegalTab>('impressum');
+  // Modal Dialogs (Discriminated Union to enforce single-modal exclusivity)
+  const [activeModal, setActiveModal] = useState<ActiveModal>(null);
 
   const handleOpenSettings = (section: SettingsSection = 'favorites') => {
-    setSettingsInitialSection(section);
-    setShowSettingsModal(true);
+    setActiveModal({ type: 'settings', section });
+  };
+
+  const handleOpenLegal = (tab: LegalTab = 'impressum') => {
+    setActiveModal({ type: 'legal', tab });
+  };
+
+  const handleCloseModal = () => {
+    setActiveModal(null);
   };
 
   const handleLoadDemoDataset = () => {
@@ -109,7 +118,58 @@ export const App: React.FC = () => {
       return [demoClass, ...prev];
     });
     setActiveClassId(demoClass.id);
-    setShowClassWizard(false);
+    setActiveModal(null);
+  };
+
+  // Update Student Profile with optional smart cross-class propagation
+  const handleUpdateStudentProfile = (
+    studentId: string,
+    patch: Partial<import('./data/demoClasses').StudentProfile>,
+    propagateToAllClasses: boolean
+  ) => {
+    const currentTarget = activeDataset.students.find((s) => s.id === studentId);
+    const targetNormName = currentTarget?.name.trim().toLowerCase();
+    const targetStudentId = currentTarget?.studentId;
+
+    if (!propagateToAllClasses) {
+      updateSubjectConfig((prev) => ({
+        ...prev,
+        students: prev.students.map((stu) =>
+          stu.id === studentId ? { ...stu, ...patch } : stu
+        ),
+      }));
+    } else {
+      setDatasets((prevList) =>
+        prevList.map((ds) => {
+          const hasMatch = ds.students.some(
+            (s) =>
+              s.id === studentId ||
+              (targetStudentId && s.studentId === targetStudentId) ||
+              (targetNormName && s.name.trim().toLowerCase() === targetNormName)
+          );
+          if (!hasMatch) return ds;
+
+          return {
+            ...ds,
+            students: ds.students.map((stu) => {
+              const isMatch =
+                stu.id === studentId ||
+                (targetStudentId && stu.studentId === targetStudentId) ||
+                (targetNormName && stu.name.trim().toLowerCase() === targetNormName);
+              return isMatch ? { ...stu, ...patch } : stu;
+            }),
+          };
+        })
+      );
+    }
+  };
+
+  // Update Active Dataset Metadata (e.g. subjectCode, courseType)
+  const handleUpdateDatasetMeta = (patch: { subjectCode?: string; courseType?: string }) => {
+    updateSubjectConfig((prev) => ({
+      ...prev,
+      ...patch,
+    }));
   };
 
   // Interactive Demo & Guide Hook
@@ -130,10 +190,10 @@ export const App: React.FC = () => {
     handleGuideAction,
   } = useInteractiveGuide({
     setMode,
-    setShowClassWizard,
+    setShowClassWizard: (open) => setActiveModal(open ? { type: 'classWizard' } : null),
     setPrivacyBlur,
-    setShowSettingsModal,
-    setShowVaultInspector,
+    setShowSettingsModal: (open) => setActiveModal(open ? { type: 'settings' } : null),
+    setShowVaultInspector: (open) => setActiveModal(open ? { type: 'vaultInspector' } : null),
     setShowOnDemandSimulator,
     setShowOnDemandCurveEditor,
     onLoadDemoDataset: handleLoadDemoDataset,
@@ -245,11 +305,11 @@ export const App: React.FC = () => {
         datasets={datasets}
         activeDataset={activeDataset}
         setActiveClassId={setActiveClassId}
-        onOpenClassWizard={() => setShowClassWizard(true)}
-        onOpenClassManager={() => setShowClassManager(true)}
+        onOpenClassWizard={() => setActiveModal({ type: 'classWizard' })}
+        onOpenClassManager={() => setActiveModal({ type: 'classManager' })}
         onOpenSettings={handleOpenSettings}
-        onOpenVaultInspector={() => setShowVaultInspector(true)}
-        onOpenAdmin={() => setShowAdminModal(true)}
+        onOpenVaultInspector={() => setActiveModal({ type: 'vaultInspector' })}
+        onOpenAdmin={() => setActiveModal({ type: 'admin' })}
         onOpenInteractiveGuide={() => setIsChapterSelectOpen(true)}
         showGuideButtonInHeader={Boolean(userSettings.showGuideButtonInHeader)}
         isAdmin={vaultSession?.isAdmin}
@@ -288,7 +348,7 @@ export const App: React.FC = () => {
 
       {/* MAIN WORKSPACE CONTENT */}
       <main
-        className={`flex-1 p-6 max-w-[1600px] w-full mx-auto transition ${
+        className={`flex-1 p-3 sm:p-4 md:p-6 max-w-[1600px] w-full mx-auto transition pb-safe ${
           privacyBlur ? 'privacy-blur-active' : ''
         }`}
       >
@@ -310,7 +370,7 @@ export const App: React.FC = () => {
               <button
                 type="button"
                 onClick={clearConflictNotice}
-                className="p-1.5 rounded-lg hover:bg-amber-500/20 transition opacity-80 hover:opacity-100 cursor-pointer"
+                className="w-8 h-8 rounded-lg hover:bg-amber-500/20 transition opacity-80 hover:opacity-100 cursor-pointer inline-flex items-center justify-center shrink-0"
                 title="Schließen"
               >
                 <X className="w-4 h-4" />
@@ -332,8 +392,8 @@ export const App: React.FC = () => {
             setShowArchivedInMatrix={setShowArchivedInMatrix}
             showOnDemandReportCardCol={showOnDemandReportCardCol}
             setShowOnDemandReportCardCol={setShowOnDemandReportCardCol}
-            onOpenClassManager={() => setShowClassManager(true)}
-            onOpenClassWizard={() => setShowClassWizard(true)}
+            onOpenClassManager={() => setActiveModal({ type: 'classManager' })}
+            onOpenClassWizard={() => setActiveModal({ type: 'classWizard' })}
             onSelectStudent={(studentId) => {
               setSelectedStudentId(studentId);
               setMode('student_360');
@@ -350,6 +410,7 @@ export const App: React.FC = () => {
             toggleStudentArchived={toggleStudentArchived}
             onAddStudent={handleAddStudent}
             onAddAssessment={handleAddAssessment}
+            onUpdateDatasetMeta={handleUpdateDatasetMeta}
           />
         )}
 
@@ -384,6 +445,7 @@ export const App: React.FC = () => {
         {mode === 'student_360' && (
           <Student360View
             activeDataset={activeDataset}
+            allDatasets={datasets}
             activeTerm={activeTerm}
             visibleStudents={visibleStudents}
             activeStudent={activeStudent}
@@ -395,6 +457,7 @@ export const App: React.FC = () => {
             showOnDemandSimulator={showOnDemandSimulator}
             setShowOnDemandSimulator={setShowOnDemandSimulator}
             updateReportCardOverride={updateReportCardOverride}
+            onUpdateStudentProfile={handleUpdateStudentProfile}
             wasmReady={wasmReady}
           />
         )}
@@ -428,7 +491,7 @@ export const App: React.FC = () => {
       </main>
 
       {/* APP FOOTER / LEGAL COMPLIANCE LINKS */}
-      <footer className="mt-auto py-3 px-6 border-t border-slate-200/60 dark:border-slate-800/60 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500 dark:text-slate-400">
+      <footer className="mt-auto py-3 px-3 sm:px-6 border-t border-slate-200/60 dark:border-slate-800/60 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500 dark:text-slate-400 pb-safe">
         <div className="flex items-center gap-2 font-medium">
           <span className="font-bold text-slate-700 dark:text-slate-300">Gradus21 v{APP_VERSION}</span>
           <span>·</span>
@@ -447,30 +510,21 @@ export const App: React.FC = () => {
           </a>
           <span>·</span>
           <button
-            onClick={() => {
-              setLegalTab('impressum');
-              setShowLegalModal(true);
-            }}
+            onClick={() => handleOpenLegal('impressum')}
             className="hover:underline transition hover:text-slate-800 dark:hover:text-slate-200"
           >
             Impressum
           </button>
           <span>·</span>
           <button
-            onClick={() => {
-              setLegalTab('privacy');
-              setShowLegalModal(true);
-            }}
+            onClick={() => handleOpenLegal('privacy')}
             className="hover:underline transition hover:text-slate-800 dark:hover:text-slate-200"
           >
             Datenschutz
           </button>
           <span>·</span>
           <button
-            onClick={() => {
-              setLegalTab('school_guide');
-              setShowLegalModal(true);
-            }}
+            onClick={() => handleOpenLegal('school_guide')}
             className="hover:underline transition hover:text-slate-800 dark:hover:text-slate-200"
           >
             Schul-Datenschutz & AVV
@@ -479,41 +533,41 @@ export const App: React.FC = () => {
       </footer>
 
       {/* MODALS */}
-      {showClassWizard && (
+      {activeModal?.type === 'classWizard' && (
         <ClassSetupAndExcelWizard
           globalTemplates={globalTemplates}
-          onClose={() => setShowClassWizard(false)}
+          onClose={handleCloseModal}
           onLoadDemoClass={handleLoadDemoDataset}
           onCreateClass={(newDataset) => {
             setDatasets((prev) => [...prev, newDataset]);
             setActiveClassId(newDataset.id);
+            handleCloseModal();
           }}
         />
       )}
 
-      {showClassManager && (
+      {activeModal?.type === 'classManager' && (
         <ClassManagementModal
           dataset={activeDataset}
           canDeleteClass={datasets.length > 1}
           onUpdateDataset={updateSubjectConfig}
           onDeleteClass={handleDeleteClass}
-          onClose={() => setShowClassManager(false)}
+          onClose={handleCloseModal}
         />
       )}
 
-      {showSettingsModal && (
+      {activeModal?.type === 'settings' && (
         <SettingsModal
-          initialSection={settingsInitialSection}
+          initialSection={activeModal.section || 'favorites'}
           settings={userSettings}
           onUpdateSettings={setUserSettings}
-          onClose={() => setShowSettingsModal(false)}
+          onClose={handleCloseModal}
           onOpenInteractiveGuide={() => {
-            setShowSettingsModal(false);
+            handleCloseModal();
             setIsChapterSelectOpen(true);
           }}
           onOpenSchoolGuide={() => {
-            setLegalTab('school_guide');
-            setShowLegalModal(true);
+            handleOpenLegal('school_guide');
           }}
           onToggleCloudSync={handleToggleCloudSync}
           onPurgeCloudData={handlePurgeCloudData}
@@ -527,28 +581,28 @@ export const App: React.FC = () => {
         />
       )}
 
-      {showVaultInspector && (
+      {activeModal?.type === 'vaultInspector' && (
         <VaultLockAndAuthModal
           isLockedScreen={false}
           session={vaultSession}
           sampleEnvelope={sampleEnvelope}
           onUnlockSuccess={(updatedSession) => setVaultSession(updatedSession)}
           onLockVault={handleLockVault}
-          onCloseInspector={() => setShowVaultInspector(false)}
+          onCloseInspector={handleCloseModal}
           cloudSyncEnabled={userSettings.cloudSyncEnabled ?? false}
           onToggleCloudSync={handleToggleCloudSync}
           onPurgeCloudData={handlePurgeCloudData}
         />
       )}
 
-      {showAdminModal && vaultSession && (
+      {activeModal?.type === 'admin' && vaultSession && (
         <AdminModal
-          isOpen={showAdminModal}
-          onClose={() => setShowAdminModal(false)}
+          isOpen={true}
+          onClose={handleCloseModal}
           session={vaultSession}
           onRestoreSuccess={async () => {
             await handleRestoreSnapshot();
-            setShowAdminModal(false);
+            handleCloseModal();
           }}
         />
       )}
@@ -579,9 +633,9 @@ export const App: React.FC = () => {
 
       {/* RECHTLICHES, DATENSCHUTZ & AVV-MODAL */}
       <LegalModal
-        isOpen={showLegalModal}
-        initialTab={legalTab}
-        onClose={() => setShowLegalModal(false)}
+        isOpen={activeModal?.type === 'legal'}
+        initialTab={activeModal?.type === 'legal' ? activeModal.tab : 'impressum'}
+        onClose={handleCloseModal}
       />
 
       {/* E-MAIL VERIFIKATION (VOR CLOUD-SYNC AKTIVIERUNG) */}

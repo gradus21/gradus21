@@ -146,9 +146,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
       <div
-        className="max-w-3xl w-full rounded-2xl border p-6 shadow-xl space-y-5 max-h-[90vh] flex flex-col"
+        className="max-w-3xl w-full rounded-2xl border p-4 sm:p-6 shadow-xl space-y-4 sm:space-y-5 max-h-[95vh] sm:max-h-[90vh] flex flex-col"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
         {/* Header */}
@@ -195,7 +195,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
             <button
               onClick={onClose}
-              className="p-2 rounded-xl border transition hover:opacity-80"
+              className="w-10 h-10 rounded-xl border transition hover:opacity-80 inline-flex items-center justify-center shrink-0"
               style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
             >
               <X className="w-4 h-4" />
@@ -205,12 +205,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Section Tabs */}
         <div
-          className="flex items-center gap-1.5 p-1 rounded-2xl border text-xs font-semibold shrink-0"
+          className="flex items-center gap-1 sm:gap-1.5 p-1 rounded-2xl border text-xs font-semibold shrink-0 max-w-full overflow-x-auto"
           style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
         >
           <button
             onClick={() => setActiveSection('favorites')}
-            className={`flex-1 py-2 px-2.5 rounded-xl flex items-center justify-center gap-1.5 transition text-center min-h-[38px] ${
+            className={`flex-1 py-1.5 sm:py-2 px-2 sm:px-2.5 rounded-xl flex items-center justify-center gap-1 sm:gap-1.5 transition text-center min-h-[36px] shrink-0 sm:shrink ${
               activeSection === 'favorites' ? 'text-white shadow-sm font-bold' : 'hover:opacity-85'
             }`}
             style={{
@@ -223,7 +223,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
           <button
             onClick={() => setActiveSection('visibility')}
-            className={`flex-1 py-2 px-2.5 rounded-xl flex items-center justify-center gap-1.5 transition text-center min-h-[38px] ${
+            className={`flex-1 py-1.5 sm:py-2 px-2 sm:px-2.5 rounded-xl flex items-center justify-center gap-1 sm:gap-1.5 transition text-center min-h-[36px] shrink-0 sm:shrink ${
               activeSection === 'visibility' ? 'text-white shadow-sm font-bold' : 'hover:opacity-85'
             }`}
             style={{
@@ -237,7 +237,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
           <button
             onClick={() => setActiveSection('appearance')}
-            className={`flex-1 py-2 px-2.5 rounded-xl flex items-center justify-center gap-1.5 transition text-center min-h-[38px] ${
+            className={`flex-1 py-1.5 sm:py-2 px-2 sm:px-2.5 rounded-xl flex items-center justify-center gap-1 sm:gap-1.5 transition text-center min-h-[36px] shrink-0 sm:shrink ${
               activeSection === 'appearance' ? 'text-white shadow-sm font-bold' : 'hover:opacity-85'
             }`}
             style={{
@@ -251,7 +251,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
           <button
             onClick={() => setActiveSection('storage')}
-            className={`flex-1 py-2 px-2.5 rounded-xl flex items-center justify-center gap-1.5 transition text-center min-h-[38px] ${
+            className={`flex-1 py-1.5 sm:py-2 px-2 sm:px-2.5 rounded-xl flex items-center justify-center gap-1 sm:gap-1.5 transition text-center min-h-[36px] shrink-0 sm:shrink ${
               activeSection === 'storage' ? 'text-white shadow-sm font-bold' : 'hover:opacity-85'
             }`}
             style={{
@@ -261,11 +261,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }}
           >
             <Shield className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Datenschutz &amp; Speicher</span>
+            <span className="truncate hidden sm:inline">Datenschutz &amp; Speicher</span>
+            <span className="sm:hidden">Speicher</span>
           </button>
           <button
             onClick={() => setActiveSection('help')}
-            className={`flex-1 py-2 px-2.5 rounded-xl flex items-center justify-center gap-1.5 transition text-center min-h-[38px] ${
+            className={`flex-1 py-1.5 sm:py-2 px-2 sm:px-2.5 rounded-xl flex items-center justify-center gap-1 sm:gap-1.5 transition text-center min-h-[36px] shrink-0 sm:shrink ${
               activeSection === 'help' ? 'text-white shadow-sm font-bold' : 'hover:opacity-85'
             }`}
             style={{
@@ -275,7 +276,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }}
           >
             <Compass className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Hilfe &amp; Guide</span>
+            <span className="truncate hidden sm:inline">Hilfe &amp; Guide</span>
+            <span className="sm:hidden">Hilfe</span>
           </button>
         </div>
 
@@ -1077,11 +1079,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
                     <div className="p-3 rounded-xl border space-y-1" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}>
                       <div className="font-bold" style={{ color: 'var(--text-primary)' }}>1. Großer Rundgang</div>
-                      <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Alle 4 Modi & Sicherheitskonzepte im Überblick (~3 Min.)</div>
+                      <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Start mit Klassen-Import oder Beispieldaten &amp; alle 4 Modi im Überblick (~3 Min.)</div>
                     </div>
                     <div className="p-3 rounded-xl border space-y-1" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}>
                       <div className="font-bold" style={{ color: 'var(--text-primary)' }}>2. Erste Klasse einrichten</div>
-                      <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Klassen-Assistent, .xlsx Drag & Drop, Vorlagen (~2 Min.)</div>
+                      <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Klassen-Assistent, .xlsx Drag & Drop, Vorlagen &amp; Demoklasse (~2 Min.)</div>
                     </div>
                     <div className="p-3 rounded-xl border space-y-1" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}>
                       <div className="font-bold" style={{ color: 'var(--text-primary)' }}>3. Eigenes Notenmodell</div>

@@ -5,11 +5,13 @@ import {
   StudentProfile,
 } from '../data/demoClasses';
 import {
+  AlertTriangle,
   Archive,
   ArchiveRestore,
   BookOpen,
   CheckCircle2,
   ClipboardList,
+  Clock,
   Plus,
   Trash2,
   Users,
@@ -43,9 +45,84 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
   const [genTermId, setGenTermId] = useState<'hj1' | 'hj2'>('hj1');
   const [genMaxPoints, setGenMaxPoints] = useState<number>(15);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
+  const [studentPendingDelete, setStudentPendingDelete] = useState<StudentProfile | null>(null);
+  const [pendingBulkClean, setPendingBulkClean] = useState(false);
+  const [retentionDays] = useState(30);
 
   const activeStudents = dataset.students.filter((s) => !s.is_archived);
   const archivedStudents = dataset.students.filter((s) => s.is_archived);
+
+  const getStudentGradeCount = (studentId: string) => {
+    return dataset.grades.filter(
+      (g) =>
+        g.student_id === studentId &&
+        (g.raw_points !== null || g.percent_value !== null || g.direct_grade_value !== null)
+    ).length;
+  };
+
+  const getRetentionInfo = (archivedAt?: string) => {
+    if (!archivedAt) {
+      return {
+        formattedDate: 'Datum unbekannt',
+        daysArchived: retentionDays + 1,
+        isExpired: true,
+        daysRemaining: 0,
+      };
+    }
+    const archivedTime = new Date(archivedAt).getTime();
+    if (isNaN(archivedTime)) {
+      return {
+        formattedDate: 'Datum unbekannt',
+        daysArchived: retentionDays + 1,
+        isExpired: true,
+        daysRemaining: 0,
+      };
+    }
+    const now = Date.now();
+    const diffMs = Math.max(0, now - archivedTime);
+    const daysArchived = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const daysRemaining = Math.max(0, retentionDays - daysArchived);
+    const isExpired = daysArchived >= retentionDays;
+    const formattedDate = new Date(archivedAt).toLocaleDateString('de-DE', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+    return { formattedDate, daysArchived, isExpired, daysRemaining };
+  };
+
+  const expiredArchivedStudents = archivedStudents.filter(
+    (s) => getRetentionInfo(s.archived_at).isExpired
+  );
+
+  const extendRetentionForExpired = () => {
+    const count = expiredArchivedStudents.length;
+    onUpdateDataset((ds) => ({
+      ...ds,
+      students: ds.students.map((s) =>
+        s.is_archived && getRetentionInfo(s.archived_at).isExpired
+          ? { ...s, archived_at: new Date().toISOString() }
+          : s
+      ),
+    }));
+    showToast(`Aufbewahrungsfrist für ${count} Schüler:in(nen) um ${retentionDays} Tage verlängert.`);
+  };
+
+  const bulkDeleteExpiredStudents = () => {
+    const expiredIds = new Set(expiredArchivedStudents.map((s) => s.id));
+    onUpdateDataset((ds) => {
+      const nextOverrides = { ...(ds.reportCardOverrides || {}) };
+      expiredIds.forEach((id) => delete nextOverrides[id]);
+      return {
+        ...ds,
+        students: ds.students.filter((s) => !expiredIds.has(s.id)),
+        grades: ds.grades.filter((g) => !expiredIds.has(g.student_id)),
+        reportCardOverrides: nextOverrides,
+      };
+    });
+    setPendingBulkClean(false);
+    showToast(`${expiredIds.size} abgelaufene archivierte Schüler:innen wurden endgültig bereinigt.`);
+  };
 
   const showToast = (msg: string) => {
     setFeedbackMsg(msg);
@@ -179,9 +256,9 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
       <div
-        className="max-w-4xl w-full rounded-2xl border p-6 shadow-xl space-y-5 max-h-[90vh] flex flex-col"
+        className="max-w-4xl w-full rounded-2xl border p-4 sm:p-6 shadow-xl space-y-4 sm:space-y-5 max-h-[95vh] sm:max-h-[90vh] flex flex-col"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
         {/* Header */}
@@ -202,7 +279,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-xl border transition hover:opacity-80"
+            className="w-9 h-9 rounded-xl border transition hover:opacity-80 inline-flex items-center justify-center shrink-0"
             style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
           >
             <X className="w-4 h-4" />
@@ -210,14 +287,14 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 shrink-0">
           <div
-            className="flex gap-1 p-1 rounded-xl border text-xs font-bold"
+            className="flex gap-1 p-1 rounded-xl border text-xs font-bold max-w-full overflow-x-auto"
             style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
           >
             <button
               onClick={() => setActiveTab('students')}
-              className={`px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition ${
+              className={`px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg flex items-center gap-1.5 transition shrink-0 ${
                 activeTab === 'students' ? 'text-white shadow-sm' : ''
               }`}
               style={{
@@ -226,13 +303,13 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
             >
               <Users className="w-3.5 h-3.5" />
               <span>
-                Schüler:innenliste & Archiv ({activeStudents.length} aktiv
-                {archivedStudents.length > 0 ? ` · ${archivedStudents.length} archiviert` : ''})
+                Schüler ({activeStudents.length}
+                {archivedStudents.length > 0 ? ` · +${archivedStudents.length}` : ''})
               </span>
             </button>
             <button
               onClick={() => setActiveTab('assessments')}
-              className={`px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition ${
+              className={`px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg flex items-center gap-1.5 transition shrink-0 ${
                 activeTab === 'assessments' ? 'text-white shadow-sm' : ''
               }`}
               style={{
@@ -240,11 +317,11 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
               }}
             >
               <ClipboardList className="w-3.5 h-3.5" />
-              <span>Tests & Leistungsnachweise ({dataset.assessments.length})</span>
+              <span>Prüfungen ({dataset.assessments.length})</span>
             </button>
             <button
               onClick={() => setActiveTab('meta')}
-              className={`px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition ${
+              className={`px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg flex items-center gap-1.5 transition shrink-0 ${
                 activeTab === 'meta' ? 'text-white shadow-sm' : ''
               }`}
               style={{
@@ -252,7 +329,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
               }}
             >
               <BookOpen className="w-3.5 h-3.5" />
-              <span>Klassen-Stammdaten</span>
+              <span>Stammdaten</span>
             </button>
           </div>
 
@@ -370,9 +447,12 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
 
                         <button
                           onClick={() => {
-                            updateStudentField(stu.id, { is_archived: true });
+                            updateStudentField(stu.id, {
+                              is_archived: true,
+                              archived_at: new Date().toISOString(),
+                            });
                             showToast(
-                              `„${stu.name}“ wurde archiviert (Noten bleiben im Archiv erhalten).`
+                              `„${stu.name}“ wurde archiviert (Noten bleiben im Archiv sicher erhalten).`
                             );
                           }}
                           className="px-2.5 py-1 rounded-lg border text-[11px] font-semibold flex items-center gap-1 hover:bg-amber-500/10 text-amber-700 dark:text-amber-400"
@@ -384,10 +464,10 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
                         </button>
 
                         <button
-                          onClick={() => deleteStudentPermanently(stu.id, stu.name)}
-                          className="p-1.5 rounded-lg border text-rose-600 hover:bg-rose-500/10"
+                          onClick={() => setStudentPendingDelete(stu)}
+                          className="p-1.5 rounded-lg border text-rose-600 hover:bg-rose-500/10 transition"
                           style={{ borderColor: 'var(--border-subtle)' }}
-                          title="Schüler:in samt Noten endgültig löschen"
+                          title="Schüler:in aus Klasse entfernen oder löschen..."
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -399,47 +479,114 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
 
               {/* Archived Students Section */}
               {archivedStudents.length > 0 && (
-                <div className="space-y-2 pt-2">
-                  <div className="text-xs font-bold uppercase tracking-wider text-amber-600">
-                    Archivierte Schüler:innen ({archivedStudents.length}) — Ausgeblendet & ohne Einfluss auf den Klassenschnitt
+                <div className="space-y-3 pt-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-bold uppercase tracking-wider text-amber-600 flex items-center gap-1.5">
+                      <Archive className="w-3.5 h-3.5" />
+                      <span>Archivierte Schüler:innen ({archivedStudents.length})</span>
+                    </div>
+                    <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                      Ausgeblendet & ohne Einfluss auf Klassenschnitt
+                    </span>
                   </div>
+
+                  {/* Proaktive Retention-Abfrage bei fälligen Datensätzen */}
+                  {expiredArchivedStudents.length > 0 && (
+                    <div className="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      <div className="flex items-start gap-2.5">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <div>
+                          <div className="font-bold text-amber-900 dark:text-amber-200">
+                            Aufbewahrungsfrist abgelaufen ({expiredArchivedStudents.length}{' '}
+                            {expiredArchivedStudents.length === 1 ? 'Schüler:in' : 'Schüler:innen'} &gt; {retentionDays} Tage archiviert)
+                          </div>
+                          <div className="text-[11px] text-amber-800/80 dark:text-amber-300/80">
+                            Möchtest du diese Daten jetzt datenschutzkonform endgültig bereinigen oder die Aufbewahrung verlängern?
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => setPendingBulkClean(true)}
+                          className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-sm transition"
+                        >
+                          Jetzt bereinigen...
+                        </button>
+                        <button
+                          onClick={extendRetentionForExpired}
+                          className="px-3 py-1.5 rounded-lg text-[11px] font-semibold border border-amber-400/50 bg-amber-50/50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-200 hover:bg-amber-100 transition"
+                        >
+                          Aufbewahrung verlängern
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <div
                     className="rounded-xl border divide-y bg-amber-500/5"
                     style={{ borderColor: 'var(--border-subtle)' }}
                   >
-                    {archivedStudents.map((stu) => (
-                      <div
-                        key={stu.id}
-                        className="p-2.5 px-3.5 flex items-center justify-between gap-3 text-xs"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold line-through opacity-70" style={{ color: 'var(--text-primary)' }}>
-                            {stu.name}
-                          </span>
-                          <span className="text-[11px] px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold">
-                            Archiviert
-                          </span>
+                    {archivedStudents.map((stu) => {
+                      const ret = getRetentionInfo(stu.archived_at);
+                      const gradeCount = getStudentGradeCount(stu.id);
+                      return (
+                        <div
+                          key={stu.id}
+                          className="p-2.5 px-3.5 flex flex-wrap items-center justify-between gap-3 text-xs"
+                        >
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span
+                              className="font-semibold line-through opacity-70"
+                              style={{ color: 'var(--text-primary)' }}
+                            >
+                              {stu.name}
+                            </span>
+                            <span className="text-[11px] px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 font-semibold">
+                              Archiviert
+                            </span>
+                            <span className="text-[11px] opacity-60" style={{ color: 'var(--text-secondary)' }}>
+                              {stu.archived_at ? `am ${ret.formattedDate}` : 'Datum unbekannt'}
+                            </span>
+                            {ret.isExpired ? (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300">
+                                Frist fällig ({ret.daysArchived} Tage)
+                              </span>
+                            ) : (
+                              <span className="text-[10px] opacity-50">
+                                (noch {ret.daysRemaining} Tage)
+                              </span>
+                            )}
+                            {gradeCount > 0 && (
+                              <span className="text-[10px] opacity-50">
+                                • {gradeCount} Noten
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                updateStudentField(stu.id, {
+                                  is_archived: false,
+                                  archived_at: undefined,
+                                });
+                                showToast(`„${stu.name}“ ist wieder aktiv in der Klasse.`);
+                              }}
+                              className="px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 text-teal-700 bg-teal-50 dark:bg-teal-950/50 dark:text-teal-300 hover:bg-teal-100 transition"
+                            >
+                              <ArchiveRestore className="w-3.5 h-3.5" />
+                              <span>Wiederherstellen</span>
+                            </button>
+                            <button
+                              onClick={() => setStudentPendingDelete(stu)}
+                              className="px-2.5 py-1 rounded-lg border text-[11px] font-semibold text-rose-600 hover:bg-rose-500/10 flex items-center gap-1 transition"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>Endgültig löschen...</span>
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => {
-                              updateStudentField(stu.id, { is_archived: false });
-                              showToast(`„${stu.name}“ ist wieder aktiv in der Klasse.`);
-                            }}
-                            className="px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 text-teal-700 bg-teal-50"
-                          >
-                            <ArchiveRestore className="w-3.5 h-3.5" />
-                            <span>Wiederherstellen</span>
-                          </button>
-                          <button
-                            onClick={() => deleteStudentPermanently(stu.id, stu.name)}
-                            className="px-2.5 py-1 rounded-lg border text-[11px] font-semibold text-rose-600 hover:bg-rose-500/10"
-                          >
-                            Endgültig löschen
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -830,6 +977,220 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
             </div>
           )}
         </div>
+
+        {/* Safety Confirmation Dialog for Student Deletion / Archiving */}
+        {studentPendingDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+            <div
+              className="max-w-md w-full rounded-2xl border p-5 shadow-2xl space-y-4"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderColor: 'var(--border-subtle)',
+              }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-rose-500/10 text-rose-600 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                      {studentPendingDelete.is_archived
+                        ? 'Archivierten Datensatz endgültig löschen?'
+                        : 'Schüler:in aus der Klasse entfernen'}
+                    </h4>
+                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                      {studentPendingDelete.name}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setStudentPendingDelete(null)}
+                  className="w-8 h-8 rounded-lg opacity-50 hover:opacity-100 transition inline-flex items-center justify-center shrink-0"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Info on stored grades */}
+              <div
+                className="p-3 rounded-xl border text-xs space-y-1"
+                style={{
+                  backgroundColor: 'var(--bg-subtle)',
+                  borderColor: 'var(--border-subtle)',
+                }}
+              >
+                <div className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  Gespeicherte Noten & Leistungen:
+                </div>
+                <div style={{ color: 'var(--text-secondary)' }}>
+                  {getStudentGradeCount(studentPendingDelete.id) > 0 ? (
+                    <span className="text-amber-600 dark:text-amber-400 font-medium">
+                      ⚠️ Es sind aktuell <strong>{getStudentGradeCount(studentPendingDelete.id)} Noten</strong> für diese/n Schüler:in hinterlegt.
+                    </span>
+                  ) : (
+                    <span>Bisher sind noch keine Noten eingetragen.</span>
+                  )}
+                </div>
+              </div>
+
+              {!studentPendingDelete.is_archived ? (
+                /* Active Student: Offer safe archiving vs hard delete */
+                <div className="space-y-3">
+                  {/* Option 1: Archive (Recommended) */}
+                  <div className="p-3.5 rounded-xl border border-teal-500/30 bg-teal-500/5 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-teal-700 dark:text-teal-300">
+                        In das Archiv verschieben (Empfohlen)
+                      </span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-100 dark:bg-teal-900/60 text-teal-800 dark:text-teal-200 font-bold">
+                        Sicher
+                      </span>
+                    </div>
+                    <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                      Alle Noten bleiben sicher aufbewahrt. Die Person wird aus der aktiven Klassenliste und dem Notenschnitt ausgeblendet. Nach 30 Tagen wirst du gefragt, ob gelöscht werden soll.
+                    </p>
+                    <button
+                      onClick={() => {
+                        updateStudentField(studentPendingDelete.id, {
+                          is_archived: true,
+                          archived_at: new Date().toISOString(),
+                        });
+                        setStudentPendingDelete(null);
+                        showToast(`„${studentPendingDelete.name}“ wurde sicher ins Archiv verschoben.`);
+                      }}
+                      className="w-full py-2 px-3 rounded-lg text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 flex items-center justify-center gap-1.5 transition"
+                    >
+                      <Archive className="w-3.5 h-3.5" />
+                      <span>Jetzt archivieren</span>
+                    </button>
+                  </div>
+
+                  {/* Option 2: Permanent Deletion (Destructive) */}
+                  <div className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/5 space-y-2">
+                    <div className="text-xs font-bold text-rose-600">
+                      Unwiderruflich löschen
+                    </div>
+                    <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                      Entfernt Schüler:in und <strong>alle Noten sofort und endgültig</strong>. Diese Aktion kann nicht rückgängig gemacht werden.
+                    </p>
+                    <button
+                      onClick={() => {
+                        deleteStudentPermanently(studentPendingDelete.id, studentPendingDelete.name);
+                        setStudentPendingDelete(null);
+                      }}
+                      className="w-full py-2 px-3 rounded-lg text-xs font-bold text-rose-700 hover:bg-rose-600 hover:text-white border border-rose-300 dark:border-rose-800/60 transition"
+                    >
+                      Unwiderruflich löschen
+                    </button>
+                  </div>
+
+                  <div className="flex justify-end pt-1">
+                    <button
+                      onClick={() => setStudentPendingDelete(null)}
+                      className="text-xs font-semibold opacity-70 hover:opacity-100"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      Abbrechen
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* Archived Student: Permanent Deletion Confirmation */
+                <div className="space-y-3">
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    Möchtest du den archivierten Datensatz von <strong>„{studentPendingDelete.name}“</strong> und alle zugehörigen Noten jetzt unwiderruflich aus der Datenbank entfernen?
+                  </p>
+                  <div className="flex items-center justify-end gap-2 pt-2">
+                    <button
+                      onClick={() => setStudentPendingDelete(null)}
+                      className="px-3.5 py-2 rounded-xl text-xs font-semibold border"
+                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                    >
+                      Abbrechen
+                    </button>
+                    <button
+                      onClick={() => {
+                        deleteStudentPermanently(studentPendingDelete.id, studentPendingDelete.name);
+                        setStudentPendingDelete(null);
+                      }}
+                      className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition"
+                    >
+                      Ja, endgültig löschen
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Bulk Retention Clean Confirmation Modal */}
+        {pendingBulkClean && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+            <div
+              className="max-w-md w-full rounded-2xl border p-5 shadow-2xl space-y-4"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderColor: 'var(--border-subtle)',
+              }}
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/10 text-rose-600 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                    Fällige archivierte Schüler:innen bereinigen
+                  </h4>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    Retention-Frist ({retentionDays} Tage) abgelaufen
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                Möchtest du die folgenden <strong>{expiredArchivedStudents.length} Schüler:innen</strong> und alle deren Noten endgültig aus der Klasse löschen?
+              </p>
+
+              <div
+                className="max-h-40 overflow-y-auto p-2.5 rounded-xl border text-xs space-y-1 divide-y"
+                style={{
+                  backgroundColor: 'var(--bg-subtle)',
+                  borderColor: 'var(--border-subtle)',
+                }}
+              >
+                {expiredArchivedStudents.map((s) => (
+                  <div key={s.id} className="flex justify-between items-center py-1">
+                    <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                      {s.name}
+                    </span>
+                    <span className="text-[11px] opacity-60" style={{ color: 'var(--text-secondary)' }}>
+                      {getStudentGradeCount(s.id)} Noten
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  onClick={() => setPendingBulkClean(false)}
+                  className="px-3.5 py-2 rounded-xl text-xs font-semibold border"
+                  style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                >
+                  Abbrechen
+                </button>
+                <button
+                  onClick={bulkDeleteExpiredStudents}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition"
+                >
+                  Ja, alle {expiredArchivedStudents.length} endgültig löschen
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -34,7 +34,7 @@ export const WelcomeGuideBanner: React.FC<WelcomeGuideBannerProps> = ({
         <div>
           <span className="font-bold">Neu bei Gradus21? </span>
           <span style={{ color: 'var(--text-secondary)' }}>
-            Lass dich in einer kurzen interaktiven Demo einmal durch alle Funktionen führen oder lerne, wie du deine erste Klasse einrichtest.
+            Starte mit dem Import deiner eigenen Klasse (.xlsx) oder lade eine Beispielklasse, um alle Funktionen interaktiv kennenzulernen.
           </span>
         </div>
       </div>
@@ -42,16 +42,16 @@ export const WelcomeGuideBanner: React.FC<WelcomeGuideBannerProps> = ({
       <div className="flex items-center gap-2">
         <button
           onClick={onStartTour}
-          className="px-3 py-1 rounded-lg text-xs font-bold text-white shadow-xs transition hover:opacity-95 flex items-center gap-1.5"
+          className="px-3 py-1.5 rounded-lg text-xs font-bold text-white shadow-xs transition hover:opacity-95 inline-flex items-center justify-center gap-1.5"
           style={{ backgroundColor: 'var(--primary-500)' }}
         >
-          <Compass className="w-3.5 h-3.5" />
+          <Compass className="w-3.5 h-3.5 shrink-0" />
           <span>Interaktive Tour starten (3 Min.)</span>
         </button>
 
         <button
           onClick={onOpenChapters}
-          className="px-2.5 py-1 rounded-lg border text-xs font-semibold transition hover:opacity-90"
+          className="px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition hover:opacity-90 inline-flex items-center justify-center"
           style={{
             backgroundColor: 'var(--bg-surface)',
             borderColor: 'var(--border-subtle)',
@@ -63,7 +63,7 @@ export const WelcomeGuideBanner: React.FC<WelcomeGuideBannerProps> = ({
 
         <button
           onClick={onDismiss}
-          className="p-1 rounded-lg transition hover:opacity-75 text-slate-500"
+          className="w-8 h-8 rounded-lg transition hover:opacity-75 text-slate-500 inline-flex items-center justify-center shrink-0"
           title="Hinweis ausblenden"
         >
           <X className="w-4 h-4" />
