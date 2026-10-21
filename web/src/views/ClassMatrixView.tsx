@@ -26,9 +26,7 @@ import {
   Archive,
   ChevronDown,
   Download,
-  Edit3,
   FileSpreadsheet,
-  Plus,
   Printer,
   Settings,
   Sliders,
@@ -239,23 +237,8 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
           )}
         </div>
 
-        {/* Action Buttons: Priorisierte Hierarchie (Primär + Sekundär + Import/Export-Dropdown) */}
+        {/* Action Buttons: Schlanke Toolbar ohne Redundanz */}
         <div data-tour="matrix-actions-bar" className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-          {/* Secondary Action: Klasse verwalten */}
-          <button
-            onClick={onOpenClassManager}
-            className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition active:scale-[0.98] hover:opacity-90"
-            style={{
-              backgroundColor: 'var(--primary-soft)',
-              color: 'var(--primary-text)',
-              borderColor: 'var(--border-subtle)',
-            }}
-          >
-            <Edit3 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Klasse verwalten</span>
-            <span className="sm:hidden">Klasse</span>
-          </button>
-
           {/* Quick Action: + Schüler:in */}
           <button
             onClick={() => setShowNewStudentForm((s) => !s)}
@@ -367,15 +350,16 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
             )}
           </div>
 
-          {/* Primary Action: Prüfung */}
+          {/* Primary Action: Prüfungen verwalten */}
           <button
             onClick={() => onOpenClassManager('assessments')}
-            className="px-3 sm:px-3.5 py-1.5 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1.5 shadow-sm transition active:scale-[0.98] hover:opacity-95"
+            className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold text-white flex items-center justify-center gap-1.5 shadow-sm transition active:scale-[0.98] hover:opacity-95"
             style={{ backgroundColor: 'var(--primary-500)' }}
             title="Prüfungen im Detail verwalten, anlegen oder Bewertungsart ändern"
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>+ Prüfung verwalten</span>
+            <Sliders className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Prüfungen verwalten</span>
+            <span className="sm:hidden">Prüfungen</span>
           </button>
         </div>
       </div>
