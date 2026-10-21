@@ -100,6 +100,25 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+@layer components {
+  .surface-card {
+    background-color: var(--bg-surface);
+    color: var(--text-primary);
+    border-color: var(--border-subtle);
+  }
+  .surface-subtle {
+    background-color: var(--bg-subtle);
+    color: var(--text-secondary);
+    border-color: var(--border-subtle);
+  }
+  .btn-tactile {
+    transition: transform 100ms ease-out, opacity 150ms ease;
+  }
+  .btn-tactile:active {
+    transform: scale(0.98);
+  }
+}
+
 /* Adaptive Touch-Targets: Nur auf Touch-Geräten (iPad, Smartphone, Tablet) 
    Mindesthöhe/-breite auf 44px anheben, Desktop-Mausnutzung bleibt kompakt. */
 @media (pointer: coarse) {
