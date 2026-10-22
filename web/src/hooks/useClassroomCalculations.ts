@@ -14,7 +14,7 @@ import {
   wasm_calculate_class_report,
   wasm_simulate_needed_score_v2,
 } from '../wasm-pkg/gradus21_core';
-import { GlobalTemplateRecord } from '../components/admin/CentralTemplatesTab';
+import type { GlobalTemplateRecord } from '../types/templates';
 import { ClassCalculationReport, StudentCalculatedSummary } from '../types/workspace';
 
 export interface UseClassroomCalculationsParams {

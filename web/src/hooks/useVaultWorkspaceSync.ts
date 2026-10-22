@@ -4,7 +4,7 @@ import initWasm, {
   wasm_encrypt_envelope,
 } from '../wasm-pkg/gradus21_core';
 import { ActiveVaultSession } from '../components/VaultLockAndAuthModal';
-import { GlobalTemplateRecord } from '../components/admin/CentralTemplatesTab';
+import type { GlobalTemplateRecord } from '../types/templates';
 import { SyncReconciliationStrategy } from '../components/SyncReconciliationModal';
 import {
   ClassroomSubjectDataset,

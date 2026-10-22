@@ -16,7 +16,7 @@ import {
   TIER_BADGE_STYLES,
   WorkspaceMode,
 } from '../types/workspace';
-import { GlobalTemplateRecord } from '../components/admin/CentralTemplatesTab';
+import type { GlobalTemplateRecord } from '../types/templates';
 import { Sliders } from 'lucide-react';
 
 export interface SpeedGradingViewProps {

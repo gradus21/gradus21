@@ -5,7 +5,11 @@ import { ClassSetupAndExcelWizard } from './components/ClassSetupAndExcelWizard'
 import { ClassManagementModal } from './components/ClassManagementModal';
 import { SettingsModal, SettingsSection } from './components/SettingsModal';
 import { VaultLockAndAuthModal } from './components/VaultLockAndAuthModal';
-import { AdminModal } from './components/admin/AdminModal';
+import { isStandaloneClient } from './utils/platform';
+
+const LazyAdminModal = !isStandaloneClient()
+  ? React.lazy(() => import('./components/admin/AdminModal').then((m) => ({ default: m.AdminModal })))
+  : null;
 import { LegalModal, LegalTab } from './components/LegalModal';
 import { useLegalConfig } from './utils/legalConfig';
 import { StorageNoticeModal } from './components/StorageNoticeModal';
@@ -332,7 +336,7 @@ export const App: React.FC = () => {
         onOpenAdmin={() => setActiveModal({ type: 'admin' })}
         onOpenInteractiveGuide={() => setIsChapterSelectOpen(true)}
         showGuideButtonInHeader={Boolean(userSettings.showGuideButtonInHeader)}
-        isAdmin={vaultSession?.isAdmin}
+        isAdmin={!isStandaloneClient() && Boolean(vaultSession?.isAdmin)}
         syncStatus={syncStatus}
         isPersistentStorage={isPersistentStorage}
         lastLocalBackupTime={lastLocalBackupTime}
@@ -651,16 +655,18 @@ export const App: React.FC = () => {
         />
       )}
 
-      {activeModal?.type === 'admin' && vaultSession && (
-        <AdminModal
-          isOpen={true}
-          onClose={handleCloseModal}
-          session={vaultSession}
-          onRestoreSuccess={async () => {
-            await handleRestoreSnapshot();
-            handleCloseModal();
-          }}
-        />
+      {!isStandaloneClient() && activeModal?.type === 'admin' && vaultSession && LazyAdminModal && (
+        <React.Suspense fallback={null}>
+          <LazyAdminModal
+            isOpen={true}
+            onClose={handleCloseModal}
+            session={vaultSession}
+            onRestoreSuccess={async () => {
+              await handleRestoreSnapshot();
+              handleCloseModal();
+            }}
+          />
+        </React.Suspense>
       )}
 
       {/* INTERACTIVE GUIDE & CHAPTER SELECT MODALS */}

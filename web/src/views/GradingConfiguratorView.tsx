@@ -10,7 +10,7 @@ import {
   UserSyncSettings,
   WeightingMode,
 } from '../data/demoClasses';
-import { GlobalTemplateRecord } from '../components/admin/CentralTemplatesTab';
+import type { GlobalTemplateRecord } from '../types/templates';
 import { SettingsModal, WEIGHTING_PRESET_CATALOG } from '../components/SettingsModal';
 import {
   LEVEL_BADGE_STYLES,

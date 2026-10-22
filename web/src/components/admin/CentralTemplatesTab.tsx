@@ -13,15 +13,8 @@ import {
   Trash2,
 } from 'lucide-react';
 
-export interface GlobalTemplateRecord {
-  id: string;
-  template_type: string; // 'curve' | 'weighting' | 'levels'
-  title: string;
-  description: string;
-  payload: any;
-  created_at?: string;
-  updated_at?: string;
-}
+import type { GlobalTemplateRecord } from '../../types/templates';
+export type { GlobalTemplateRecord };
 
 interface CentralTemplatesTabProps {
   token: string;
