@@ -8,6 +8,7 @@ RUN rustup target add wasm32-unknown-unknown && \
 
 COPY Cargo.toml Cargo.lock* ./
 COPY crates ./crates
+COPY src-tauri ./src-tauri
 
 RUN wasm-pack build crates/gradus21-core --target web --out-dir ../../web/src/wasm-pkg
 
@@ -19,6 +20,7 @@ WORKDIR /app
 
 COPY Cargo.toml Cargo.lock* ./
 COPY crates ./crates
+COPY src-tauri ./src-tauri
 
 RUN cargo build --release -p gradus21-server
 

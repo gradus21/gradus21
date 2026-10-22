@@ -54,9 +54,8 @@ jobs:
         run: npm run build
 
       - name: Install Apple Keychain & Certificates (if secrets available)
-        if: env.HAS_APPLE_SECRETS == 'true'
+        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
         env:
-          HAS_APPLE_SECRETS: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
@@ -89,7 +88,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload to TestFlight (Headless App Store Connect)
-        if: ${{ inputs.upload_testflight && secrets.APP_STORE_CONNECT_API_KEY_P8 != '' }}
+        if: ${{ (inputs.upload_testflight == null || inputs.upload_testflight == true) && secrets.APP_STORE_CONNECT_API_KEY_P8 != '' }}
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
