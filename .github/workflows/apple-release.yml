@@ -53,12 +53,15 @@ jobs:
           VITE_STANDALONE_CLIENT: 'true'
         run: npm run build
 
-      - name: Install Apple Keychain & Certificates (if secrets available)
-        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
+      - name: Install Apple Keychain & Certificates
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
+          if [ -z "$APPLE_CERTIFICATE_P12" ]; then
+            echo "Notice: APPLE_CERTIFICATE_P12 secret not configured. Skipping keychain import."
+            exit 0
+          fi
           KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain
           KEYCHAIN_PASSWORD=$(uuidgen)
           
@@ -88,12 +91,15 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload to TestFlight (Headless App Store Connect)
-        if: ${{ (inputs.upload_testflight == null || inputs.upload_testflight == true) && secrets.APP_STORE_CONNECT_API_KEY_P8 != '' }}
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
         run: |
+          if [ -z "$APP_STORE_CONNECT_API_KEY_P8" ]; then
+            echo "Notice: APP_STORE_CONNECT_API_KEY_P8 secret not configured. Skipping TestFlight upload."
+            exit 0
+          fi
           mkdir -p ~/.appstoreconnect/private_keys
           echo "$APP_STORE_CONNECT_API_KEY_P8" > ~/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8
           echo "App Store Connect API Key provisioned securely."
