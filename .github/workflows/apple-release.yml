@@ -1,0 +1,114 @@
+name: Apple Multiplatform Release (iOS, iPadOS & macOS)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      upload_testflight:
+        description: 'Upload build directly to TestFlight'
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  build-apple:
+    name: Build & Package Apple Apps
+    runs-on: macos-14
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown, aarch64-apple-darwin, x86_64-apple-darwin
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build Core WASM
+        run: wasm-pack build crates/gradus21-core --target web --out-dir ../../web/src/wasm-pkg
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install Frontend Dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Build Standalone Frontend Client
+        working-directory: web
+        env:
+          VITE_STANDALONE_CLIENT: 'true'
+        run: npm run build
+
+      - name: Install Apple Keychain & Certificates (if secrets available)
+        if: env.HAS_APPLE_SECRETS == 'true'
+        env:
+          HAS_APPLE_SECRETS: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          
+          # Create and configure temporary build keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          
+          # Import p12 certificate
+          CERT_FILE=$RUNNER_TEMP/cert.p12
+          echo "$APPLE_CERTIFICATE_P12" | base64 --decode > "$CERT_FILE"
+          security import "$CERT_FILE" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          
+          # Add to keychain search list
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+
+      - name: Build macOS DMG & App Bundle
+        working-directory: web
+        run: npx tauri build --target universal-apple-darwin || npx tauri build --target aarch64-apple-darwin
+
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradus21-macos-bundle
+          path: src-tauri/target/**/bundle/dmg/*.dmg
+          if-no-files-found: warn
+
+      - name: Upload to TestFlight (Headless App Store Connect)
+        if: ${{ inputs.upload_testflight && secrets.APP_STORE_CONNECT_API_KEY_P8 != '' }}
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$APP_STORE_CONNECT_API_KEY_P8" > ~/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8
+          echo "App Store Connect API Key provisioned securely."
+          # If an IPA file was built, upload using xcrun altool or transporter
+          IPA_PATH=$(find src-tauri -name "*.ipa" | head -n 1)
+          if [ -n "$IPA_PATH" ]; then
+            echo "Uploading $IPA_PATH to TestFlight..."
+            xcrun altool --upload-app -f "$IPA_PATH" -t ios --apiKey "$APP_STORE_CONNECT_KEY_ID" --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
+          else
+            echo "No IPA found to upload in this run."
+          fi
+
+      - name: Clean up temporary keychain
+        if: always()
+        run: |
+          security delete-keychain $RUNNER_TEMP/build.keychain 2>/dev/null || true
+          rm -rf ~/.appstoreconnect/private_keys 2>/dev/null || true

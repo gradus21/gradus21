@@ -27,3 +27,12 @@ Thumbs.db
 # Knowledge Graph / Analysis
 graphify-out/
 
+# Tauri & Native Build Secrets / Artifacts
+/src-tauri/target/
+/src-tauri/gen/
+*.p8
+*.p12
+*.mobileprovision
+*.keystore
+*.jks
+

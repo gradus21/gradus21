@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/gradus21-core",
     "crates/gradus21-server",
+    "src-tauri",
 ]
 
 [workspace.package]

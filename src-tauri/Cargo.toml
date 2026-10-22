@@ -1,0 +1,20 @@
+[package]
+name = "gradus21-app"
+version = "1.2.3"
+description = "Gradus21 — Zero-Knowledge E2EE Notenverwaltung"
+authors = ["Julian Kallidat <julian.kallidat@campus.tu-berlin.de>"]
+edition = "2021"
+
+[lib]
+name = "gradus21_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0.0", features = [] }
+tauri-plugin-opener = "2.0.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
+gradus21-core = { path = "../crates/gradus21-core" }
