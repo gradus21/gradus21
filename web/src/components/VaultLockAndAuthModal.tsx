@@ -57,6 +57,8 @@ import {
   loadLocalRecoveryMeta,
   saveLocalRecoveryMeta,
   normalizeRecoveryCode,
+  getLastLoginEmail,
+  saveLastLoginEmail,
   bytesToBase64,
   base64ToBytes,
   base64UrlToBytes,
@@ -86,12 +88,23 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   onImportEncryptedBackup,
 }) => {
   const [authTab, setAuthTab] = useState<'login' | 'register' | 'recover'>('login');
-  const [email, setEmail] = useState(session?.email || '');
+  const [email, setEmail] = useState(() => {
+    if (session?.email) return session.email;
+    const last = getLastLoginEmail();
+    if (last) return last;
+    const store = loadLocalPasskeys();
+    const firstStore = Object.values(store)[0];
+    if (firstStore?.email) return firstStore.email;
+    const cached = findLocalCachedVault();
+    if (cached?.email && !cached.email.includes('lokal@schule.intern')) return cached.email;
+    return '';
+  });
   const [password, setPassword] = useState('');
 
   useEffect(() => {
     if (session?.email) {
       setEmail(session.email);
+      saveLastLoginEmail(session.email);
     }
   }, [session?.email]);
   const [totpCode, setTotpCode] = useState('');
@@ -751,15 +764,6 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       }
       const targetEmail = enteredEmail || localEntry?.email || undefined;
 
-      if (!targetEmail && (!localEntry || !localEntry.credentialId)) {
-        setStatusMsg(null);
-        setErrorMsg(
-          'Bitte gib zuerst deine E-Mail-Adresse ein, um dich auf diesem Gerät per Passkey anzumelden.'
-        );
-        document.getElementById('login-email')?.focus();
-        return;
-      }
-
       if (!window.PublicKeyCredential || !navigator.credentials?.get) {
         setStatusMsg(null);
         setErrorMsg(
@@ -803,10 +807,17 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           } else {
             const errText = await startRes.text().catch(() => '');
             setStatusMsg(null);
-            setErrorMsg(
-              errText ||
-                'Für dieses Konto ist noch kein Passkey hinterlegt. Bitte melde dich mit deinem Passwort an.'
-            );
+            if (!targetEmail) {
+              setErrorMsg(
+                'Für die Passkey-Erstanmeldung auf diesem Gerät oder in der PWA gib bitte zuerst deine E-Mail-Adresse ein oder melde dich mit deinem Master-Passwort an.'
+              );
+              document.getElementById('login-email')?.focus();
+            } else {
+              setErrorMsg(
+                errText ||
+                  'Für dieses Konto ist noch kein Passkey hinterlegt. Bitte melde dich mit deinem Passwort an.'
+              );
+            }
             return;
           }
         }
@@ -815,32 +826,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         if (!localEntry) {
           setStatusMsg(null);
           setErrorMsg(
-            'Der Server ist offline oder nicht erreichbar. Auf einem neuen Gerät ist für die Erstanmeldung eine Verbindung zum Server erforderlich.'
+            'Der Server ist offline oder nicht erreichbar. Auf einem neuen Gerät oder in der PWA ist für die Erstanmeldung eine Verbindung zum Server erforderlich.'
           );
           return;
-        }
-      }
-
-      if (!prfSaltToUse && targetEmail) {
-        try {
-          const sRes = await fetch('/api/auth/salt', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: targetEmail }),
-          });
-          if (sRes.ok) {
-            const sData = await sRes.json();
-            if (sData.passkey_prf_salt_b64) {
-              prfSaltToUse = base64ToBytes(sData.passkey_prf_salt_b64);
-              prfSaltB64Used = sData.passkey_prf_salt_b64;
-              if (localEntry) {
-                localEntry.prfSaltB64 = sData.passkey_prf_salt_b64;
-                saveLocalPasskey(localEntry);
-              }
-            }
-          }
-        } catch {
-          // ignore prefetch salt error
         }
       }
 
@@ -897,17 +885,18 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         const errName = webauthnErr?.name || '';
         const errMsg = String(webauthnErr?.message || '');
         const isCancelled =
-          errName === 'NotAllowedError' ||
           errName === 'AbortError' ||
-          errName === 'SecurityError' ||
           errMsg.toLowerCase().includes('cancel') ||
-          errMsg.toLowerCase().includes('abort') ||
           errMsg.toLowerCase().includes('abgebrochen') ||
           errMsg.toLowerCase().includes('close') ||
           errMsg.toLowerCase().includes('dismiss');
 
         if (isCancelled) {
           setErrorMsg('Die Anmeldung mit Fingerabdruck / Face ID wurde abgebrochen.');
+        } else if (errName === 'NotAllowedError') {
+          setErrorMsg(
+            'Die Passkey-Abfrage wurde abgebrochen oder vom System/Browser verweigert. Bitte stelle sicher, dass Biometrie für diese App erlaubt ist, oder melde dich mit deinem Passwort an.'
+          );
         } else {
           setErrorMsg(
             `Passkey-Anmeldung fehlgeschlagen: ${errMsg || errName || String(webauthnErr)}`
@@ -991,7 +980,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       if (!derivedSecretB64) {
         setStatusMsg(null);
         setErrorMsg(
-          'Dieser Passkey unterstützt keine geräteübergreifende Hardware-Schlüsselableitung (PRF). Bitte melde dich auf diesem neuen Gerät einmalig mit deinem Passwort an.'
+          'Dieser Passkey erfordert für diese App-Installation eine einmalige Anmeldung mit deinem Master-Passwort, um den Tresorschlüssel sicher auf dieses Gerät zu übertragen.'
         );
         setTimeout(() => document.getElementById('login-password')?.focus(), 50);
         return;
@@ -1026,7 +1015,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         }
       }
 
-      const effectiveEmail = loginData?.email || localEntry?.email || targetEmail;
+      const effectiveEmail = loginData?.email || localEntry?.email || targetEmail || '';
       const effectiveLabel = loginData?.passkey_label || localEntry?.label || 'Passkey';
 
       // Automatisch auf diesem Neugerät für zukünftige Offline-/Schnellstarts cachen
@@ -1042,6 +1031,10 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       };
       saveLocalPasskey(entryToSave);
       setLocalPasskeyForEmail(entryToSave);
+      if (effectiveEmail) {
+        saveLastLoginEmail(effectiveEmail);
+        setEmail(effectiveEmail);
+      }
 
       const localCached = findLocalCachedVault(effectiveEmail);
       const cachedMeta = loadLocalRecoveryMeta(effectiveEmail);
@@ -1546,6 +1539,27 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         }
       }
 
+      if (email) {
+        saveLastLoginEmail(email);
+      }
+      if (loginData?.passkey_credential_id && loginData?.passkey_encrypted_dek) {
+        const store = loadLocalPasskeys();
+        const existing = store[email.trim().toLowerCase()];
+        if (!existing) {
+          const entryToSave: LocalPasskeyStoreEntry = {
+            credentialId: loginData.passkey_credential_id,
+            email: email.trim().toLowerCase(),
+            label: loginData.passkey_label || 'Passkey',
+            prfSupported: Boolean(loginData.passkey_prf_salt_b64),
+            prfSaltB64: loginData.passkey_prf_salt_b64 || undefined,
+            passkeyEncryptedDek: loginData.passkey_encrypted_dek,
+            createdAt: new Date().toLocaleDateString('de-DE'),
+          };
+          saveLocalPasskey(entryToSave);
+          setLocalPasskeyForEmail(entryToSave);
+        }
+      }
+
       const cachedMeta = loadLocalRecoveryMeta(email);
       const effectiveUserId = loginData?.user_id || session?.userId || localCached?.userId || 'user_local';
 
@@ -1606,6 +1620,10 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         }
       } catch {
         // Offline-Fallback nutzen
+      }
+
+      if (email) {
+        saveLastLoginEmail(email);
       }
 
       const cachedMeta = loadLocalRecoveryMeta(email);

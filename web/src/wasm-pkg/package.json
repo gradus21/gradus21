@@ -1,7 +1,7 @@
 {
   "name": "gradus21-core",
   "type": "module",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "license": "MIT",
   "files": [
     "gradus21_core_bg.wasm",

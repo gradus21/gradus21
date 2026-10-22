@@ -77,6 +77,25 @@ export const PASSKEY_STORAGE_KEY = 'gradus21_passkey_device_store_v2';
 export const LEGACY_PASSKEY_STORAGE_KEY = 'bte_notenflow_passkey_device_store_v1';
 export const RECOVERY_META_STORAGE_KEY = 'gradus21_recovery_meta_v2';
 export const LEGACY_RECOVERY_META_STORAGE_KEY = 'bte_notenflow_recovery_meta_v1';
+export const LAST_LOGIN_EMAIL_KEY = 'gradus21_last_login_email';
+
+export function getLastLoginEmail(): string {
+  try {
+    return localStorage.getItem(LAST_LOGIN_EMAIL_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+export function saveLastLoginEmail(email: string) {
+  try {
+    if (email && email.trim()) {
+      localStorage.setItem(LAST_LOGIN_EMAIL_KEY, email.trim().toLowerCase());
+    }
+  } catch {
+    // ignore
+  }
+}
 
 export function findLocalCachedVault(targetEmail?: string, targetUserId?: string): LocalCachedVaultMeta | null {
   try {

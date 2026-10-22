@@ -3,6 +3,23 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.3] - 2026-10-22
+
+### Bugfixes & PWA Mobile WebAuthn Resiliency
+- **PWA WebAuthn & Passkey Biometrie-Unterstützung**:
+  - Legacy Apple Meta-Tag `<meta name="apple-mobile-web-app-capable" content="yes" />` entfernt, wodurch iOS PWA-Installationen nicht mehr in den isolierten WebClip-Container gezwungen werden, sondern als vollwertige W3C Standalone Web-App mit vollem Zugriff auf WebAuthn und iCloud-Schlüsselbund agieren.
+  - W3C Manifest (`manifest.json`) um kanonische `"id": "/"` erweitert, um deterministische PWA-Identität und Storage Partitioning über Installationen hinweg sicherzustellen.
+- **Passkey Unlock & User-Activation Timeout Fix**:
+  - Redundanten, asynchronen API-Aufruf (`fetch('/api/auth/salt')`) unmittelbar vor `navigator.credentials.get()` eliminiert. Verhindert das Verfallen der transienten Benutzerinteraktion (User Activation) auf mobilen Browsern und Standalone PWAs, was zuvor zu `NotAllowedError` führte.
+  - Unterstützung für Discoverable Credentials (Usernameless Passkey Login) auf der Startseite: Authentifizierung kann nun auch ohne vorab eingetippte E-Mail initiiert werden, sofern der Passkey auf dem Gerät registriert ist.
+  - Persistierung der letzten Login-E-Mail (`getLastLoginEmail` / `saveLastLoginEmail`) im lokalen Speicher, um bei erneutem Entsperren oder nach PWA-Neuinstallation sofort die korrekte Identität vorauszufüllen.
+- **Automatischer Passkey-Cache-Sync im Zero-Knowledge Tresor**:
+  - Beim regulären Passwort-Login im PWA-Modus werden servergespeicherte Passkey-Metadaten nun automatisch in den PWA-eigenen `localStorage` synchronisiert (`saveLocalPasskeyStoreEntry`), sodass nachfolgende Entsperrungen direkt biometrisch via Passkey erfolgen können.
+  - Präzise Fehlerdifferenzierung: Unterscheidet explizit zwischen Benutzerabbruch (`AbortError` / Signal) und Berechtigungs-/Plattformauthentifikator-Fehlern (`NotAllowedError`).
+
+### Versioning & Dokumentation
+- Bumped workspace version across Cargo workspace, Web client, WASM bindings und Dokumentation auf `v1.2.3`.
+
 ## [1.2.2] - 2026-10-22
 
 ### Sicherheits- & Löschprüfungen (Context-Aware Delete Safety)

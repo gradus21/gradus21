@@ -1,6 +1,6 @@
-# Architektur- & Review-Handbuch (`v1.2.2`)
+# Architektur- & Review-Handbuch (`v1.2.3`)
 
-Dieses Dokument richtet sich an Entwicklerinnen, Entwickler, Datenschutzbeauftragte und Fachlehrkräfte, die die Version `1.2.2` von **Gradus21** begutachten, testen und weiterentwickeln.
+Dieses Dokument richtet sich an Entwicklerinnen, Entwickler, Datenschutzbeauftragte und Fachlehrkräfte, die die Version `1.2.3` von **Gradus21** begutachten, testen und weiterentwickeln.
 
 ---
 
