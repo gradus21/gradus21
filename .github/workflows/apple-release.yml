@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -37,7 +37,7 @@ jobs:
         run: wasm-pack build crates/gradus21-core --target web --out-dir ../../web/src/wasm-pkg
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
@@ -89,10 +89,10 @@ jobs:
             || $TAURI build --config "$OVERRIDE" --target aarch64-apple-darwin
 
       - name: Upload macOS Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: gradus21-macos-bundle
-          path: src-tauri/target/**/bundle/dmg/*.dmg
+          path: target/**/bundle/dmg/*.dmg
           if-no-files-found: warn
 
       - name: Upload to TestFlight (Headless App Store Connect)
