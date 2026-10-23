@@ -80,8 +80,10 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
 
       - name: Build macOS DMG & App Bundle
-        working-directory: web
-        run: npx tauri build --target universal-apple-darwin || npx tauri build --target aarch64-apple-darwin
+        run: |
+          # tauri CLI is in web/node_modules but must run from repo root (where src-tauri/ lives)
+          ./web/node_modules/.bin/tauri build --target universal-apple-darwin \
+            || ./web/node_modules/.bin/tauri build --target aarch64-apple-darwin
 
       - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v4
