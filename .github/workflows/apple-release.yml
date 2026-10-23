@@ -79,6 +79,32 @@ jobs:
           # Add to keychain search list
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
 
+      - name: Prepare macOS signing & notarization
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_KEY }}
+        run: |
+          # DMG distribution outside the App Store needs a "Developer ID Application" cert.
+          IDENTITY=$(security find-identity -v -p codesigning "$RUNNER_TEMP/build.keychain" 2>/dev/null \
+            | grep "Developer ID Application" | head -n 1 | sed -E 's/.*"(.*)".*/\1/')
+          if [ -z "$IDENTITY" ]; then
+            echo "::notice::No 'Developer ID Application' certificate in keychain - building UNSIGNED macOS DMG."
+            exit 0
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "Signing with: $IDENTITY"
+          if [ -n "$APP_STORE_CONNECT_API_KEY_P8" ]; then
+            KEY_PATH="$RUNNER_TEMP/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
+            echo "$APP_STORE_CONNECT_API_KEY_P8" > "$KEY_PATH"
+            {
+              echo "APPLE_API_ISSUER=$APP_STORE_CONNECT_ISSUER_ID"
+              echo "APPLE_API_KEY=$APP_STORE_CONNECT_KEY_ID"
+              echo "APPLE_API_KEY_PATH=$KEY_PATH"
+            } >> "$GITHUB_ENV"
+            echo "Notarization enabled."
+          fi
+
       - name: Build macOS DMG & App Bundle
         run: |
           # Run from repo root so src-tauri/tauri.conf.json is found automatically.
