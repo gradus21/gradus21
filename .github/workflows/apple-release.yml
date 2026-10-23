@@ -81,9 +81,12 @@ jobs:
 
       - name: Build macOS DMG & App Bundle
         run: |
-          # tauri CLI is in web/node_modules but must run from repo root (where src-tauri/ lives)
-          ./web/node_modules/.bin/tauri build --target universal-apple-darwin \
-            || ./web/node_modules/.bin/tauri build --target aarch64-apple-darwin
+          # Run from repo root so src-tauri/tauri.conf.json is found automatically.
+          # Frontend was already built above, so override beforeBuildCommand to skip it.
+          TAURI="./web/node_modules/.bin/tauri"
+          OVERRIDE='{"build":{"beforeBuildCommand":""}}'
+          $TAURI build --config "$OVERRIDE" --target universal-apple-darwin \
+            || $TAURI build --config "$OVERRIDE" --target aarch64-apple-darwin
 
       - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v4
