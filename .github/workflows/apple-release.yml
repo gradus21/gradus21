@@ -164,8 +164,13 @@ jobs:
           npm ci
           npm run build
 
+      # Use the cargo-installed CLI: Xcode re-invokes the CLI itself, and the npm shim
+      # would be recorded as `node tauri` which does not resolve from src-tauri/gen/apple.
+      - name: Install Tauri CLI (cargo)
+        run: cargo install tauri-cli --version "^2" --locked
+
       - name: Generate Xcode project (tauri ios init)
-        run: ./web/node_modules/.bin/tauri ios init --ci
+        run: cargo tauri ios init --ci
 
       - name: Build signed IPA
         env:
@@ -176,7 +181,7 @@ jobs:
         run: |
           # Frontend already built above; CFBundleVersion must grow with every upload.
           CONFIG='{"build":{"beforeBuildCommand":""},"bundle":{"iOS":{"bundleVersion":"'"$GITHUB_RUN_NUMBER"'"}}}'
-          ./web/node_modules/.bin/tauri ios build --ci --export-method app-store-connect --config "$CONFIG"
+          cargo tauri ios build --ci --export-method app-store-connect --config "$CONFIG"
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v6
