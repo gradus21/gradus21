@@ -1,0 +1,105 @@
+name: Android Release (APK & AAB)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    name: Build Android APK & AAB
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown, aarch64-linux-android, armv7-linux-androideabi, i686-linux-android, x86_64-linux-android
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build Core WASM
+        run: wasm-pack build crates/gradus21-core --target web --out-dir ../../web/src/wasm-pkg
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install Frontend Dependencies & build standalone client
+        working-directory: web
+        env:
+          VITE_STANDALONE_CLIENT: 'true'
+        run: |
+          npm ci
+          npm run build
+
+      # cargo-installed CLI: Gradle re-invokes it from src-tauri/gen/android (see iOS job).
+      - name: Install Tauri CLI (cargo)
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Generate Android project (tauri android init)
+        run: |
+          export NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          cargo tauri android init --ci
+
+      - name: Build release APK & AAB
+        run: |
+          export NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          # Frontend already built above; versionCode must grow with every upload.
+          CONFIG='{"build":{"beforeBuildCommand":""},"bundle":{"android":{"versionCode":'"$GITHUB_RUN_NUMBER"'}}}'
+          cargo tauri android build --apk --aab --ci --config "$CONFIG"
+
+      - name: Sign APK & AAB
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          OUT=src-tauri/gen/android/app/build/outputs
+          UNSIGNED_APK=$(find "$OUT/apk" -name "*-unsigned.apk" | head -n 1)
+          AAB=$(find "$OUT/bundle" -name "*.aab" | head -n 1)
+          echo "APK: $UNSIGNED_APK"; echo "AAB: $AAB"
+          mkdir -p dist-android
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::notice::No Android keystore secrets - publishing UNSIGNED artifacts."
+            cp "$UNSIGNED_APK" dist-android/gradus21-unsigned.apk
+            cp "$AAB" dist-android/gradus21-unsigned.aab
+            exit 0
+          fi
+          KS="$RUNNER_TEMP/upload.keystore"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KS"
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          "$BT/zipalign" -f -p 4 "$UNSIGNED_APK" "$RUNNER_TEMP/aligned.apk"
+          "$BT/apksigner" sign --ks "$KS" --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+            --out dist-android/gradus21.apk "$RUNNER_TEMP/aligned.apk"
+          "$BT/apksigner" verify dist-android/gradus21.apk
+          cp "$AAB" dist-android/gradus21.aab
+          jarsigner -keystore "$KS" -storepass:env ANDROID_KEYSTORE_PASSWORD \
+            -sigalg SHA256withRSA -digestalg SHA-256 dist-android/gradus21.aab "$ANDROID_KEY_ALIAS"
+          rm -f "$KS"
+
+      - name: Upload Android Artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: gradus21-android
+          path: dist-android/*
+          if-no-files-found: error
