@@ -25,8 +25,15 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          'vendor-ui': ['react', 'react-dom', 'lucide-react', 'qrcode'],
+        manualChunks(id) {
+          if (
+            id.includes('node_modules/react') ||
+            id.includes('node_modules/react-dom') ||
+            id.includes('node_modules/lucide-react') ||
+            id.includes('node_modules/qrcode')
+          ) {
+            return 'vendor-ui';
+          }
         },
       },
     },
