@@ -785,9 +785,7 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                                     }
                                     placeholder="—"
                                     title={
-                                      entry?.status === 'excused'
-                                        ? 'Attest / Entschuldigt'
-                                        : entry?.percent_value != null || entry?.direct_grade_value != null
+                                      entry?.percent_value != null || entry?.direct_grade_value != null
                                         ? `Note: ${entry?.direct_grade_value ?? (entry?.percent_value != null ? percentToGradeThreshold(entry.percent_value, activeDataset.config, stu.level).display_label : '—')} | ${entry?.percent_value != null ? `${entry.percent_value}%` : '—'} | ${entry?.raw_points != null ? `${entry.raw_points} Pkt` : '—'}`
                                         : 'Wert eintragen'
                                     }

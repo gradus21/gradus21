@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  AssessmentCategory,
+  CategoryConfig,
   AssessmentConfig,
   AssessmentInputMode,
   ClassroomSubjectDataset,
@@ -60,7 +60,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
   const [studentPendingDelete, setStudentPendingDelete] = useState<StudentProfile | null>(null);
   const [assessmentPendingDelete, setAssessmentPendingDelete] = useState<AssessmentConfig | null>(null);
-  const [categoryPendingDelete, setCategoryPendingDelete] = useState<AssessmentCategory | null>(null);
+  const [categoryPendingDelete, setCategoryPendingDelete] = useState<CategoryConfig | null>(null);
   const [pendingBulkClean, setPendingBulkClean] = useState(false);
   const [retentionDays] = useState(30);
   const [showCategoryEditor, setShowCategoryEditor] = useState(false);
@@ -316,7 +316,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
         term_id: newAssessTermId,
         weight: newAssessWeight,
         input_mode: newAssessInputMode,
-        max_points: newAssessInputMode === 'grade_scale' ? undefined : (newAssessMaxPoints || 15),
+        max_points: newAssessInputMode === 'grade_scale' ? null : (newAssessMaxPoints || 15),
       });
     }
 

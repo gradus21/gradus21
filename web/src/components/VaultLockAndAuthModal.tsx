@@ -676,7 +676,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
   const handleRenamePasskey = async (passkeyId: string, label?: string) => {
     if (!session?.token) return;
-    const clean = (label ?? editingPasskeyLabel).trim();
+    const clean = (label || '').trim();
     if (!clean) return;
 
     try {
@@ -698,8 +698,6 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         ) {
           onUnlockSuccess({ ...session, passkeyLabel: clean });
         }
-        setEditingPasskeyId(null);
-        setEditingPasskeyLabel('');
       } else {
         const errText = await res.text();
         setErrorMsg(errText || 'Fehler beim Umbenennen des Passkeys.');
