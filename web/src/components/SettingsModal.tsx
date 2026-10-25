@@ -884,7 +884,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         setServerUrlState(saved);
                         triggerSaved();
                       }}
-                      placeholder="https://gradus21.de"
+                      placeholder="https://gradus21.app"
                       className="flex-1 px-3 py-1.5 rounded-xl border text-xs font-mono bg-transparent"
                       style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
                     />
@@ -901,7 +901,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </button>
                   </div>
                   <p className="text-[11px] text-zinc-400">
-                    Standard: https://gradus21.de. Du kannst hier jederzeit einen eigenen Schulserver hinterlegen.
+                    Standard: https://gradus21.app. Du kannst hier jederzeit einen eigenen Schulserver hinterlegen.
                   </p>
                 </div>
               </div>

@@ -1,11 +1,11 @@
 import { isStandaloneClient } from './platform';
 
-const DEFAULT_SERVER_URL = 'https://gradus21.de';
+const DEFAULT_SERVER_URL = 'https://gradus21.app';
 const SERVER_URL_STORAGE_KEY = 'gradus21_custom_server_url';
 
 /**
  * Returns the configured Gradus21 backend server URL.
- * - In native apps (iOS, iPadOS, macOS, Android, Windows, Linux): Defaults to 'https://gradus21.de'
+ * - In native apps (iOS, iPadOS, macOS, Android, Windows, Linux): Defaults to 'https://gradus21.app'
  * - In standard web browsers: Defaults to window.location.origin
  * - Can be overridden by the user to point to a custom/self-hosted school server.
  */
@@ -17,7 +17,7 @@ export function getServerUrl(): string {
     return stored.trim().replace(/\/+$/, '');
   }
 
-  // If running in browser hosted on a domain (e.g. https://gradus21.de or custom domain)
+  // If running in browser hosted on a domain (e.g. https://gradus21.app or custom domain)
   if (!isStandaloneClient() && typeof window.location !== 'undefined' && window.location.origin.startsWith('http')) {
     return window.location.origin;
   }
@@ -47,7 +47,7 @@ export function setServerUrl(url: string): string {
 
 /**
  * Formats a relative API endpoint path into an absolute URL using the active server URL.
- * Example: apiUrl('/api/auth/login') -> 'https://gradus21.de/api/auth/login'
+ * Example: apiUrl('/api/auth/login') -> 'https://gradus21.app/api/auth/login'
  */
 export function apiUrl(endpoint: string): string {
   const base = getServerUrl();

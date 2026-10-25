@@ -6,7 +6,7 @@ describe('API & Server URL Configuration', () => {
     localStorage.clear();
   });
 
-  it('defaults to https://gradus21.de when running standalone', () => {
+  it('defaults to https://gradus21.app when running standalone', () => {
     // In vitest, window.location.origin is 'http://localhost:3000'
     const url = getServerUrl();
     expect(url).toBeDefined();

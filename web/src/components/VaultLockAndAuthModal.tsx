@@ -2479,7 +2479,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                     type="url"
                     value={serverUrlInput}
                     onChange={(e) => setServerUrlInput(e.target.value)}
-                    placeholder="https://gradus21.de"
+                    placeholder="https://gradus21.app"
                     className="flex-1 px-2.5 py-1.5 rounded-lg border text-xs font-mono bg-transparent"
                     style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
                   />
@@ -2510,7 +2510,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                   </button>
                 </div>
                 <p className="text-[10px] text-zinc-500">
-                  Standard ist https://gradus21.de. Schulen können hier ihren eigenen Schul-Server eintragen.
+                  Standard ist https://gradus21.app. Schulen können hier ihren eigenen Schul-Server eintragen.
                 </p>
               </div>
             )}
