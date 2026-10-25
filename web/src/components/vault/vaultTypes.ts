@@ -69,6 +69,7 @@ export interface LocalCachedVaultMeta {
   encryptedDek: string;
   recoveryEncryptedDek?: string;
   totpEnabled?: boolean;
+  totpSecretBase32?: string;
 }
 
 export type RegistrationStep = 'credentials' | 'recovery' | 'totp' | 'passkey' | 'complete';
@@ -124,6 +125,7 @@ export function findLocalCachedVault(targetEmail?: string, targetUserId?: string
               encryptedDek: s.encryptedDek,
               recoveryEncryptedDek: s.recoveryEncryptedDek,
               totpEnabled: s.totpEnabled,
+              totpSecretBase32: s.totpSecretBase32,
             };
             if (!normalized || (s.email && s.email.trim().toLowerCase() === normalized)) {
               return activeMeta;
@@ -156,6 +158,7 @@ export function findLocalCachedVault(targetEmail?: string, targetUserId?: string
               encryptedDek: s.encryptedDek,
               recoveryEncryptedDek: s.recoveryEncryptedDek,
               totpEnabled: s.totpEnabled,
+              totpSecretBase32: s.totpSecretBase32,
             };
             if (normalized && s.email && s.email.trim().toLowerCase() === normalized) {
               return meta;

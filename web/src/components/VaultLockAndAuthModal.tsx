@@ -74,6 +74,9 @@ import { CryptoEnvelopeInspector } from './vault/CryptoEnvelopeInspector';
 import { useLegalConfig, getDisplayDomain, formatApiErrorMessage } from '../utils/legalConfig';
 import { EmailVerificationModal } from './EmailVerificationModal';
 import { TermsOfServiceModal } from './TermsOfServiceModal';
+import { apiUrl, getServerUrl, setServerUrl } from '../utils/apiConfig';
+import { generateTotpSecret, buildTotpUri, verifyTotpCode } from '../utils/totp';
+
 
 export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   isLockedScreen,
@@ -108,6 +111,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     }
   }, [session?.email]);
   const [totpCode, setTotpCode] = useState('');
+  const [showServerConfig, setShowServerConfig] = useState(false);
+  const [currentServerUrl, setCurrentServerUrl] = useState(() => getServerUrl());
+  const [serverUrlInput, setServerUrlInput] = useState(() => getServerUrl());
   const [recoveryKeyInput, setRecoveryKeyInput] = useState('');
   const [newPasswordInput, setNewPasswordInput] = useState('');
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
@@ -137,7 +143,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   const fetchUserPasskeys = async () => {
     if (!session?.token) return;
     try {
-      const res = await fetch('/api/auth/passkey/list', {
+      const res = await fetch(apiUrl('/api/auth/passkey/list'), {
         headers: {
           Authorization: `Bearer ${session.token}`,
         },
@@ -246,7 +252,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
     // Hole das 2FA-Setup nur dann vom Server, wenn 2FA noch nicht aktiviert ist
     if (session.token && !isLockedScreen && !session.totpEnabled) {
-      fetch('/api/auth/2fa/setup', {
+      fetch(apiUrl('/api/auth/2fa/setup'), {
         headers: {
           Authorization: `Bearer ${session.token}`,
         },
@@ -315,7 +321,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       let creationPublicKey: any = null;
       if (activeSession.token) {
         try {
-          const startRes = await fetch('/api/auth/passkey/register/start', {
+          const startRes = await fetch(apiUrl('/api/auth/passkey/register/start'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -511,7 +517,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               type: cred.type,
             };
 
-            const finishRes = await fetch('/api/auth/passkey/register/finish', {
+            const finishRes = await fetch(apiUrl('/api/auth/passkey/register/finish'), {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -542,7 +548,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               return false;
             }
           } else {
-            const res = await fetch('/api/auth/passkey/register', {
+            const res = await fetch(apiUrl('/api/auth/passkey/register'), {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -631,7 +637,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
     try {
       if (session.token) {
-        const res = await fetch(`/api/auth/passkey/${passkeyId}`, {
+        const res = await fetch(apiUrl(`/api/auth/passkey/${passkeyId}`), {
           method: 'DELETE',
           headers: {
             Authorization: `Bearer ${session.token}`,
@@ -674,7 +680,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     if (!clean) return;
 
     try {
-      const res = await fetch(`/api/auth/passkey/${passkeyId}`, {
+      const res = await fetch(apiUrl(`/api/auth/passkey/${passkeyId}`), {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -710,7 +716,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
     try {
       if (session.token) {
-        const res = await fetch('/api/auth/passkey', {
+        const res = await fetch(apiUrl('/api/auth/passkey'), {
           method: 'DELETE',
           headers: {
             Authorization: `Bearer ${session.token}`,
@@ -784,7 +790,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       let serverSessionId: string | null = null;
       let serverPublicKey: any = null;
       try {
-        const startRes = await fetch('/api/auth/passkey/login/start', {
+        const startRes = await fetch(apiUrl('/api/auth/passkey/login/start'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -947,7 +953,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             type: assertion.type,
           };
 
-          const finishRes = await fetch('/api/auth/passkey/login/finish', {
+          const finishRes = await fetch(apiUrl('/api/auth/passkey/login/finish'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1220,7 +1226,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
     let emailVerificationRequiredByServer = false;
     try {
-      const healthRes = await fetch('/api/health');
+      const healthRes = await fetch(apiUrl('/api/health'));
       if (healthRes.ok) {
         const healthData = await healthRes.json();
         if (healthData.email_verification_required) {
@@ -1245,7 +1251,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
         let data: any = null;
         try {
-          const res = await fetch('/api/auth/register', {
+          const res = await fetch(apiUrl('/api/auth/register'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1279,13 +1285,17 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
           data = await res.json();
         } catch {
-          // Server unreachable / offline -> proceed as local offline vault
+          // Server unreachable / offline -> proceed as local offline vault with client-side TOTP
           const localUserId = `local_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`;
+          const { secretBase32 } = generateTotpSecret();
+          const offlineTotpUri = buildTotpUri(trimmedEmail, secretBase32);
           data = {
             token: '',
             user_id: localUserId,
             email: trimmedEmail,
             is_admin: false,
+            totp_setup_uri: offlineTotpUri,
+            totp_secret_base32: secretBase32,
           };
         }
 
@@ -1362,8 +1372,28 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       return;
     }
 
+    // Offline 2FA verification using client-side WebCrypto HMAC-SHA-1
+    if (!regSession.token) {
+      const isValid = await verifyTotpCode(regSession.totpSecretBase32 || '', code);
+      if (!isValid) {
+        setErrorMsg('Der 6-stellige Code stimmt noch nicht. Bitte prüfe deine Handy-Uhrzeit und die Anzeige in der App.');
+        setStatusMsg(null);
+        return;
+      }
+      const updated = { ...regSession, totpEnabled: true };
+      setRegSession(updated);
+      setRegTotpVerified(true);
+      setStatusMsg('2FA erfolgreich offline aktiviert!');
+      setErrorMsg(null);
+      setTimeout(() => {
+        setStatusMsg(null);
+        setRegisterStep('passkey');
+      }, 700);
+      return;
+    }
+
     try {
-      const res = await fetch('/api/auth/2fa/verify', {
+      const res = await fetch(apiUrl('/api/auth/2fa/verify'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1424,7 +1454,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
       if (!isServerOffline) {
         try {
-          const saltRes = await fetch('/api/auth/salt', {
+          const saltRes = await fetch(apiUrl('/api/auth/salt'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email }),
@@ -1509,7 +1539,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       let loginData: any = null;
       if (!isServerOffline && saltData) {
         try {
-          const loginRes = await fetch('/api/auth/login', {
+          const loginRes = await fetch(apiUrl('/api/auth/login'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1536,6 +1566,25 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         } catch {
           // proceeding offline
           loginData = null;
+        }
+      }
+
+      // Offline 2FA check when vault has 2FA enabled
+      if (!loginData && (localCached?.totpEnabled || session?.totpEnabled)) {
+        const secret = session?.totpSecretBase32 || localCached?.totpSecretBase32;
+        if (secret) {
+          if (!totpCode || !totpCode.trim()) {
+            setLoginRequiresTotp(true);
+            setErrorMsg('Bitte gib noch den 6-stelligen Zahlencode aus deiner Authenticator-App ein.');
+            setStatusMsg(null);
+            return;
+          }
+          const valid = await verifyTotpCode(secret, totpCode);
+          if (!valid) {
+            setErrorMsg('Der 6-stellige 2FA-Code ist ungültig.');
+            setStatusMsg(null);
+            return;
+          }
         }
       }
 
@@ -1610,7 +1659,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     try {
       let saltData: any = null;
       try {
-        const saltRes = await fetch('/api/auth/salt', {
+        const saltRes = await fetch(apiUrl('/api/auth/salt'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email }),
@@ -1678,7 +1727,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       const rewrappedJson = wasm_rewrap_dek(recoveredDekB64, targetNewPassword);
       const rewrapped = JSON.parse(rewrappedJson);
 
-      const recRes = await fetch('/api/auth/recover', {
+      const recRes = await fetch(apiUrl('/api/auth/recover'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1728,7 +1777,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     if (!session) return;
     setErrorMsg(null);
     setStatusMsg('Code wird überprüft...');
-    const res = await fetch('/api/auth/2fa/verify', {
+    const res = await fetch(apiUrl('/api/auth/2fa/verify'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1752,7 +1801,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     setStatusMsg('Neuer 2FA-Einrichtungsschlüssel wird generiert...');
 
     try {
-      const res = await fetch('/api/auth/2fa/reconfigure', {
+      const res = await fetch(apiUrl('/api/auth/2fa/reconfigure'), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${session.token}`,
@@ -1807,7 +1856,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     setStatusMsg('2FA wird deaktiviert...');
 
     try {
-      const res = await fetch('/api/auth/2fa/disable', {
+      const res = await fetch(apiUrl('/api/auth/2fa/disable'), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${session.token}`,
@@ -1868,7 +1917,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       const recAuthKeyB64: string = recBundle.recovery_auth_key_b64;
 
       if (session.token) {
-        const res = await fetch('/api/auth/recovery/rotate', {
+        const res = await fetch(apiUrl('/api/auth/recovery/rotate'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -2407,6 +2456,65 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               setStatusMsg(null);
             }}
           />
+          {/* Server-Konfiguration (Cloud-Sync Endpoint) */}
+          <div className="mt-4 pt-3 border-t text-[11px] text-center" style={{ borderColor: 'var(--border-subtle)' }}>
+            {!showServerConfig ? (
+              <button
+                type="button"
+                onClick={() => setShowServerConfig(true)}
+                className="inline-flex items-center gap-1.5 opacity-70 hover:opacity-100 transition hover:underline"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                <span>Server:</span>
+                <span className="font-mono font-medium">{currentServerUrl}</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded border border-zinc-300 dark:border-zinc-700">Ändern</span>
+              </button>
+            ) : (
+              <div className="p-3 rounded-xl border text-left space-y-2 bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800">
+                <div className="font-semibold text-xs" style={{ color: 'var(--text-primary)' }}>
+                  Backend-Server für E2EE-Sync & 2FA:
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={serverUrlInput}
+                    onChange={(e) => setServerUrlInput(e.target.value)}
+                    placeholder="https://gradus21.de"
+                    className="flex-1 px-2.5 py-1.5 rounded-lg border text-xs font-mono bg-transparent"
+                    style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const saved = setServerUrl(serverUrlInput);
+                      setCurrentServerUrl(saved);
+                      setServerUrlInput(saved);
+                      setShowServerConfig(false);
+                      setStatusMsg(`Server-URL: ${saved}`);
+                    }}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-teal-600 hover:bg-teal-700"
+                  >
+                    Speichern
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const def = setServerUrl('');
+                      setCurrentServerUrl(def);
+                      setServerUrlInput(def);
+                      setShowServerConfig(false);
+                    }}
+                    className="px-2 py-1.5 rounded-lg text-xs text-zinc-500 hover:text-zinc-700 border"
+                  >
+                    Standard
+                  </button>
+                </div>
+                <p className="text-[10px] text-zinc-500">
+                  Standard ist https://gradus21.de. Schulen können hier ihren eigenen Schul-Server eintragen.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );

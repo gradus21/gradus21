@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getServerUrl, setServerUrl } from '../utils/apiConfig';
 import {
   CellDisplayFormat,
   GradingScaleId,
@@ -126,6 +127,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   }, []);
 
   const currentMode = getEffectiveThemeMode(settings);
+  const [serverUrl, setServerUrlState] = useState(() => getServerUrl());
 
   const triggerSaved = () => {
     setSavedIndicator(true);
@@ -866,6 +868,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </button>
                   </div>
                 )}
+
+                {/* Server-Adresse für Cloud-Synchronisation */}
+                <div className="pt-3 border-t text-xs space-y-1.5" style={{ borderColor: 'var(--border-subtle)' }}>
+                  <label className="block font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                    Backend Server-Adresse:
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={serverUrl}
+                      onChange={(e) => setServerUrlState(e.target.value)}
+                      onBlur={() => {
+                        const saved = setServerUrl(serverUrl);
+                        setServerUrlState(saved);
+                        triggerSaved();
+                      }}
+                      placeholder="https://gradus21.de"
+                      className="flex-1 px-3 py-1.5 rounded-xl border text-xs font-mono bg-transparent"
+                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const def = setServerUrl('');
+                        setServerUrlState(def);
+                        triggerSaved();
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl border text-xs text-zinc-500 hover:text-zinc-700"
+                    >
+                      Standard
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-zinc-400">
+                    Standard: https://gradus21.de. Du kannst hier jederzeit einen eigenen Schulserver hinterlegen.
+                  </p>
+                </div>
               </div>
 
               {/* Card 2: Lokale verschlüsselte Datei-Sicherung (Schul-Netzlaufwerk / USB) */}

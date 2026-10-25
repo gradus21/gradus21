@@ -556,6 +556,15 @@ export const VaultRegistrationWizard: React.FC<VaultRegistrationWizardProps> = (
               <span>Code bestätigen & 2FA aktivieren</span>
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setStep('passkey')}
+            className="w-full py-1.5 text-center text-[11px] font-medium transition hover:underline opacity-80"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            2FA vorerst überspringen & später einrichten
+          </button>
         </form>
       )}
 
