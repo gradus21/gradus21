@@ -146,6 +146,14 @@ jobs:
           OVERRIDE='{"build":{"beforeBuildCommand":""}}'
           ./web/node_modules/.bin/tauri build --config "$OVERRIDE" --bundles msi,nsis
 
+      - name: Build & Sign MSIX Package (Store / Sideloading)
+        env:
+          MSIX_PUBLISHER: ${{ secrets.MSIX_PUBLISHER }}
+          WINDOWS_CERTIFICATE_PFX: ${{ secrets.WINDOWS_CERTIFICATE_PFX }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        shell: powershell
+        run: .\src-tauri\msix\package-msix.ps1
+
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v6
         with:
@@ -154,4 +162,6 @@ jobs:
             target/release/bundle/msi/*.msi*
             target/release/bundle/nsis/*.exe*
             target/release/bundle/nsis/*.zip*
+            target/release/bundle/msix/*.msix*
+            target/release/bundle/msix/*.cer*
           if-no-files-found: warn

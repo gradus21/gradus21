@@ -175,7 +175,14 @@ jobs:
         run: cargo install tauri-cli --version "^2" --locked
 
       - name: Generate Xcode project (tauri ios init)
-        run: cargo tauri ios init --ci
+        run: |
+          cargo tauri ios init --ci
+          # Embed ITSAppUsesNonExemptEncryption = false in Info.plist to skip export compliance prompts in TestFlight
+          for plist in $(find src-tauri/gen/apple -name "Info.plist"); do
+            echo "Setting ITSAppUsesNonExemptEncryption=false in $plist"
+            /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$plist" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$plist" 2>/dev/null || true
+          done
 
       - name: Build signed IPA
         env:
