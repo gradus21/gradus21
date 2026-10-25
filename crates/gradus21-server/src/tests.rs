@@ -1761,3 +1761,111 @@ async fn test_singleton_settings_envelope_tenant_isolation_in_batch_sync() {
     assert_eq!(teacher_class.owner_user_id, new_teacher_id);
     assert_eq!(teacher_class.encrypted_payload, "teacher_class_enc");
 }
+
+#[tokio::test]
+async fn test_deactivated_user_cannot_access_api_or_recover() {
+    let state = create_test_state();
+    let bundle_admin = generate_vault_bundle("AdminPassword123!").expect("bundle admin");
+    let bundle_teacher = generate_vault_bundle("TeacherPassword123!").expect("bundle teacher");
+
+    // 1. Register admin
+    let Json(admin_auth) = register_user(
+        State(state.clone()),
+        Json(RegisterRequest {
+            email: "admin_sec@schule.de".into(),
+            auth_key_b64: bundle_admin.auth_key_b64.clone(),
+            kdf_salt_b64: bundle_admin.kdf_salt_b64.clone(),
+            kdf_params: bundle_admin.kdf_params.clone(),
+            encrypted_dek: bundle_admin.encrypted_dek.clone(),
+            recovery_encrypted_dek: bundle_admin.recovery_encrypted_dek.clone(),
+            recovery_auth_key_b64: Some(bundle_admin.recovery_auth_key_b64.clone()),
+            user_id: None,
+        }),
+    )
+    .await
+    .expect("admin register");
+
+    // 2. Register teacher
+    let Json(teacher_auth) = register_user(
+        State(state.clone()),
+        Json(RegisterRequest {
+            email: "teacher_sec@schule.de".into(),
+            auth_key_b64: bundle_teacher.auth_key_b64.clone(),
+            kdf_salt_b64: bundle_teacher.kdf_salt_b64.clone(),
+            kdf_params: bundle_teacher.kdf_params.clone(),
+            encrypted_dek: bundle_teacher.encrypted_dek.clone(),
+            recovery_encrypted_dek: bundle_teacher.recovery_encrypted_dek.clone(),
+            recovery_auth_key_b64: Some(bundle_teacher.recovery_auth_key_b64.clone()),
+            user_id: None,
+        }),
+    )
+    .await
+    .expect("teacher register");
+
+    let mut teacher_headers = HeaderMap::new();
+    teacher_headers.insert(
+        "authorization",
+        format!("Bearer {}", teacher_auth.token).parse().unwrap(),
+    );
+
+    // Active teacher can access list_envelopes
+    let env_res = list_envelopes(State(state.clone()), teacher_headers.clone()).await;
+    assert!(env_res.is_ok());
+
+    // 3. Admin deactivates teacher
+    let mut admin_headers = HeaderMap::new();
+    admin_headers.insert(
+        "authorization",
+        format!("Bearer {}", admin_auth.token).parse().unwrap(),
+    );
+    let deact_res = admin::update_user_status(
+        State(state.clone()),
+        admin_headers.clone(),
+        Path(teacher_auth.user_id),
+        Json(admin::UpdateUserStatusRequest {
+            is_admin: None,
+            is_active: Some(false),
+        }),
+    )
+    .await;
+    assert!(deact_res.is_ok());
+
+    // 4. Deactivated teacher tries to use existing JWT -> must be blocked with 403 Forbidden
+    let blocked_env_res = list_envelopes(State(state.clone()), teacher_headers.clone()).await;
+    assert!(blocked_env_res.is_err());
+    assert_eq!(blocked_env_res.unwrap_err().0, StatusCode::FORBIDDEN);
+
+    // 5. Deactivated teacher tries to recover password -> must be blocked with 403 Forbidden
+    let recover_res = recover_password(
+        State(state.clone()),
+        Json(RecoverPasswordRequest {
+            email: "teacher_sec@schule.de".into(),
+            recovery_auth_key_b64: bundle_teacher.recovery_auth_key_b64.clone(),
+            new_auth_key_b64: "new_auth_key_sample".into(),
+            new_kdf_salt_b64: "new_salt_sample".into(),
+            new_kdf_params: KdfParams::default(),
+            new_encrypted_dek: "new_enc_dek".into(),
+            new_recovery_encrypted_dek: None,
+            new_recovery_auth_key_b64: None,
+        }),
+    )
+    .await;
+    assert!(recover_res.is_err());
+    assert_eq!(recover_res.unwrap_err().0, StatusCode::FORBIDDEN);
+
+    // 6. Deactivated teacher tries to login with password -> must be blocked with 403 Forbidden
+    let login_res = login_user(
+        State(state.clone()),
+        Json(LoginRequest {
+            email: "teacher_sec@schule.de".into(),
+            auth_key_b64: bundle_teacher.auth_key_b64.clone(),
+            totp_code: None,
+        }),
+    )
+    .await;
+    assert!(login_res.is_err());
+    assert_eq!(login_res.unwrap_err().0, StatusCode::FORBIDDEN);
+
+    // Clean up
+    let _ = fs::remove_file(&state.disk_store_path);
+}

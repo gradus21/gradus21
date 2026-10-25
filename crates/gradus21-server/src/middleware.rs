@@ -100,6 +100,18 @@ pub fn authenticate_request(
     )
     .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültiges oder abgelaufenes JWT".into()))?;
 
+    if let Ok(uid) = Uuid::parse_str(&token_data.claims.sub) {
+        let users = state.mem_users.read().unwrap();
+        if let Some(user) = users.get(&uid) {
+            if !user.is_active {
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    "Dieses Benutzerkonto wurde von der Administration vorübergehend deaktiviert.".into(),
+                ));
+            }
+        }
+    }
+
     Ok(token_data.claims)
 }
 

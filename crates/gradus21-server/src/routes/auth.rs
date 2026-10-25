@@ -388,6 +388,13 @@ pub async fn recover_password(
         return Err((StatusCode::NOT_FOUND, "Kein Tresor unter dieser E-Mail gefunden".into()));
     };
 
+    if !existing_user.is_active {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Dieses Benutzerkonto wurde von der Administration vorübergehend deaktiviert.".into(),
+        ));
+    }
+
     if existing_user.recovery_auth_key_hash.trim().is_empty()
         || req.recovery_auth_key_b64.trim().is_empty()
     {
