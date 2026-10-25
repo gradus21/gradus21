@@ -106,6 +106,9 @@ jobs:
           fi
 
       - name: Build macOS DMG & App Bundle
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           # Run from repo root so src-tauri/tauri.conf.json is found automatically.
           # Frontend was already built above, so override beforeBuildCommand to skip it.
@@ -118,7 +121,9 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: gradus21-macos-bundle
-          path: target/**/bundle/dmg/*.dmg
+          path: |
+            target/**/bundle/dmg/*.dmg*
+            target/**/bundle/macos/*.tar.gz*
           if-no-files-found: warn
 
 

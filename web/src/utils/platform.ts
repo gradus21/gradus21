@@ -49,3 +49,14 @@ export const isIPad = (): boolean => {
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
   );
 };
+
+/**
+ * Checks whether the app runs inside a desktop Tauri instance (Linux, macOS, Windows).
+ * Returns false on mobile (iOS, iPadOS, Android) or pure web browser.
+ */
+export const isDesktopTauri = (): boolean => {
+  if (!isTauri()) return false;
+  if (isAppleTouchDevice()) return false;
+  if (typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)) return false;
+  return true;
+};

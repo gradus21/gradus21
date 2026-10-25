@@ -35,4 +35,6 @@ graphify-out/
 *.mobileprovision
 *.keystore
 *.jks
+*.key
+!docs/*.asc
 

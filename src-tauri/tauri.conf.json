@@ -38,5 +38,13 @@
     "category": "Education",
     "shortDescription": "Zero-Knowledge Notenverwaltung für Lehrkräfte",
     "longDescription": "Gradus21 ist eine datenschutzkonforme, Zero-Knowledge verschlüsselte Notenverwaltung für Lehrerinnen und Lehrer."
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhGQTEzNzZCN0E2NjY1OTAKUldTUVpXWjZhemVoanpGZTJIdmdMeUNxNlJET0tva0c1QWIxSWU2aTRGR05acGtSWmV2YW5NSVQK",
+      "endpoints": [
+        "https://github.com/gradus21/gradus21/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
