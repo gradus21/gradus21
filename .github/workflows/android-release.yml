@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-android:
     name: Build Android APK & AAB
@@ -103,3 +106,13 @@ jobs:
           name: gradus21-android
           path: dist-android/*
           if-no-files-found: error
+
+      - name: Attach Android Artifacts to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            dist-android/gradus21.apk \
+            dist-android/gradus21.aab \
+            --clobber || true

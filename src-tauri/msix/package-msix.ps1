@@ -96,7 +96,12 @@ if ($env:WINDOWS_CERTIFICATE_PFX) {
 # Run signtool
 & $signTool sign /fd SHA256 /a /f $pfxFile /p $pfxPassword $msixPath
 Write-Host "==> Verifying MSIX signature..."
-& $signTool verify /pa $msixPath
+if ($env:WINDOWS_CERTIFICATE_PFX) {
+    & $signTool verify /pa $msixPath
+} else {
+    Write-Host "Self-signed certificate used; running non-strict verification..."
+    try { & $signTool verify /v $msixPath } catch { Write-Warning "Self-signed root not trusted by host, which is expected for dev builds." }
+}
 
 # Cleanup temporary private key file
 if (Test-Path $pfxFile) { Remove-Item -Force $pfxFile }
