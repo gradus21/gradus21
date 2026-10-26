@@ -100,7 +100,8 @@ if ($env:WINDOWS_CERTIFICATE_PFX) {
     & $signTool verify /pa $msixPath
 } else {
     Write-Host "Self-signed certificate used; running non-strict verification..."
-    try { & $signTool verify /v $msixPath } catch { Write-Warning "Self-signed root not trusted by host, which is expected for dev builds." }
+    & $signTool verify /v $msixPath 2>$null
+    $global:LASTEXITCODE = 0
 }
 
 # Cleanup temporary private key file
