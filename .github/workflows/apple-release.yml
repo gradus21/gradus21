@@ -134,10 +134,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          shopt -s globstar
-          gh release upload "${{ github.ref_name }}" \
-            target/**/bundle/dmg/*.dmg \
-            --clobber || true
+          dmg_files=$(find target -name "*.dmg" -type f)
+          if [ -n "$dmg_files" ]; then
+            echo "Uploading macOS DMG artifacts to release ${{ github.ref_name }}..."
+            gh release upload "${{ github.ref_name }}" $dmg_files --clobber || true
+          fi
 
 
   build-ios:

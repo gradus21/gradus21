@@ -99,9 +99,17 @@ Write-Host "==> Verifying MSIX signature..."
 if ($env:WINDOWS_CERTIFICATE_PFX) {
     & $signTool verify /pa $msixPath
 } else {
-    Write-Host "Self-signed certificate used; running non-strict verification..."
-    & $signTool verify /v $msixPath 2>$null
-    $global:LASTEXITCODE = 0
+    Write-Host "Self-signed certificate used; skipping strict root chain verification..."
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    try {
+        & $signTool verify /v $msixPath 2>&1 | Out-Null
+    } catch {
+        # Untrusted root certificate error is expected for self-signed development/CI certificates
+    } finally {
+        $ErrorActionPreference = $prevEAP
+        $global:LASTEXITCODE = 0
+    }
 }
 
 # Cleanup temporary private key file
