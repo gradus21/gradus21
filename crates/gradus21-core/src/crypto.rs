@@ -493,3 +493,59 @@ fn aes_gcm_decrypt_raw(key_b64: &str, envelope: &str, aad: &[u8]) -> Result<Vec<
         )
         .map_err(|_| CryptoError::DecryptionFailed)
 }
+
+/// Encrypts an arbitrary payload for ephemeral transit between browser and desktop app.
+/// Format: `v1:<nonce_b64>:<ciphertext_b64>`
+pub fn encrypt_transit_payload(key: &[u8; 32], plaintext: &str) -> Result<String, CryptoError> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| CryptoError::InvalidLength)?;
+    let mut nonce_bytes = [0u8; 12];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    let ciphertext = cipher
+        .encrypt(
+            nonce,
+            Payload {
+                msg: plaintext.as_bytes(),
+                aad: b"gradus21:desktop-auth:v1",
+            },
+        )
+        .map_err(|_| CryptoError::EncryptionFailed)?;
+
+    Ok(format!("v1:{}:{}", B64.encode(nonce_bytes), B64.encode(ciphertext)))
+}
+
+/// Decrypts an ephemeral transit payload.
+pub fn decrypt_transit_payload(key: &[u8; 32], envelope: &str) -> Result<String, CryptoError> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+    let parts: Vec<&str> = envelope.split(':').collect();
+    if parts.len() != 3 || parts[0] != "v1" {
+        return Err(CryptoError::UnsupportedFormat);
+    }
+
+    let nonce_bytes = match B64.decode(parts[1]) {
+        Ok(b) if b.len() == 12 => b,
+        _ => return Err(CryptoError::InvalidLength),
+    };
+
+    let ciphertext = match B64.decode(parts[2]) {
+        Ok(c) => c,
+        Err(e) => return Err(CryptoError::Base64Error(e.to_string())),
+    };
+
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| CryptoError::InvalidLength)?;
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    let decrypted = cipher
+        .decrypt(
+            nonce,
+            Payload {
+                msg: &ciphertext,
+                aad: b"gradus21:desktop-auth:v1",
+            },
+        )
+        .map_err(|_| CryptoError::DecryptionFailed)?;
+
+    String::from_utf8(decrypted).map_err(|_| CryptoError::DecryptionFailed)
+}

@@ -3,6 +3,22 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.4] - 2026-10-26
+
+### Desktop Passkey System-Browser Flow (RFC 8252)
+- **Zero-Knowledge Loopback-Authentifizierung für Linux & Desktop-Clients**:
+  - Implementierung eines flüchtigen, lokalen Loopback-HTTP-Servers (`127.0.0.1:0`) in Tauri für sichere Passkey-Authentifizierung.
+  - Behebt die WebKitGTK-Einschränkung unter Linux, wo embedded WebViews keine native WebAuthn-Schnittstelle (`window.PublicKeyCredential`) bereitstellen: Erkennt automatisch nicht verfügbares lokales WebAuthn und delegiert den Login nahtlos an den Standardbrowser des Betriebssystems.
+  - Volle Unterstützung für synchronisierte Plattform-Passkeys (Google Password Manager, 1Password, Bitwarden, iCloud Keychain, Smartphone via QR-Code) sowie Hardware-Sicherheitsschlüssel (FIDO2 / YubiKey) mit vollständiger WebAuthn PRF-Extension zur Ableitung des Tresorschlüssels.
+  - Ende-zu-Ende-Transitverschlüsselung (AES-256-GCM) zwischen Browser und Desktop-App mit Einmal-Transitschlüssel im URL-Fragment (`#transit_key=...`), sodass sensible Schlüssel zu keinem Zeitpunkt Server-Logs oder die Prozessliste exponieren.
+  - Automatischer Fensterfokus (`window.set_focus()`) nach erfolgreichem Login und ansprechende Erfolgsseite im Browser mit Option zum Schließen des Tabs.
+
+### Web-Client & UI/UX Optimierungen
+- **Desktop-Autorisierungsmodus im Tresor-Modal (`VaultLockAndAuthModal`)**:
+  - Erkennt Desktop-Autorisierungsanfragen (`?desktop_auth=1`) und überträgt die entsperrte Session inklusive des via WASM entschlüsselten DEK automatisch an die Desktop-App.
+  - Bereitstellung einer 1-Klick-Direktfreigabe für Benutzer, die im Browser bereits angemeldet sind (*„Desktop-App jetzt direkt entsperren“*).
+  - Intelligenter Button in der Desktop-App: Zeigt bei fehlendem WebAuthn im WebView direkt *„Mit Passkey im Browser anmelden“* (inkl. Abbrechen-Option während des Wartezustands).
+
 ## [1.2.3] - 2026-10-26
 
 ### Multiplattform Native Clients & Tauri v2 Scaffolding

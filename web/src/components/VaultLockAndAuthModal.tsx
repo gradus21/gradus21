@@ -76,13 +76,20 @@ import { EmailVerificationModal } from './EmailVerificationModal';
 import { TermsOfServiceModal } from './TermsOfServiceModal';
 import { apiUrl, getServerUrl, setServerUrl } from '../utils/apiConfig';
 import { generateTotpSecret, buildTotpUri, verifyTotpCode } from '../utils/totp';
+import {
+  getDesktopAuthParams,
+  sendDesktopAuthCallback,
+  startDesktopBrowserAuth,
+  DesktopAuthParams,
+} from '../utils/desktopAuth';
+import { isTauri } from '../utils/platform';
 
 
 export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   isLockedScreen,
   session,
   sampleEnvelope,
-  onUnlockSuccess,
+  onUnlockSuccess: rawOnUnlockSuccess,
   onLockVault,
   onCloseInspector,
   cloudSyncEnabled = false,
@@ -91,7 +98,14 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   onImportEncryptedBackup,
 }) => {
   const [authTab, setAuthTab] = useState<'login' | 'register' | 'recover'>('login');
+  const [desktopAuthParams] = useState<DesktopAuthParams | null>(() => {
+    return typeof window !== 'undefined' ? getDesktopAuthParams() : null;
+  });
+  const [desktopAuthCompleted, setDesktopAuthCompleted] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+
   const [email, setEmail] = useState(() => {
+    if (desktopAuthParams?.email) return desktopAuthParams.email;
     if (session?.email) return session.email;
     const last = getLastLoginEmail();
     if (last) return last;
@@ -102,6 +116,26 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     if (cached?.email && !cached.email.includes('lokal@schule.intern')) return cached.email;
     return '';
   });
+
+  const onUnlockSuccess = async (
+    unlockedSession: ActiveVaultSession,
+    options?: { enableCloudSync?: boolean }
+  ) => {
+    if (desktopAuthParams) {
+      setStatusMsg('Anmeldung wird an die Desktop-App übertragen...');
+      setIsLoading(true);
+      const result = await sendDesktopAuthCallback(desktopAuthParams, unlockedSession);
+      setIsLoading(false);
+      if (result.success) {
+        setDesktopAuthCompleted(true);
+        setStatusMsg(null);
+        return;
+      } else {
+        setErrorMsg(`Desktop-Übertragung fehlgeschlagen: ${result.message}`);
+      }
+    }
+    rawOnUnlockSuccess(unlockedSession, options);
+  };
   const [password, setPassword] = useState('');
 
   useEffect(() => {
@@ -746,6 +780,32 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   };
 
   // ===========================================================================
+  // MIT PASSKEY IM BROWSER ÖFFNEN (System-Browser-Flow für Tauri unter Linux/Desktop)
+  // ===========================================================================
+  const handleUnlockWithBrowserPasskey = async (targetEmail?: string) => {
+    setErrorMsg(null);
+    setStatusMsg('Standard-Browser wird geöffnet... Bitte bestätige die Anmeldung im Browser.');
+    setIsLoading(true);
+    try {
+      const serverUrl = getServerUrl();
+      const authSession = await startDesktopBrowserAuth(serverUrl, targetEmail || email.trim() || undefined);
+      setStatusMsg('Anmeldung erfolgreich! Tresor wird entsperrt...');
+      await onUnlockSuccess(authSession);
+    } catch (err: any) {
+      console.warn('Desktop browser auth aborted or failed:', err);
+      setStatusMsg(null);
+      const msg = err?.message || String(err) || '';
+      if (msg.includes('Zeitüberschreitung') || msg.includes('abgebrochen')) {
+        setErrorMsg('Die Passkey-Anmeldung im Browser wurde abgebrochen oder ist abgelaufen.');
+      } else {
+        setErrorMsg(`Passkey-Anmeldung im Browser fehlgeschlagen: ${msg}`);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ===========================================================================
   // MIT PASSKEY ÖFFNEN (1-Klick Entsperrung per Fingerabdruck / Face ID & PRF)
   // Unterstützt sowohl bestehende Geräte als auch Erstanmeldung auf Neugeräten
   // ===========================================================================
@@ -769,6 +829,11 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       const targetEmail = enteredEmail || localEntry?.email || undefined;
 
       if (!window.PublicKeyCredential || !navigator.credentials?.get) {
+        if (isTauri()) {
+          await handleUnlockWithBrowserPasskey(targetEmail);
+          return;
+        }
+
         setStatusMsg(null);
         setErrorMsg(
           'Dieser Browser unterstützt keine Passkey-Authentifizierung (WebAuthn). Bitte melde dich mit deinem Passwort an.'
@@ -1958,7 +2023,46 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   // 1. GESPERRTER BILDSCHIRM (Freundlicher Anmelde-Dialog mit Passkey-Button)
   // ===========================================================================
   if (isLockedScreen) {
+    if (desktopAuthCompleted) {
+      return (
+        <div
+          className="min-h-screen flex items-center justify-center p-6"
+          style={{ backgroundColor: 'var(--bg-canvas)' }}
+        >
+          <div
+            className="w-full max-w-md rounded-3xl border p-8 shadow-xl text-center space-y-5"
+            style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
+          >
+            <div className="w-16 h-16 mx-auto rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
+              <CheckCircle2 className="w-8 h-8" />
+            </div>
+            <div className="space-y-1">
+              <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+                Desktop-App entsperrt!
+              </h2>
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                Deine Anmeldedaten wurden sicher über die lokale Verbindung an die Gradus21 Desktop-App übertragen.
+              </p>
+            </div>
+            <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-800 dark:text-emerald-200">
+              Du kannst diesen Browser-Tab jetzt schließen und direkt in der Desktop-App weiterarbeiten.
+            </div>
+            <button
+              type="button"
+              onClick={() => window.close()}
+              className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-500 transition shadow cursor-pointer"
+            >
+              Tab schließen
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     const isRegisterWizard = authTab === 'register' && registerStep !== 'credentials';
+    const isPasskeySupportedLocally =
+      typeof window !== 'undefined' && Boolean(window.PublicKeyCredential && navigator.credentials?.get);
+    const useBrowserFlow = isTauri() && !isPasskeySupportedLocally;
 
     return (
       <div
@@ -1993,6 +2097,50 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 : 'Öffne deine Notenlisten bequem per Fingerabdruck / Face ID oder mit deinem Passwort.'}
             </p>
           </div>
+
+          {/* Desktop-App Autorisierungs-Hinweis (Browser-Seite) */}
+          {desktopAuthParams && !desktopAuthCompleted && (
+            <div className="p-3.5 rounded-2xl bg-teal-500/10 border border-teal-500/25 flex items-start gap-3 text-left">
+              <div className="p-2 rounded-xl bg-teal-500/20 text-teal-600 dark:text-teal-400 shrink-0 mt-0.5">
+                <Smartphone className="w-4 h-4" />
+              </div>
+              <div className="text-xs space-y-1">
+                <p className="font-bold text-teal-900 dark:text-teal-200">
+                  Desktop-App Anmeldung aktiv
+                </p>
+                <p className="text-teal-800/80 dark:text-teal-300/80 leading-relaxed text-[11px]">
+                  Melde dich an, um die Gradus21 Desktop-App auf diesem Gerät zu entsperren.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Direkt-Freigabe für im Browser bereits angemeldete Konten */}
+          {desktopAuthParams && !desktopAuthCompleted && session?.dekB64 && (
+            <div className="p-4 rounded-2xl border bg-emerald-500/10 border-emerald-500/30 text-center space-y-2.5">
+              <p className="text-xs" style={{ color: 'var(--text-primary)' }}>
+                Im Browser bereits angemeldet als <strong>{session.email}</strong>
+              </p>
+              <button
+                type="button"
+                onClick={async () => {
+                  setStatusMsg('Anmeldung wird an die Desktop-App übertragen...');
+                  setIsLoading(true);
+                  const res = await sendDesktopAuthCallback(desktopAuthParams, session);
+                  setIsLoading(false);
+                  if (res.success) {
+                    setDesktopAuthCompleted(true);
+                    setStatusMsg(null);
+                  } else {
+                    setErrorMsg(`Desktop-Übertragung fehlgeschlagen: ${res.message}`);
+                  }
+                }}
+                className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 transition shadow cursor-pointer"
+              >
+                Desktop-App jetzt direkt entsperren
+              </button>
+            </div>
+          )}
 
           {/* Registrierungs-Fortschrittsleiste (Schritte 1-4) */}
           {isRegisterWizard && (
@@ -2049,17 +2197,30 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               <button
                 type="button"
                 onClick={handleUnlockWithPasskey}
-                className="w-full py-3 px-4 rounded-2xl text-xs font-bold text-white flex items-center justify-center gap-2.5 shadow-md transition hover:opacity-95"
+                disabled={isLoading}
+                className="w-full py-3 px-4 rounded-2xl text-xs font-bold text-white flex items-center justify-center gap-2.5 shadow-md transition hover:opacity-95 disabled:opacity-50 cursor-pointer"
                 style={{ backgroundColor: 'var(--primary-500)' }}
               >
                 <Fingerprint className="w-5 h-5" />
                 <span>
-                  {localPasskeyForEmail
+                  {useBrowserFlow
+                    ? 'Mit Passkey im Browser anmelden'
+                    : localPasskeyForEmail
                     ? 'Mit Fingerabdruck / Face ID öffnen (Passkey)'
                     : 'Mit Passkey anmelden'}
                 </span>
+                {useBrowserFlow && <ExternalLink className="w-3.5 h-3.5 opacity-80" />}
               </button>
-              {localPasskeyForEmail ? (
+              {useBrowserFlow ? (
+                <div
+                  className="text-[11px] text-center"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  <span>
+                    Öffnet deinen Standard-Browser für passwortlosen Login (Touch ID, Windows Hello, 1Password, Smartphone).
+                  </span>
+                </div>
+              ) : localPasskeyForEmail ? (
                 <div
                   className="text-[11px] text-center flex items-center justify-center gap-1.5 flex-wrap"
                   style={{ color: 'var(--text-secondary)' }}
@@ -2158,8 +2319,20 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             </div>
           )}
           {statusMsg && (
-            <div className="p-3 rounded-xl bg-teal-500/10 border border-teal-500/30 text-teal-700 text-xs font-semibold">
-              {statusMsg}
+            <div className="p-3 rounded-xl bg-teal-500/10 border border-teal-500/30 text-teal-700 text-xs font-semibold flex items-center justify-between gap-2">
+              <span>{statusMsg}</span>
+              {isLoading && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsLoading(false);
+                    setStatusMsg(null);
+                  }}
+                  className="text-[11px] underline font-normal text-teal-800 dark:text-teal-200 cursor-pointer shrink-0"
+                >
+                  Abbrechen
+                </button>
+              )}
             </div>
           )}
 

@@ -75,6 +75,23 @@ mod tests {
     }
 
     #[test]
+    fn test_transit_payload_encryption_and_decryption() {
+        let transit_key = [77u8; 32];
+        let original_json = r#"{"token":"jwt_123","email":"test@schule.de","dekB64":"mock_dek"}"#;
+
+        let encrypted = encrypt_transit_payload(&transit_key, original_json).expect("encrypt transit payload");
+        assert!(encrypted.starts_with("v1:"));
+
+        let decrypted = decrypt_transit_payload(&transit_key, &encrypted).expect("decrypt transit payload");
+        assert_eq!(decrypted, original_json);
+
+        // Wrong key must fail
+        let wrong_key = [88u8; 32];
+        let fail = decrypt_transit_payload(&wrong_key, &encrypted);
+        assert!(fail.is_err());
+    }
+
+    #[test]
     fn test_englisch_6_sj_2627_grading_scenario() {
         let config = SubjectGradingConfig {
             scale_id: GradingScaleId::DeClassic1To6,
