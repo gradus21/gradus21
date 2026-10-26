@@ -3,7 +3,22 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.2.3] - 2026-10-22
+## [1.2.3] - 2026-10-26
+
+### Multiplattform Native Clients & Tauri v2 Scaffolding
+- **Native Desktop- & Tablet-Clients (Tauri v2 Architecture)**:
+  - Vollständiges Scaffolding und Multiplatform-Packaging für **Windows** (`.exe` NSIS-Setup, `.msi` Schul-IT Silent-Installer & `.msix` Store-Paket), **macOS** (Universal `.dmg` mit nativer Unterstützung für Apple Silicon M1–M4 & Intel Core), **Linux** (`.deb` für Debian/Ubuntu & `.AppImage` Universal-Binary), **Apple iPadOS & iOS** (Xcode-Projekt & TestFlight-Integration) sowie **Android** (`.apk` & `.aab` für Tablets & Google Play).
+  - Neuer Standalone-Client-Modus (`VITE_STANDALONE_CLIENT`) mit austauschbarem Storage-Adapter für native Dateisysteme/SQLite und Admin-Code-Splitting.
+  - In-App Auto-Updater mit kryptografischer Minisign-Signaturprüfung (`dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWdu...`) und Linux GPG-Paketsignierung.
+  - Einstellungsdialog um Server-URL-Konfiguration, Offline-2FA-TOTP und iOS-App-Icon-Generierung erweitert.
+
+### Sicherheits- & Infrastruktur-Hardening
+- **Sichere Datenbank-Bindung (Docker)**:
+  - PostgreSQL-Port in `docker-compose.yml` strikt an `127.0.0.1` gebunden (`127.0.0.1:5432:5432`), um versehentliche externe Exposition im Schulnetzwerk auszuschließen (schließt #36).
+- **Session- & Account-Sicherheit**:
+  - Deaktivierte Benutzerkonten werden in der Passwort-Wiederherstellung und in aktiven Sitzungen sofort und strikt blockiert (schließt #33).
+- **Dependency- & Build-Aktualisierung**:
+  - Vite 7 & Vitest Upgrades zur Behebung von Supply-Chain-Warnungen; Peer-Dependencies für `@vitejs/plugin-react` harmonisiert (schließt #34, #35).
 
 ### Bugfixes & PWA Mobile WebAuthn Resiliency
 - **PWA WebAuthn & Passkey Biometrie-Unterstützung**:
