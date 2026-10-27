@@ -172,12 +172,7 @@ jobs:
         shell: powershell
         run: .\src-tauri\msix\package-msix.ps1
 
-      - name: Setup Microsoft Store Developer CLI
-        if: ${{ secrets.MS_STORE_TENANT_ID != '' && secrets.MS_STORE_CLIENT_ID != '' && secrets.MS_STORE_CLIENT_SECRET != '' }}
-        uses: microsoft/microsoft-store-apppublisher@v1.4
-
       - name: Publish to Microsoft Store
-        if: ${{ secrets.MS_STORE_TENANT_ID != '' && secrets.MS_STORE_CLIENT_ID != '' && secrets.MS_STORE_CLIENT_SECRET != '' }}
         env:
           MS_STORE_TENANT_ID: ${{ secrets.MS_STORE_TENANT_ID }}
           MS_STORE_CLIENT_ID: ${{ secrets.MS_STORE_CLIENT_ID }}
@@ -185,6 +180,16 @@ jobs:
           MS_STORE_SELLER_ID: ${{ secrets.MS_STORE_SELLER_ID }}
         shell: pwsh
         run: |
+          if (-not $env:MS_STORE_TENANT_ID -or -not $env:MS_STORE_CLIENT_ID -or -not $env:MS_STORE_CLIENT_SECRET) {
+            Write-Host "::notice::Microsoft Store API secrets (MS_STORE_TENANT_ID, MS_STORE_CLIENT_ID, MS_STORE_CLIENT_SECRET) not set. Skipping automated Store submission."
+            exit 0
+          }
+          Write-Host "Installing Microsoft Store Developer CLI..."
+          winget install --id "Microsoft.Store.CLI" --silent --accept-source-agreements --accept-package-agreements 2>$null
+          if (-not (Get-Command "msstore" -ErrorAction SilentlyContinue)) {
+            Write-Host "Fallback: Installing via dotnet tool..."
+            dotnet tool install -g Microsoft.Store.CLI
+          }
           Write-Host "Configuring Microsoft Store Developer CLI..."
           if ($env:MS_STORE_SELLER_ID) {
             msstore reconfigure --tenantId "$env:MS_STORE_TENANT_ID" --sellerId "$env:MS_STORE_SELLER_ID" --clientId "$env:MS_STORE_CLIENT_ID" --clientSecret "$env:MS_STORE_CLIENT_SECRET"
