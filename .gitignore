@@ -38,3 +38,4 @@ graphify-out/
 *.key
 !docs/*.asc
 
+dist-windows/
