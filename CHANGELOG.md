@@ -3,13 +3,17 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.2.5] - 2026-10-27
+## [1.2.6] - 2026-10-27
 
-### iOS & Native Standalone Client Authentifizierung
+### iOS Native Passkey & WASM Engine Hardening
 - **iOS Associated Domains & Passkey-Entitlements (`Entitlements.plist`)**:
-  - Konfiguration von `com.apple.developer.associated-domains` mit `webcredentials:gradus21.app` in `src-tauri/Entitlements.plist` und Einbindung in `tauri.conf.json`. Dies autorisiert die native WKWebView für WebAuthn RP-ID `gradus21.app` passend zum App Store Distribution Provisioning Profile und behebt die Fehlermeldung *"The origin of the document is not authorized for the provided RP ID"*.
+  - Konfiguration von `com.apple.developer.associated-domains` mit `webcredentials:gradus21.app` in `src-tauri/Entitlements.plist` und Einbindung in `tauri.conf.json` (`bundle.iOS.entitlements`). Dies autorisiert die native WKWebView für WebAuthn RP-ID `gradus21.app` passend zum App Store Distribution Provisioning Profile und behebt die Fehlermeldung *"The origin of the document is not authorized for the provided RP ID"*.
 - **Robuster Cross-Platform WASM-Loader (`ensureWasmLoaded`)**:
   - Implementierung eines universellen WebAssembly-Loaders mit direktem `ArrayBuffer`-Fallback für mobile WebViews. Beseitigt `TypeError`-Abbrüche bei `WebAssembly.instantiateStreaming` unter `tauri://`-Custom-Schemes auf iOS und stellt sicher, dass die kryptografische Engine vor Entschlüsselungsaufrufen initialisiert ist.
+- **Transparente Fehlerdiagnose im Login-Modal**:
+  - Bei Fehlschlägen der lokalen Entschlüsselung werden echte WASM- bzw. Initialisierungsfehler transparent angezeigt, anstatt sie blind als falsches Passwort zu deklarieren.
+
+## [1.2.5] - 2026-10-27
 - **Deterministische Server-URL-Auflösung (`getServerUrl`)**:
   - Standalone-Clients (wie iOS WKWebView oder Tauri Desktop) leiten API-Anfragen nicht mehr fehlerhaft an lokale Hostnamen (`localhost`, `127.0.0.1`, `tauri`) weiter, sondern greifen zuverlässig auf die Produktivumgebung `https://gradus21.app` zu.
 - **Zero-Knowledge Fehlerdiagnose & Netzwerk-Transparenz**:
