@@ -1169,11 +1169,17 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         serverSyncedCount: session?.serverSyncedCount || 0,
       });
       setStatusMsg(null);
-    } catch {
+    } catch (err: any) {
+      console.error('Passkey unlock error:', err);
       setStatusMsg(null);
-      setErrorMsg(
-        'Passkey konnte nicht entsperrt werden. Bitte melde dich mit deinem Passwort an.'
-      );
+      const msg = err?.message || String(err || '');
+      if (msg && !msg.includes('Decryption failed') && !msg.includes('invalid key')) {
+        setErrorMsg(`Passkey-Fehler: ${msg}`);
+      } else {
+        setErrorMsg(
+          'Passkey konnte nicht entsperrt werden. Bitte melde dich mit deinem Passwort an.'
+        );
+      }
     }
   };
 
@@ -1715,13 +1721,13 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           ) {
             passkeySecretToStore = existing.passkeySecretB64;
             passkeyEncryptedDekToStore = existing.passkeyEncryptedDek;
-          } else if (unwrapped.dek_b64) {
+          } else if (unlocked.dek_b64) {
             // Generiere neuen lokalen Geräte-Schlüssel und verschlüssele DEK für zukünftige Passkey-Entsperrung
             try {
               const freshSecretBytes = crypto.getRandomValues(new Uint8Array(32));
               const freshSecretB64 = bytesToBase64(freshSecretBytes);
               const wrappedDek = wasm_wrap_dek_with_passkey(
-                unwrapped.dek_b64,
+                unlocked.dek_b64,
                 freshSecretB64,
                 loginData.passkey_credential_id
               );
@@ -1774,8 +1780,14 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         serverSyncedCount: session?.serverSyncedCount || 0,
       });
       setStatusMsg(null);
-    } catch {
-      setErrorMsg('Das eingegebene Passwort stimmt leider nicht.');
+    } catch (err: any) {
+      console.error('Login vault error:', err);
+      const msg = err?.message || String(err || '');
+      if (msg && !msg.includes('Decryption failed') && !msg.includes('invalid key')) {
+        setErrorMsg(`Anmeldefehler: ${msg}`);
+      } else {
+        setErrorMsg('Das eingegebene Passwort stimmt leider nicht.');
+      }
       setStatusMsg(null);
     }
   };

@@ -1,12 +1,12 @@
 {
   "name": "gradus21-web",
   "private": true,
-  "version": "1.2.6",
+  "version": "1.2.7",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
-    "build": "vite build",
-    "build:client": "VITE_STANDALONE_CLIENT=true vite build",
+    "build": "tsc -b && vite build",
+    "build:client": "tsc -b && VITE_STANDALONE_CLIENT=true vite build",
     "tauri": "tauri",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "test": "vitest run",
