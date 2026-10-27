@@ -2,13 +2,13 @@
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
-  <Identity Name="Gradus21"
+  <Identity Name="__MSIX_PACKAGE_NAME__"
             Publisher="__MSIX_PUBLISHER__"
             Version="__MSIX_VERSION__"
             ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>Gradus21</DisplayName>
-    <PublisherDisplayName>Julian Kallidat</PublisherDisplayName>
+    <PublisherDisplayName>__MSIX_PUBLISHER_DISPLAY_NAME__</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
     <Description>Zero-Knowledge Notenverwaltung für Lehrkräfte</Description>
   </Properties>

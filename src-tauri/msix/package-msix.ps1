@@ -1,13 +1,23 @@
 # PowerShell script to package Gradus21 into an MSIX for Microsoft Store / Sideloading
 param (
     [string]$Publisher = $env:MSIX_PUBLISHER,
+    [string]$PackageName = $env:MSIX_PACKAGE_NAME,
+    [string]$PublisherDisplayName = $env:MSIX_PUBLISHER_DISPLAY_NAME,
     [string]$Version = ""
 )
 
 $ErrorActionPreference = "Stop"
 
 if (-not $Publisher) {
-    $Publisher = "CN=Gradus21, O=Julian Kallidat, C=DE"
+    $Publisher = "CN=9AFE237C-D8CE-415B-AEB5-ED30444929CC"
+}
+
+if (-not $PackageName) {
+    $PackageName = "Gradus21.Gradus21"
+}
+
+if (-not $PublisherDisplayName) {
+    $PublisherDisplayName = "Gradus21"
 }
 
 if (-not $Version) {
@@ -17,7 +27,7 @@ if (-not $Version) {
     $Version = "$baseVer.$runNum"
 }
 
-Write-Host "==> Packaging MSIX Version: $Version with Publisher: $Publisher"
+Write-Host "==> Packaging MSIX Version: $Version with PackageName: $PackageName, Publisher: $Publisher, PublisherDisplayName: $PublisherDisplayName"
 
 # Locate Windows SDK tools (MakeAppx and SignTool)
 $sdkPath = (Get-Item "C:\Program Files (x86)\Windows Kits\10\bin\10.*\x64" | Sort-Object FullName -Descending | Select-Object -First 1).FullName
@@ -60,7 +70,10 @@ foreach ($icon in $requiredIcons) {
 
 # Generate AppxManifest.xml
 $template = Get-Content -Raw "src-tauri/msix/AppxManifest.xml.template"
-$manifest = $template.Replace("__MSIX_PUBLISHER__", $Publisher).Replace("__MSIX_VERSION__", $Version)
+$manifest = $template.Replace("__MSIX_PUBLISHER__", $Publisher) `
+                     .Replace("__MSIX_VERSION__", $Version) `
+                     .Replace("__MSIX_PACKAGE_NAME__", $PackageName) `
+                     .Replace("__MSIX_PUBLISHER_DISPLAY_NAME__", $PublisherDisplayName)
 Set-Content -Path (Join-Path $layoutDir "AppxManifest.xml") -Value $manifest -Encoding Utf8
 
 # Build MSIX package

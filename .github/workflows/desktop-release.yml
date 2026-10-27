@@ -164,11 +164,35 @@ jobs:
 
       - name: Build & Sign MSIX Package (Store / Sideloading)
         env:
-          MSIX_PUBLISHER: ${{ secrets.MSIX_PUBLISHER }}
+          MSIX_PUBLISHER: ${{ secrets.MSIX_PUBLISHER || 'CN=9AFE237C-D8CE-415B-AEB5-ED30444929CC' }}
+          MSIX_PACKAGE_NAME: ${{ vars.MSIX_PACKAGE_NAME || 'Gradus21.Gradus21' }}
+          MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME || 'Gradus21' }}
           WINDOWS_CERTIFICATE_PFX: ${{ secrets.WINDOWS_CERTIFICATE_PFX }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         shell: powershell
         run: .\src-tauri\msix\package-msix.ps1
+
+      - name: Setup Microsoft Store Developer CLI
+        if: ${{ secrets.MS_STORE_TENANT_ID != '' && secrets.MS_STORE_CLIENT_ID != '' && secrets.MS_STORE_CLIENT_SECRET != '' }}
+        uses: microsoft/microsoft-store-apppublisher@v1.4
+
+      - name: Publish to Microsoft Store
+        if: ${{ secrets.MS_STORE_TENANT_ID != '' && secrets.MS_STORE_CLIENT_ID != '' && secrets.MS_STORE_CLIENT_SECRET != '' }}
+        env:
+          MS_STORE_TENANT_ID: ${{ secrets.MS_STORE_TENANT_ID }}
+          MS_STORE_CLIENT_ID: ${{ secrets.MS_STORE_CLIENT_ID }}
+          MS_STORE_CLIENT_SECRET: ${{ secrets.MS_STORE_CLIENT_SECRET }}
+          MS_STORE_SELLER_ID: ${{ secrets.MS_STORE_SELLER_ID }}
+        shell: pwsh
+        run: |
+          Write-Host "Configuring Microsoft Store Developer CLI..."
+          if ($env:MS_STORE_SELLER_ID) {
+            msstore reconfigure --tenantId "$env:MS_STORE_TENANT_ID" --sellerId "$env:MS_STORE_SELLER_ID" --clientId "$env:MS_STORE_CLIENT_ID" --clientSecret "$env:MS_STORE_CLIENT_SECRET"
+          } else {
+            msstore reconfigure --tenantId "$env:MS_STORE_TENANT_ID" --clientId "$env:MS_STORE_CLIENT_ID" --clientSecret "$env:MS_STORE_CLIENT_SECRET"
+          }
+          Write-Host "Publishing MSIX package to Microsoft Store (Product ID: 9MTB3WRKMNDD)..."
+          msstore publish target/release/bundle/msix -id 9MTB3WRKMNDD
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v6
