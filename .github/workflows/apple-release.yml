@@ -203,6 +203,21 @@ jobs:
             /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$plist" 2>/dev/null || \
             /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$plist" 2>/dev/null || true
           done
+          # Configure Associated Domains (webcredentials:gradus21.app) for Passkey WebAuthn
+          ENT_FILE="src-tauri/gen/apple/gradus21-app_iOS/gradus21-app_iOS.entitlements"
+          mkdir -p "$(dirname "$ENT_FILE")"
+          if [ ! -f "$ENT_FILE" ]; then
+            echo "Creating initial $ENT_FILE"
+            echo '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict></dict></plist>' > "$ENT_FILE"
+          fi
+          for ent in $(find src-tauri/gen/apple -name "*.entitlements"); do
+            echo "Configuring associated-domains in $ent"
+            /usr/libexec/PlistBuddy -c "Add :com.apple.developer.associated-domains array" "$ent" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Add :com.apple.developer.associated-domains:0 string webcredentials:gradus21.app" "$ent" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Set :com.apple.developer.associated-domains:0 webcredentials:gradus21.app" "$ent" 2>/dev/null || true
+            echo "Resulting entitlements for $ent:"
+            /usr/libexec/PlistBuddy -c "Print" "$ent" 2>/dev/null || true
+          done
 
       - name: Build signed IPA
         env:
@@ -212,7 +227,7 @@ jobs:
           IOS_MOBILE_PROVISION: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
         run: |
           # Frontend already built above; CFBundleVersion must grow with every upload.
-          CONFIG='{"build":{"beforeBuildCommand":""},"bundle":{"iOS":{"bundleVersion":"'"$GITHUB_RUN_NUMBER"'","entitlements":"./Entitlements.plist"}}}'
+          CONFIG='{"build":{"beforeBuildCommand":""},"bundle":{"iOS":{"bundleVersion":"'"$GITHUB_RUN_NUMBER"'"}}}'
           cargo tauri ios build --ci --export-method app-store-connect --config "$CONFIG"
 
       - name: Upload IPA artifact
