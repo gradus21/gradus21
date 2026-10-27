@@ -10,6 +10,7 @@ import {
   wasm_wrap_dek_with_passkey,
   wasm_wrap_dek_with_recovery,
 } from '../wasm-pkg/gradus21_core';
+import { ensureWasmLoaded } from '../utils/wasmLoader';
 import { escapeHtml } from './ExportAndPrintHelpers';
 import { FlowRibbonLogo } from './FlowRibbonLogo';
 import { LegalModal, LegalTab } from './LegalModal';
@@ -841,6 +842,8 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         return;
       }
 
+      await ensureWasmLoaded();
+
       let derivedSecretB64 = '';
       let prfSaltToUse: Uint8Array | null = null;
       let prfSaltB64Used: string | undefined = undefined;
@@ -964,7 +967,8 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           setErrorMsg('Die Anmeldung mit Fingerabdruck / Face ID wurde abgebrochen.');
         } else if (
           errMsg.toLowerCase().includes('not authorized') ||
-          errMsg.toLowerCase().includes('registrable domain suffix')
+          errMsg.toLowerCase().includes('registrable domain suffix') ||
+          errName === 'SecurityError'
         ) {
           setErrorMsg(
             'In dieser nativen App ist die Passkey-Domain noch nicht verknüpft. Bitte melde dich mit deinem Master-Passwort an oder nutze Gradus21 in Safari (https://gradus21.app).'
@@ -1232,6 +1236,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
     setStatusMsg('Lokaler Zero-Knowledge Tresor wird eingerichtet...');
     try {
+      await ensureWasmLoaded();
       const bundleJson = wasm_generate_vault(password);
       const bundle = JSON.parse(bundleJson);
 
@@ -1317,6 +1322,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       setStatusMsg('Zero-Knowledge Tresor wird im Browser verschlüsselt...');
 
       try {
+        await ensureWasmLoaded();
         const bundleJson = wasm_generate_vault(password);
         const bundle = JSON.parse(bundleJson);
 
@@ -1525,6 +1531,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     setErrorMsg(null);
     setStatusMsg('Notenlisten werden geöffnet...');
     try {
+      await ensureWasmLoaded();
       const cleanEmail = email.trim().toLowerCase();
       let saltData: any = null;
       let saltFetchError: string | null = null;
@@ -1602,6 +1609,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         localCached?.kdfParams ||
         session?.kdfParams || { memory_kib: 19456, iterations: 2, parallelism: 1 };
 
+      let lastUnlockError: any = null;
       for (const s of candidateSalts) {
         for (const encDek of candidateEncryptedDeks) {
           try {
@@ -1615,15 +1623,20 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             usedEncryptedDek = encDek;
             usedSalt = s;
             break;
-          } catch {
-            // try next combination
+          } catch (err: any) {
+            lastUnlockError = err;
           }
         }
         if (unlocked) break;
       }
 
       if (!unlocked) {
-        setErrorMsg('Das eingegebene Passwort stimmt leider nicht.');
+        const errStr = String(lastUnlockError?.message || lastUnlockError || '');
+        if (errStr && !errStr.includes('Decryption failed') && !errStr.includes('invalid key')) {
+          setErrorMsg(`Entschlüsselung fehlgeschlagen: ${errStr}`);
+        } else {
+          setErrorMsg('Das eingegebene Passwort stimmt leider nicht.');
+        }
         setStatusMsg(null);
         return;
       }
@@ -1635,7 +1648,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              email,
+              email: cleanEmail,
               auth_key_b64: unlocked.auth_key_b64,
               totp_code: totpCode || null,
             }),
@@ -1734,6 +1747,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         setLocalPasskeyForEmail(entryToSave);
       }
 
+      await ensureWasmLoaded();
       const cachedMeta = loadLocalRecoveryMeta(email);
       const effectiveUserId = loginData?.user_id || session?.userId || localCached?.userId || 'user_local';
 
@@ -1800,6 +1814,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         saveLastLoginEmail(email);
       }
 
+      await ensureWasmLoaded();
       const cachedMeta = loadLocalRecoveryMeta(email);
       const candidateRecoveryBlobs = [
         saltData?.recovery_encrypted_dek,

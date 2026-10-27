@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import initWasm, {
+import {
   wasm_decrypt_envelope,
   wasm_encrypt_envelope,
 } from '../wasm-pkg/gradus21_core';
+import { ensureWasmLoaded } from '../utils/wasmLoader';
 import { ActiveVaultSession } from '../components/VaultLockAndAuthModal';
 import type { GlobalTemplateRecord } from '../types/templates';
 import { SyncReconciliationStrategy } from '../components/SyncReconciliationModal';
@@ -869,9 +870,13 @@ export function useVaultWorkspaceSync() {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      await initWasm();
-      if (!mounted) return;
-      setWasmReady(true);
+      try {
+        await ensureWasmLoaded();
+        if (!mounted) return;
+        setWasmReady(true);
+      } catch (err) {
+        console.error('WASM initialization error in useVaultWorkspaceSync:', err);
+      }
 
       const lockedFlag =
         (localStorage.getItem(VAULT_LOCKED_STORAGE_KEY) ||

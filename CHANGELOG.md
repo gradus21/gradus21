@@ -6,10 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 ## [1.2.5] - 2026-10-27
 
 ### iOS & Native Standalone Client Authentifizierung
+- **iOS Associated Domains & Passkey-Entitlements (`Entitlements.plist`)**:
+  - Konfiguration von `com.apple.developer.associated-domains` mit `webcredentials:gradus21.app` in `src-tauri/Entitlements.plist` und Einbindung in `tauri.conf.json`. Dies autorisiert die native WKWebView für WebAuthn RP-ID `gradus21.app` passend zum App Store Distribution Provisioning Profile und behebt die Fehlermeldung *"The origin of the document is not authorized for the provided RP ID"*.
+- **Robuster Cross-Platform WASM-Loader (`ensureWasmLoaded`)**:
+  - Implementierung eines universellen WebAssembly-Loaders mit direktem `ArrayBuffer`-Fallback für mobile WebViews. Beseitigt `TypeError`-Abbrüche bei `WebAssembly.instantiateStreaming` unter `tauri://`-Custom-Schemes auf iOS und stellt sicher, dass die kryptografische Engine vor Entschlüsselungsaufrufen initialisiert ist.
 - **Deterministische Server-URL-Auflösung (`getServerUrl`)**:
   - Standalone-Clients (wie iOS WKWebView oder Tauri Desktop) leiten API-Anfragen nicht mehr fehlerhaft an lokale Hostnamen (`localhost`, `127.0.0.1`, `tauri`) weiter, sondern greifen zuverlässig auf die Produktivumgebung `https://gradus21.app` zu.
 - **Zero-Knowledge Fehlerdiagnose & Netzwerk-Transparenz**:
-  - Behebt ein Problem im `VaultLockAndAuthModal`, bei dem Verbindungsabbrüche beim KDF-Salt-Abruf auf Neugeräten irrtümlich als *"Das eingegebene Passwort stimmt leider nicht"* gemeldet wurden. Bei Nichterreichbarkeit des Servers wird nun der tatsächliche Netzwerk- bzw. Server-Status verständlich ausgewiesen.
+  - Behebt ein Problem im `VaultLockAndAuthModal`, bei dem Verbindungsabbrüche beim KDF-Salt-Abruf oder WASM-Fehler auf Neugeräten irrtümlich als *"Das eingegebene Passwort stimmt leider nicht"* gemeldet wurden. Bei Nichterreichbarkeit des Servers oder internen Fehlern wird nun die tatsächliche Ursache verständlich ausgewiesen.
 - **iOS & Mobile Tastatur-Sanitisierung**:
   - Deaktivierung von `autoCapitalize`, `autoCorrect` und `spellCheck` bei E-Mail- und Passwort-Eingaben zur Vermeidung stiller iOS-Tastaturverfälschungen. E-Mail-Adressen werden vor der KDF-Ableitung deterministisch getrimmt und kleingeschrieben.
   - Standardisierung des Argon2id-KDF-Parameter-Fallbacks auf `{ memory_kib: 19456, iterations: 2, parallelism: 1 }`.

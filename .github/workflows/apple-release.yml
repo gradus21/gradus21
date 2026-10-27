@@ -212,7 +212,7 @@ jobs:
           IOS_MOBILE_PROVISION: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
         run: |
           # Frontend already built above; CFBundleVersion must grow with every upload.
-          CONFIG='{"build":{"beforeBuildCommand":""},"bundle":{"iOS":{"bundleVersion":"'"$GITHUB_RUN_NUMBER"'"}}}'
+          CONFIG='{"build":{"beforeBuildCommand":""},"bundle":{"iOS":{"bundleVersion":"'"$GITHUB_RUN_NUMBER"'","entitlements":"./Entitlements.plist"}}}'
           cargo tauri ios build --ci --export-method app-store-connect --config "$CONFIG"
 
       - name: Upload IPA artifact
