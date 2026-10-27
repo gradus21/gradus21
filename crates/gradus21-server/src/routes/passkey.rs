@@ -833,4 +833,12 @@ pub async fn well_known_webauthn() -> ([(axum::http::header::HeaderName, &'stati
     )
 }
 
+pub async fn well_known_apple_app_site_association() -> ([(axum::http::header::HeaderName, &'static str); 1], &'static str) {
+    (
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        r#"{"webcredentials":{"apps":["5X3CWU4583.de.gradus21.app"]}}"#,
+    )
+}
+
+
 

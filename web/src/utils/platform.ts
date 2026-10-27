@@ -12,7 +12,10 @@ export const isStandaloneClient = (): boolean => {
   return (
     import.meta.env.VITE_STANDALONE_CLIENT === 'true' ||
     Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) ||
-    Boolean((window as unknown as { __TAURI__?: unknown }).__TAURI__)
+    Boolean((window as unknown as { __TAURI__?: unknown }).__TAURI__) ||
+    (typeof window.location !== 'undefined' &&
+      (window.location.protocol === 'tauri:' ||
+        window.location.hostname.includes('tauri')))
   );
 };
 
@@ -23,7 +26,9 @@ export const isTauri = (): boolean => {
   if (typeof window === 'undefined') return false;
   return Boolean(
     (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ ||
-    (window as unknown as { __TAURI__?: unknown }).__TAURI__
+    (window as unknown as { __TAURI__?: unknown }).__TAURI__ ||
+    (typeof window.location !== 'undefined' &&
+      (window.location.protocol === 'tauri:' || window.location.hostname.includes('tauri')))
   );
 };
 

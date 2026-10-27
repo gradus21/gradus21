@@ -962,6 +962,13 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
         if (isCancelled) {
           setErrorMsg('Die Anmeldung mit Fingerabdruck / Face ID wurde abgebrochen.');
+        } else if (
+          errMsg.toLowerCase().includes('not authorized') ||
+          errMsg.toLowerCase().includes('registrable domain suffix')
+        ) {
+          setErrorMsg(
+            'In dieser nativen App ist die Passkey-Domain noch nicht verknüpft. Bitte melde dich mit deinem Master-Passwort an oder nutze Gradus21 in Safari (https://gradus21.app).'
+          );
         } else if (errName === 'NotAllowedError') {
           setErrorMsg(
             'Die Passkey-Abfrage wurde abgebrochen oder vom System/Browser verweigert. Bitte stelle sicher, dass Biometrie für diese App erlaubt ist, oder melde dich mit deinem Passwort an.'
@@ -1518,7 +1525,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     setErrorMsg(null);
     setStatusMsg('Notenlisten werden geöffnet...');
     try {
+      const cleanEmail = email.trim().toLowerCase();
       let saltData: any = null;
+      let saltFetchError: string | null = null;
       let isServerOffline = !navigator.onLine;
 
       if (!isServerOffline) {
@@ -1526,13 +1535,13 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           const saltRes = await fetch(apiUrl('/api/auth/salt'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email }),
+            body: JSON.stringify({ email: cleanEmail }),
           });
 
           if (saltRes.ok) {
             saltData = await saltRes.json();
           } else if (saltRes.status === 404) {
-            const localCached = findLocalCachedVault(email, session?.userId);
+            const localCached = findLocalCachedVault(cleanEmail, session?.userId);
             if (!localCached) {
               setErrorMsg('Kein Gradus21-Konto für diese E-Mail-Adresse gefunden. Bitte prüfe deine Eingabe oder erstelle einen lokalen Tresor.');
               setStatusMsg(null);
@@ -1541,9 +1550,13 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             // User does not exist on server (purged or purely offline vault)
             isServerOffline = true;
           } else {
+            const errText = await saltRes.text().catch(() => '');
+            saltFetchError = `Server HTTP ${saltRes.status}: ${errText || saltRes.statusText}`;
             isServerOffline = true;
           }
-        } catch {
+        } catch (fetchErr: any) {
+          console.warn('Salt fetch failed:', fetchErr);
+          saltFetchError = fetchErr?.message || 'Server nicht erreichbar';
           isServerOffline = true;
         }
       }
@@ -1555,7 +1568,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         return;
       }
 
-      const localCached = findLocalCachedVault(email, session?.userId);
+      const localCached = findLocalCachedVault(cleanEmail, session?.userId);
 
       // Versuche zuerst den aktuellen verschlüsselten Schlüssel vom Server, dann den lokalen Cache
       const candidateEncryptedDeks = [
@@ -1570,6 +1583,16 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         localCached?.kdfSaltB64,
       ].filter((v): v is string => Boolean(v && v.trim()));
 
+      if (candidateSalts.length === 0 || candidateEncryptedDeks.length === 0) {
+        setStatusMsg(null);
+        if (saltFetchError) {
+          setErrorMsg(`Verbindung zu ${getServerUrl()} nicht möglich (${saltFetchError}). Bitte prüfe deine Internetverbindung.`);
+        } else {
+          setErrorMsg('Keine Tresor-Schlüssel für dieses Konto auf diesem Gerät gefunden. Bitte prüfe deine Server-Verbindung.');
+        }
+        return;
+      }
+
       let unlocked: { dek_b64: string; auth_key_b64: string } | null = null;
       let usedEncryptedDek = '';
       let usedSalt = '';
@@ -1577,7 +1600,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       const kdfParams =
         saltData?.kdf_params ||
         localCached?.kdfParams ||
-        session?.kdfParams || { m_cost: 65536, t_cost: 3, p_cost: 1 };
+        session?.kdfParams || { memory_kib: 19456, iterations: 2, parallelism: 1 };
 
       for (const s of candidateSalts) {
         for (const encDek of candidateEncryptedDeks) {
@@ -2451,6 +2474,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                   name="username"
                   type="email"
                   autoComplete="username"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   required
                   value={email}
                   onChange={(e) => {
@@ -2474,6 +2500,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                   name="password"
                   type="password"
                   autoComplete="current-password"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}

@@ -3,6 +3,23 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.5] - 2026-10-27
+
+### iOS & Native Standalone Client Authentifizierung
+- **Deterministische Server-URL-Auflösung (`getServerUrl`)**:
+  - Standalone-Clients (wie iOS WKWebView oder Tauri Desktop) leiten API-Anfragen nicht mehr fehlerhaft an lokale Hostnamen (`localhost`, `127.0.0.1`, `tauri`) weiter, sondern greifen zuverlässig auf die Produktivumgebung `https://gradus21.app` zu.
+- **Zero-Knowledge Fehlerdiagnose & Netzwerk-Transparenz**:
+  - Behebt ein Problem im `VaultLockAndAuthModal`, bei dem Verbindungsabbrüche beim KDF-Salt-Abruf auf Neugeräten irrtümlich als *"Das eingegebene Passwort stimmt leider nicht"* gemeldet wurden. Bei Nichterreichbarkeit des Servers wird nun der tatsächliche Netzwerk- bzw. Server-Status verständlich ausgewiesen.
+- **iOS & Mobile Tastatur-Sanitisierung**:
+  - Deaktivierung von `autoCapitalize`, `autoCorrect` und `spellCheck` bei E-Mail- und Passwort-Eingaben zur Vermeidung stiller iOS-Tastaturverfälschungen. E-Mail-Adressen werden vor der KDF-Ableitung deterministisch getrimmt und kleingeschrieben.
+  - Standardisierung des Argon2id-KDF-Parameter-Fallbacks auf `{ memory_kib: 19456, iterations: 2, parallelism: 1 }`.
+
+### Passkey & Apple App Site Association
+- **Apple Associated Domains Support**:
+  - Bereitstellung von `/.well-known/apple-app-site-association` mit `application/json` und `webcredentials`-Verknüpfung für App-ID `5X3CWU4583.de.gradus21.app`.
+- **Benutzerführung bei WebAuthn-Restriktionen**:
+  - Differenzierte Benutzerführung im Login-Dialog, falls das Betriebssystem WebAuthn in embedded WebViews einschränkt, inklusive direktem Hinweis auf Master-Passwort-Login oder Nutzung im Safari-Browser.
+
 ## [1.2.4] - 2026-10-26
 
 ### Desktop Passkey System-Browser Flow (RFC 8252)
