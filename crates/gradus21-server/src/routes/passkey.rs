@@ -826,4 +826,11 @@ pub async fn legacy_passkey_login_disabled(
     ))
 }
 
+pub async fn well_known_webauthn() -> ([(axum::http::header::HeaderName, &'static str); 1], &'static str) {
+    (
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        r#"{"origins":["https://gradus21.app","https://gradus21.de","https://tauri.localhost","tauri://localhost","http://localhost","http://localhost:5173","http://localhost:3080","http://127.0.0.1:5173","http://127.0.0.1:3080"]}"#,
+    )
+}
+
 

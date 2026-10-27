@@ -62,6 +62,12 @@ jobs:
         run: |
           export NDK_HOME="$ANDROID_NDK_LATEST_HOME"
           cargo tauri android init --ci
+          # Generate & sync all Android App Icons into the newly generated Android project
+          cargo tauri icon web/public/gradus21-app-icon.png
+          for res in $(find src-tauri/gen/android -type d -name "res"); do
+            echo "Syncing Android icons to $res"
+            cp -r src-tauri/icons/android/* "$res/" 2>/dev/null || true
+          done
 
       - name: Build release APK & AAB
         run: |

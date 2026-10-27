@@ -18,6 +18,7 @@ use crate::state::AppState;
 
 pub fn create_app_router(state: AppState, cors: CorsLayer) -> Router {
     Router::new()
+        .route("/.well-known/webauthn", get(well_known_webauthn))
         .route("/api/health", get(health_check))
         .route("/api/legal/info", get(get_legal_info))
         .route("/api/auth/salt", post(get_user_salt))

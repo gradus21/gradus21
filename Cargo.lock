@@ -1779,9 +1779,10 @@ dependencies = [
 
 [[package]]
 name = "gradus21-app"
-version = "1.2.3"
+version = "1.2.4"
 dependencies = [
  "gradus21-core",
+ "rand 0.8.8",
  "serde",
  "serde_json",
  "tauri",
@@ -1792,7 +1793,7 @@ dependencies = [
 
 [[package]]
 name = "gradus21-core"
-version = "1.2.3"
+version = "1.2.4"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -1811,7 +1812,7 @@ dependencies = [
 
 [[package]]
 name = "gradus21-server"
-version = "1.2.3"
+version = "1.2.4"
 dependencies = [
  "aes-gcm",
  "argon2",

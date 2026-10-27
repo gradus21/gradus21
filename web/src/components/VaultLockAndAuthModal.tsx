@@ -82,7 +82,7 @@ import {
   startDesktopBrowserAuth,
   DesktopAuthParams,
 } from '../utils/desktopAuth';
-import { isTauri } from '../utils/platform';
+import { isTauri, isDesktopTauri } from '../utils/platform';
 
 
 export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
@@ -828,12 +828,12 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       }
       const targetEmail = enteredEmail || localEntry?.email || undefined;
 
-      if (!window.PublicKeyCredential || !navigator.credentials?.get) {
-        if (isTauri()) {
-          await handleUnlockWithBrowserPasskey(targetEmail);
-          return;
-        }
+      if (isDesktopTauri()) {
+        await handleUnlockWithBrowserPasskey(targetEmail);
+        return;
+      }
 
+      if (!window.PublicKeyCredential || !navigator.credentials?.get) {
         setStatusMsg(null);
         setErrorMsg(
           'Dieser Browser unterstützt keine Passkey-Authentifizierung (WebAuthn). Bitte melde dich mit deinem Passwort an.'
@@ -1080,7 +1080,13 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             passkeyEncryptedDek
           );
         } catch {
-          throw firstUnwrapErr;
+          console.error('DEK unwrap with passkey failed:', firstUnwrapErr);
+          setStatusMsg(null);
+          setErrorMsg(
+            'Tresorschlüssel konnte mit diesem Passkey nicht entschlüsselt werden. Bitte melde dich einmalig mit deinem Master-Passwort an, um den Schlüssel auf diesem Gerät zu synchronisieren.'
+          );
+          setTimeout(() => document.getElementById('login-password')?.focus(), 50);
+          return;
         }
       }
 
@@ -1654,22 +1660,55 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       if (email) {
         saveLastLoginEmail(email);
       }
-      if (loginData?.passkey_credential_id && loginData?.passkey_encrypted_dek) {
+      if (loginData?.passkey_credential_id) {
         const store = loadLocalPasskeys();
         const existing = store[email.trim().toLowerCase()];
-        if (!existing) {
-          const entryToSave: LocalPasskeyStoreEntry = {
-            credentialId: loginData.passkey_credential_id,
-            email: email.trim().toLowerCase(),
-            label: loginData.passkey_label || 'Passkey',
-            prfSupported: Boolean(loginData.passkey_prf_salt_b64),
-            prfSaltB64: loginData.passkey_prf_salt_b64 || undefined,
-            passkeyEncryptedDek: loginData.passkey_encrypted_dek,
-            createdAt: new Date().toLocaleDateString('de-DE'),
-          };
-          saveLocalPasskey(entryToSave);
-          setLocalPasskeyForEmail(entryToSave);
+
+        let passkeyEncryptedDekToStore = loginData.passkey_encrypted_dek || '';
+        let passkeySecretToStore: string | undefined = undefined;
+
+        if (loginData.passkey_prf_salt_b64) {
+          passkeyEncryptedDekToStore = loginData.passkey_encrypted_dek;
+        } else {
+          // Hardware-Key / Passkey ohne Server-PRF:
+          // Falls bereits ein funktionierender lokaler Schlüssel vorliegt und die Credential-ID übereinstimmt:
+          if (
+            existing?.passkeySecretB64 &&
+            existing.credentialId === loginData.passkey_credential_id &&
+            existing.passkeyEncryptedDek
+          ) {
+            passkeySecretToStore = existing.passkeySecretB64;
+            passkeyEncryptedDekToStore = existing.passkeyEncryptedDek;
+          } else if (unwrapped.dek_b64) {
+            // Generiere neuen lokalen Geräte-Schlüssel und verschlüssele DEK für zukünftige Passkey-Entsperrung
+            try {
+              const freshSecretBytes = crypto.getRandomValues(new Uint8Array(32));
+              const freshSecretB64 = bytesToBase64(freshSecretBytes);
+              const wrappedDek = wasm_wrap_dek_with_passkey(
+                unwrapped.dek_b64,
+                freshSecretB64,
+                loginData.passkey_credential_id
+              );
+              passkeySecretToStore = freshSecretB64;
+              passkeyEncryptedDekToStore = wrappedDek;
+            } catch (wrapErr) {
+              console.warn('Lokales Passkey-DEK-Wrapping fehlgeschlagen:', wrapErr);
+            }
+          }
         }
+
+        const entryToSave: LocalPasskeyStoreEntry = {
+          credentialId: loginData.passkey_credential_id,
+          email: email.trim().toLowerCase(),
+          label: loginData.passkey_label || 'Passkey',
+          prfSupported: Boolean(loginData.passkey_prf_salt_b64),
+          prfSaltB64: loginData.passkey_prf_salt_b64 || undefined,
+          passkeyEncryptedDek: passkeyEncryptedDekToStore,
+          passkeySecretB64: passkeySecretToStore,
+          createdAt: existing?.createdAt || new Date().toLocaleDateString('de-DE'),
+        };
+        saveLocalPasskey(entryToSave);
+        setLocalPasskeyForEmail(entryToSave);
       }
 
       const cachedMeta = loadLocalRecoveryMeta(email);
@@ -2062,7 +2101,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     const isRegisterWizard = authTab === 'register' && registerStep !== 'credentials';
     const isPasskeySupportedLocally =
       typeof window !== 'undefined' && Boolean(window.PublicKeyCredential && navigator.credentials?.get);
-    const useBrowserFlow = isTauri() && !isPasskeySupportedLocally;
+    const useBrowserFlow = isDesktopTauri();
 
     return (
       <div
