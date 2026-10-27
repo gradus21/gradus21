@@ -5,6 +5,16 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      target:
+        description: 'Plattform-Ziel (all, windows, linux)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - windows
+          - linux
 
 permissions:
   contents: write
@@ -12,6 +22,7 @@ permissions:
 jobs:
   build-linux:
     name: Build Linux Packages (.deb / AppImage)
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'linux'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -115,6 +126,7 @@ jobs:
 
   build-windows:
     name: Build Windows Packages (.msi / .exe)
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'windows'
     runs-on: windows-latest
     timeout-minutes: 45
 
