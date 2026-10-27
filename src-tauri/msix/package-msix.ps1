@@ -70,10 +70,10 @@ foreach ($icon in $requiredIcons) {
 
 # Generate AppxManifest.xml
 $template = Get-Content -Raw "src-tauri/msix/AppxManifest.xml.template"
-$manifest = $template.Replace("__MSIX_PUBLISHER__", $Publisher) `
-                     .Replace("__MSIX_VERSION__", $Version) `
-                     .Replace("__MSIX_PACKAGE_NAME__", $PackageName) `
-                     .Replace("__MSIX_PUBLISHER_DISPLAY_NAME__", $PublisherDisplayName)
+$manifest = $template.Replace("__MSIX_PUBLISHER__", $Publisher)
+$manifest = $manifest.Replace("__MSIX_VERSION__", $Version)
+$manifest = $manifest.Replace("__MSIX_PACKAGE_NAME__", $PackageName)
+$manifest = $manifest.Replace("__MSIX_PUBLISHER_DISPLAY_NAME__", $PublisherDisplayName)
 Set-Content -Path (Join-Path $layoutDir "AppxManifest.xml") -Value $manifest -Encoding Utf8
 
 # Build MSIX package
