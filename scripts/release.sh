@@ -151,8 +151,8 @@ EOF
 fi
 
 # README.md
-sed -i -E "s/^# Gradus21 \(`v[^`]+`\)/# Gradus21 (\`v$NEW_VERSION\`)/" README.md
-sed -i -E "s/> 🚀 \*\*Status: Version `[^`]+`/> 🚀 **Status: Version \`$NEW_VERSION\`/" README.md
+sed -i -E 's/^# Gradus21 \(`v[^`]+`\)/# Gradus21 (`v'"$NEW_VERSION"'`)/' README.md
+sed -i -E 's/> 🚀 \*\*Status: Version `[^`]+`/> 🚀 **Status: Version `'"$NEW_VERSION"'`/' README.md
 
 # Aktualisiere Cargo.lock
 log_info "Aktualisiere Cargo.lock..."
