@@ -992,6 +992,15 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         return;
       }
 
+      // Falls vor dem WebAuthn-Aufruf keine lokale Zuordnung gefunden wurde, matche jetzt anhand der zurückgegebenen Credential-ID:
+      const credIdFromAssertion = assertion.id || bytesToBase64Url(new Uint8Array(assertion.rawId));
+      if (credIdFromAssertion) {
+        const match = store[credIdFromAssertion] || Object.values(store).find(e => e.credentialId === credIdFromAssertion);
+        if (match) {
+          localEntry = match;
+        }
+      }
+
       // WebAuthn Assertion war erfolgreich! Prüfe PRF Extension oder Fallback-Schlüssel
       const extResults = (assertion.getClientExtensionResults() as any)?.prf?.results?.first;
       if (extResults) {
@@ -1049,9 +1058,16 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         }
       }
 
-      const passkeyEncryptedDek = loginData?.passkey_encrypted_dek || localEntry?.passkeyEncryptedDek;
+      // Bestimme Kandidaten für das verschlüsselte DEK:
+      // Bei Hardware-PRF (extResults) ist das Server-DEK bevorzugt (cloud-/geräteübergreifend synchron).
+      // Bei Software-Fallback ohne PRF (z. B. Apple Keychain / Softkey) MUSS das lokal mit dem
+      // Geräteschlüssel verpackte DEK (localEntry.passkeyEncryptedDek) zuerst versucht werden,
+      // da das Server-DEK mit dem Schlüssel eines anderen Geräts verschlüsselt sein kann.
+      const candidateEncryptedDeks = [
+        ...(extResults ? [loginData?.passkey_encrypted_dek, localEntry?.passkeyEncryptedDek] : [localEntry?.passkeyEncryptedDek, loginData?.passkey_encrypted_dek])
+      ].filter((d): d is string => Boolean(d));
 
-      if (!passkeyEncryptedDek) {
+      if (candidateEncryptedDeks.length === 0) {
         setStatusMsg(null);
         setErrorMsg('Für diesen Passkey wurde noch kein verschlüsselter Tresorschlüssel hinterlegt.');
         return;
@@ -1072,33 +1088,44 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         assertion.id ||
         bytesToBase64Url(new Uint8Array(assertion.rawId));
 
-      let unwrappedDekB64: string;
-      try {
-        unwrappedDekB64 = wasm_unwrap_dek_with_passkey(
-          derivedSecretB64,
-          effectiveCredentialId,
-          passkeyEncryptedDek
-        );
-      } catch (firstUnwrapErr) {
-        // Fallback: in case DEK was originally wrapped using standard base64 vs base64url or vice versa
-        try {
-          const altCredId = effectiveCredentialId.includes('-') || effectiveCredentialId.includes('_')
-            ? bytesToBase64(base64UrlToBytes(effectiveCredentialId))
-            : bytesToBase64Url(base64ToBytes(effectiveCredentialId));
-          unwrappedDekB64 = wasm_unwrap_dek_with_passkey(
-            derivedSecretB64,
-            altCredId,
-            passkeyEncryptedDek
-          );
-        } catch {
-          console.error('DEK unwrap with passkey failed:', firstUnwrapErr);
-          setStatusMsg(null);
-          setErrorMsg(
-            'Tresorschlüssel konnte mit diesem Passkey nicht entschlüsselt werden. Bitte melde dich einmalig mit deinem Master-Passwort an, um den Schlüssel auf diesem Gerät zu synchronisieren.'
-          );
-          setTimeout(() => document.getElementById('login-password')?.focus(), 50);
-          return;
+      const credIdVariants = [
+        effectiveCredentialId,
+        effectiveCredentialId.includes('-') || effectiveCredentialId.includes('_')
+          ? bytesToBase64(base64UrlToBytes(effectiveCredentialId))
+          : bytesToBase64Url(base64ToBytes(effectiveCredentialId)),
+      ];
+
+      let unwrappedDekB64: string | null = null;
+      let workingCiphertext: string | null = null;
+      let lastUnwrapErr: any = null;
+
+      for (const candidateCipher of candidateEncryptedDeks) {
+        for (const credId of credIdVariants) {
+          try {
+            unwrappedDekB64 = wasm_unwrap_dek_with_passkey(
+              derivedSecretB64,
+              credId,
+              candidateCipher
+            );
+            if (unwrappedDekB64) {
+              workingCiphertext = candidateCipher;
+              break;
+            }
+          } catch (e) {
+            lastUnwrapErr = e;
+          }
         }
+        if (unwrappedDekB64) break;
+      }
+
+      if (!unwrappedDekB64) {
+        console.error('DEK unwrap with passkey failed:', lastUnwrapErr);
+        setStatusMsg(null);
+        setErrorMsg(
+          'Tresorschlüssel konnte mit diesem Passkey nicht entschlüsselt werden. Bitte melde dich einmalig mit deinem Master-Passwort an, um den Schlüssel auf diesem Gerät zu synchronisieren.'
+        );
+        setTimeout(() => document.getElementById('login-password')?.focus(), 50);
+        return;
       }
 
       const effectiveEmail = loginData?.email || localEntry?.email || targetEmail || '';
@@ -1111,7 +1138,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         label: effectiveLabel,
         prfSupported: Boolean(extResults),
         prfSaltB64: prfSaltB64Used || localEntry?.prfSaltB64,
-        passkeyEncryptedDek: passkeyEncryptedDek,
+        passkeyEncryptedDek: workingCiphertext || localEntry?.passkeyEncryptedDek || loginData?.passkey_encrypted_dek,
         passkeySecretB64: localEntry?.passkeySecretB64,
         createdAt: localEntry?.createdAt || new Date().toLocaleDateString('de-DE'),
       };
@@ -1704,38 +1731,34 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       }
       if (loginData?.passkey_credential_id) {
         const store = loadLocalPasskeys();
-        const existing = store[email.trim().toLowerCase()];
+        const existing = store[email.trim().toLowerCase()] || store[loginData.passkey_credential_id];
 
         let passkeyEncryptedDekToStore = loginData.passkey_encrypted_dek || '';
-        let passkeySecretToStore: string | undefined = undefined;
+        let passkeySecretToStore: string | undefined = existing?.passkeySecretB64;
 
-        if (loginData.passkey_prf_salt_b64) {
-          passkeyEncryptedDekToStore = loginData.passkey_encrypted_dek;
-        } else {
-          // Hardware-Key / Passkey ohne Server-PRF:
-          // Falls bereits ein funktionierender lokaler Schlüssel vorliegt und die Credential-ID übereinstimmt:
-          if (
-            existing?.passkeySecretB64 &&
-            existing.credentialId === loginData.passkey_credential_id &&
-            existing.passkeyEncryptedDek
-          ) {
-            passkeySecretToStore = existing.passkeySecretB64;
-            passkeyEncryptedDekToStore = existing.passkeyEncryptedDek;
-          } else if (unlocked.dek_b64) {
-            // Generiere neuen lokalen Geräte-Schlüssel und verschlüssele DEK für zukünftige Passkey-Entsperrung
-            try {
-              const freshSecretBytes = crypto.getRandomValues(new Uint8Array(32));
-              const freshSecretB64 = bytesToBase64(freshSecretBytes);
-              const wrappedDek = wasm_wrap_dek_with_passkey(
-                unlocked.dek_b64,
-                freshSecretB64,
-                loginData.passkey_credential_id
-              );
-              passkeySecretToStore = freshSecretB64;
-              passkeyEncryptedDekToStore = wrappedDek;
-            } catch (wrapErr) {
-              console.warn('Lokales Passkey-DEK-Wrapping fehlgeschlagen:', wrapErr);
-            }
+        // Falls bereits ein funktionierender lokaler Schlüssel vorliegt und die Credential-ID übereinstimmt:
+        if (
+          existing?.passkeySecretB64 &&
+          existing.credentialId === loginData.passkey_credential_id &&
+          existing.passkeyEncryptedDek
+        ) {
+          passkeySecretToStore = existing.passkeySecretB64;
+          passkeyEncryptedDekToStore = existing.passkeyEncryptedDek;
+        } else if (unlocked.dek_b64) {
+          // Generiere neuen lokalen Geräte-Schlüssel und verschlüssele DEK für zukünftige Passkey-Entsperrung
+          // (Dient auch als zuverlässiger Fallback auf Plattformen ohne WebAuthn PRF wie iOS Safari/WKWebView)
+          try {
+            const freshSecretBytes = crypto.getRandomValues(new Uint8Array(32));
+            const freshSecretB64 = bytesToBase64(freshSecretBytes);
+            const wrappedDek = wasm_wrap_dek_with_passkey(
+              unlocked.dek_b64,
+              freshSecretB64,
+              loginData.passkey_credential_id
+            );
+            passkeySecretToStore = freshSecretB64;
+            passkeyEncryptedDekToStore = wrappedDek;
+          } catch (wrapErr) {
+            console.warn('Lokales Passkey-DEK-Wrapping fehlgeschlagen:', wrapErr);
           }
         }
 

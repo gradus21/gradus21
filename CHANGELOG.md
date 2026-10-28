@@ -3,6 +3,17 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.8] - 2026-10-28
+
+### Native iOS Passkey & Cross-Device Decryption Fixes
+- **Behebung der Passkey-Entschlüsselungsschleife auf Nicht-PRF-Geräten (iOS / WebKit / Softkeys)**:
+  - Bei Passkey-Authentifizierung ohne hardwareseitige PRF-Extension (wie unter Apple iOS WKWebView / Keychain) wird für die DEK-Entschlüsselung nun prioritär der lokal mit dem Geräteschlüssel verpackte Tresorschlüssel (`localEntry.passkeyEncryptedDek`) verwendet. Zuvor überschrieb der Server-Ciphertext (der von einem anderen Gerät verschlüsselt wurde) den lokalen Schlüssel, wodurch die Entschlüsselung trotz erfolgreicher biometrischer Authentifizierung scheiterte und immer wieder nach dem Master-Passwort verlangte.
+  - Implementierung eines mehrstufigen Kandidaten- und Encoding-Fallback-Verfahrens (Base64 / Base64URL) für `wasm_unwrap_dek_with_passkey`.
+  - Exakte Zuordnung des lokalen Passkey-Eintrags anhand der vom Authenticator nach der Assertion zurückgegebenen `credentialId`.
+  - Universelles lokales DEK-Wrapping beim Master-Passwort-Login auch bei serverseitigen PRF-Schlüsseln, um plattformunabhängige Entsperrung auf Nicht-PRF-Geräten zu garantieren.
+- **Registrierung nativer Tauri-Origins für WebAuthn RP**:
+  - Automatische Validierung nativer App-Schemes (`tauri://localhost`, `tauri://localhost/`, `https://tauri.localhost` etc.) im Rust-Backend (`create_webauthn`), um Origin-Mismatch-Fehler in mobilen WebViews zu verhindern.
+
 ## [1.2.7] - 2026-10-27
 
 ### Zero-Knowledge Passkey Resilience & Error Diagnostics
