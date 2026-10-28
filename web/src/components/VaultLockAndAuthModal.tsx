@@ -83,7 +83,7 @@ import {
   startDesktopBrowserAuth,
   DesktopAuthParams,
 } from '../utils/desktopAuth';
-import { isTauri, isDesktopTauri } from '../utils/platform';
+import { isTauri, isDesktopTauri, isAppleTouchDevice } from '../utils/platform';
 
 
 export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
@@ -1734,39 +1734,55 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         const existing = store[email.trim().toLowerCase()] || store[loginData.passkey_credential_id];
 
         let passkeyEncryptedDekToStore = loginData.passkey_encrypted_dek || '';
-        let passkeySecretToStore: string | undefined = existing?.passkeySecretB64;
+        let passkeySecretToStore: string | undefined = undefined;
+        let isDevicePrfSupported = Boolean(loginData.passkey_prf_salt_b64);
 
-        // Falls bereits ein funktionierender lokaler Schlüssel vorliegt und die Credential-ID übereinstimmt:
-        if (
-          existing?.passkeySecretB64 &&
-          existing.credentialId === loginData.passkey_credential_id &&
-          existing.passkeyEncryptedDek
-        ) {
-          passkeySecretToStore = existing.passkeySecretB64;
-          passkeyEncryptedDekToStore = existing.passkeyEncryptedDek;
-        } else if (unlocked.dek_b64) {
-          // Generiere neuen lokalen Geräte-Schlüssel und verschlüssele DEK für zukünftige Passkey-Entsperrung
-          // (Dient auch als zuverlässiger Fallback auf Plattformen ohne WebAuthn PRF wie iOS Safari/WKWebView)
-          try {
-            const freshSecretBytes = crypto.getRandomValues(new Uint8Array(32));
-            const freshSecretB64 = bytesToBase64(freshSecretBytes);
-            const wrappedDek = wasm_wrap_dek_with_passkey(
-              unlocked.dek_b64,
-              freshSecretB64,
-              loginData.passkey_credential_id
-            );
-            passkeySecretToStore = freshSecretB64;
-            passkeyEncryptedDekToStore = wrappedDek;
-          } catch (wrapErr) {
-            console.warn('Lokales Passkey-DEK-Wrapping fehlgeschlagen:', wrapErr);
+        // Auf Geräten ohne Hardware-PRF (wie iOS WKWebView) oder wenn der Passkey generell
+        // ohne PRF registriert wurde, wird ein lokaler Geräte-Fallback-Schlüssel benötigt.
+        const requiresLocalDeviceKeyFallback =
+          !loginData.passkey_prf_salt_b64 ||
+          isAppleTouchDevice() ||
+          existing?.prfSupported === false;
+
+        if (requiresLocalDeviceKeyFallback) {
+          isDevicePrfSupported = false;
+          // Falls bereits ein funktionierender lokaler Schlüssel vorliegt und die Credential-ID übereinstimmt:
+          if (
+            existing?.passkeySecretB64 &&
+            existing.credentialId === loginData.passkey_credential_id &&
+            existing.passkeyEncryptedDek
+          ) {
+            passkeySecretToStore = existing.passkeySecretB64;
+            passkeyEncryptedDekToStore = existing.passkeyEncryptedDek;
+          } else if (unlocked.dek_b64) {
+            // Generiere neuen lokalen Geräte-Schlüssel und verschlüssele DEK für zukünftige Passkey-Entsperrung
+            // (Dient als zuverlässiger Fallback auf Plattformen ohne WebAuthn PRF wie iOS Safari/WKWebView)
+            try {
+              const freshSecretBytes = crypto.getRandomValues(new Uint8Array(32));
+              const freshSecretB64 = bytesToBase64(freshSecretBytes);
+              const wrappedDek = wasm_wrap_dek_with_passkey(
+                unlocked.dek_b64,
+                freshSecretB64,
+                loginData.passkey_credential_id
+              );
+              passkeySecretToStore = freshSecretB64;
+              passkeyEncryptedDekToStore = wrappedDek;
+            } catch (wrapErr) {
+              console.warn('Lokales Passkey-DEK-Wrapping fehlgeschlagen:', wrapErr);
+            }
           }
+        } else {
+          // Hardware-PRF fähiges Gerät (Desktop / Android / modern Web):
+          // Niemals ein unverschlüsseltes Krypto-Geheimnis im localStorage ablegen!
+          passkeySecretToStore = undefined;
+          passkeyEncryptedDekToStore = loginData.passkey_encrypted_dek || existing?.passkeyEncryptedDek || '';
         }
 
         const entryToSave: LocalPasskeyStoreEntry = {
           credentialId: loginData.passkey_credential_id,
           email: email.trim().toLowerCase(),
-          label: loginData.passkey_label || 'Passkey',
-          prfSupported: Boolean(loginData.passkey_prf_salt_b64),
+          label: loginData.passkey_label || existing?.label || 'Passkey',
+          prfSupported: isDevicePrfSupported,
           prfSaltB64: loginData.passkey_prf_salt_b64 || undefined,
           passkeyEncryptedDek: passkeyEncryptedDekToStore,
           passkeySecretB64: passkeySecretToStore,

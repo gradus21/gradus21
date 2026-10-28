@@ -622,8 +622,8 @@ pub fn create_webauthn() -> Arc<Webauthn> {
         .expect("Fehler bei der Initialisierung von WebauthnBuilder")
         .rp_name(&rp_name);
 
-    // Native Tauri app schemes (iOS WKWebView, Android, Desktop), Web domains & Localhost
-    let default_origins = [
+    // Native Tauri app schemes (iOS WKWebView, Android, Desktop) & production Web domains
+    let mut default_origins = vec![
         "https://gradus21.app",
         "https://gradus21.app/",
         "https://gradus21.de",
@@ -634,13 +634,25 @@ pub fn create_webauthn() -> Arc<Webauthn> {
         "http://tauri.localhost/",
         "https://tauri.localhost",
         "https://tauri.localhost/",
-        "http://localhost:5173",
-        "http://localhost:3080",
-        "http://localhost",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:3080",
-        "http://127.0.0.1",
     ];
+
+    // Localhost dev origins are only allowed if running in development mode or testing against localhost
+    let is_dev = cfg!(debug_assertions)
+        || std::env::var("ENVIRONMENT").map(|v| v.to_lowercase() == "development").unwrap_or(false)
+        || rp_id == "localhost"
+        || rp_origin_str.contains("localhost")
+        || rp_origin_str.contains("127.0.0.1");
+
+    if is_dev {
+        default_origins.extend_from_slice(&[
+            "http://localhost:5173",
+            "http://localhost:3080",
+            "http://localhost",
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:3080",
+            "http://127.0.0.1",
+        ]);
+    }
 
     for def in &default_origins {
         if let Ok(u) = Url::parse(def) {

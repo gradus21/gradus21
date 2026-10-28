@@ -281,6 +281,7 @@ pub async fn passkey_login_start(
         let users = state.mem_users.read().unwrap();
         users.values().find(|u| u.email.to_lowercase() == clean).cloned()
     } else {
+        check_auth_rate_limit(&state, "passkey_start:discoverable")?;
         None
     };
 
@@ -291,19 +292,9 @@ pub async fn passkey_login_start(
         ));
     }
 
-    let (passkeys_to_allow, prf_salt_opt) = {
+    let (passkeys_to_allow, prf_salt_opt) = if let Some(u) = &user_opt {
         let pks = state.mem_passkeys.read().unwrap();
-        let user_pks: Vec<_> = pks
-            .values()
-            .filter(|p| {
-                if let Some(u) = &user_opt {
-                    p.user_id == u.id
-                } else {
-                    true
-                }
-            })
-            .cloned()
-            .collect();
+        let user_pks: Vec<_> = pks.values().filter(|p| p.user_id == u.id).cloned().collect();
 
         let pk_objs: Vec<Passkey> = user_pks
             .iter()
@@ -316,28 +307,24 @@ pub async fn passkey_login_start(
             })
             .collect();
 
-        let prf_salt = if let Some(u) = &user_opt {
-            user_pks
-                .iter()
-                .find(|p| u.passkey_credential_id.as_deref() == Some(&p.credential_id) && p.passkey_prf_salt.is_some())
-                .and_then(|p| p.passkey_prf_salt.clone())
-                .or_else(|| user_pks.iter().find_map(|p| p.passkey_prf_salt.clone()))
-                .or_else(|| u.passkey_prf_salt.clone())
-        } else {
-            None
-        };
+        let prf_salt = user_pks
+            .iter()
+            .find(|p| u.passkey_credential_id.as_deref() == Some(&p.credential_id) && p.passkey_prf_salt.is_some())
+            .and_then(|p| p.passkey_prf_salt.clone())
+            .or_else(|| user_pks.iter().find_map(|p| p.passkey_prf_salt.clone()))
+            .or_else(|| u.passkey_prf_salt.clone());
+
+        if pk_objs.is_empty() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Kein passender Passkey für diesen Benutzer hinterlegt. Bitte melde dich mit deinem Passwort an.".into(),
+            ));
+        }
 
         (pk_objs, prf_salt)
-    };
-
-    if has_requested_email && passkeys_to_allow.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Kein passender Passkey für diesen Benutzer hinterlegt. Bitte melde dich mit deinem Passwort an.".into(),
-        ));
-    }
-
-    if !has_requested_email && passkeys_to_allow.is_empty() {
+    } else {
+        // Usernameless / discoverable resident credentials flow:
+        // Pass empty slice to prevent leaking registered credential IDs of all users.
         let pks = state.mem_passkeys.read().unwrap();
         if pks.is_empty() {
             return Err((
@@ -345,7 +332,8 @@ pub async fn passkey_login_start(
                 "Es sind noch keine Passkeys im System hinterlegt. Bitte melde dich mit deinem Passwort an.".into(),
             ));
         }
-    }
+        (Vec::new(), None)
+    };
 
     let (request_challenge, auth_state) = state
         .webauthn
@@ -385,7 +373,7 @@ pub async fn passkey_login_finish(
         map.remove(&req.session_id)
     };
 
-    let Some((_, auth_state, _)) = challenge_entry else {
+    let Some((_, auth_state, expected_user_id_opt)) = challenge_entry else {
         return Err((
             StatusCode::BAD_REQUEST,
             "Anmelde-Sitzung abgelaufen oder ungültig. Bitte erneut versuchen.".into(),
@@ -413,7 +401,18 @@ pub async fn passkey_login_finish(
                         return pk.cred_id().as_slice() == cred_id_bytes;
                     }
                 }
-                p.credential_id == req.assertion_response.id
+                // Cryptographically verified cred_id matching for string-encoded DB records
+                if let Ok(decoded) = B64.decode(&p.credential_id) {
+                    if decoded == cred_id_bytes {
+                        return true;
+                    }
+                }
+                if let Ok(decoded) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(&p.credential_id) {
+                    if decoded == cred_id_bytes {
+                        return true;
+                    }
+                }
+                false
             })
             .cloned()
     };
@@ -447,6 +446,15 @@ pub async fn passkey_login_finish(
             "Benutzerkonto nicht gefunden".into(),
         ));
     };
+
+    if let Some(expected_user_id) = expected_user_id_opt {
+        if user.id != expected_user_id {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "Der verwendete Passkey gehört nicht zu der angegebenen E-Mail-Adresse.".into(),
+            ));
+        }
+    }
 
     if !user.is_active {
         return Err((
@@ -829,7 +837,7 @@ pub async fn legacy_passkey_login_disabled(
 pub async fn well_known_webauthn() -> ([(axum::http::header::HeaderName, &'static str); 1], &'static str) {
     (
         [(axum::http::header::CONTENT_TYPE, "application/json")],
-        r#"{"origins":["https://gradus21.app","https://gradus21.de","https://tauri.localhost","tauri://localhost","http://localhost","http://localhost:5173","http://localhost:3080","http://127.0.0.1:5173","http://127.0.0.1:3080"]}"#,
+        r#"{"origins":["https://gradus21.app","https://gradus21.de","https://tauri.localhost","tauri://localhost"]}"#,
     )
 }
 

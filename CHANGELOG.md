@@ -5,6 +5,19 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [1.2.8] - 2026-10-28
 
+### Security Hardening & Zero-Knowledge Passkey Resilience
+- **Klartext-Schutz für PRF-Passkeys & Plattform-sensitives Fallback**:
+  - Auf Hardware-PRF-fähigen Systemen (Desktop, Android, moderne Browser) wird beim Master-Passwort-Login strikt verhindert, dass unverschlüsselte Geräte-Schlüssel (`passkeySecretB64`) im HTML5-`localStorage` abgelegt werden. Der Zero-Knowledge-Schutz im Sicherheitschip bleibt vollständig erhalten.
+  - Geräte ohne PRF (wie native iOS/iPadOS WKWebViews) erhalten weiterhin gezielt ihren lokalen Fallback-Schlüssel, werden jedoch lokal explizit als non-PRF markiert (`prfSupported: false`).
+- **Backend Härtung für WebAuthn Discoverable Credentials & Rate-Limiting**:
+  - `POST /api/auth/passkey/login/start` ohne E-Mail-Angabe gibt nun standardmäßig ein leeres `allowCredentials`-Array (`&[]`) zurück, anstatt die Credential-IDs aller Benutzer im System preiszugeben.
+  - Implementierung eines globalen Rate-Limitings für usernameless Passkey-Login-Aufrufe (`passkey_start:discoverable`).
+  - Strikte Validierung der erwarteten Benutzer-ID (`expected_user_id`) in `passkey_login_finish`, um Mismatches zwischen aufgerufenem Account und vorgelegtem Passkey abzuweisen.
+  - Nur kryptografisch durch den WebAuthn-Challenge-Handshake verifizierte Credential-IDs werden mit Benutzerkonten in der Datenbank abgeglichen.
+- **Bereinigung von WebAuthn RP Origins**:
+  - Unverschlüsselte HTTP-Localhost-Origins werden in `create_webauthn()` in Produktionsumgebungen standardmäßig nicht mehr als vertrauenswürdige RP-Origins registriert.
+  - `web/public/.well-known/webauthn` und der Server-Endpunkt veröffentlichen streng konform zur W3C Related Origins Spezifikation nur noch HTTPS- und registrierte App-Schemes.
+
 ### Native iOS Passkey & Cross-Device Decryption Fixes
 - **Behebung der Passkey-Entschlüsselungsschleife auf Nicht-PRF-Geräten (iOS / WebKit / Softkeys)**:
   - Bei Passkey-Authentifizierung ohne hardwareseitige PRF-Extension (wie unter Apple iOS WKWebView / Keychain) wird für die DEK-Entschlüsselung nun prioritär der lokal mit dem Geräteschlüssel verpackte Tresorschlüssel (`localEntry.passkeyEncryptedDek`) verwendet. Zuvor überschrieb der Server-Ciphertext (der von einem anderen Gerät verschlüsselt wurde) den lokalen Schlüssel, wodurch die Entschlüsselung trotz erfolgreicher biometrischer Authentifizierung scheiterte und immer wieder nach dem Master-Passwort verlangte.

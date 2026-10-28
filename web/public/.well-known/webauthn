@@ -3,11 +3,6 @@
     "https://gradus21.app",
     "https://gradus21.de",
     "https://tauri.localhost",
-    "tauri://localhost",
-    "http://localhost",
-    "http://localhost:5173",
-    "http://localhost:3080",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:3080"
+    "tauri://localhost"
   ]
 }

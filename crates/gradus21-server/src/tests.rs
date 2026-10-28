@@ -975,7 +975,7 @@ async fn test_webauthn_builder_and_origin_configuration() {
 
     let state = create_test_state();
     let err = passkey_login_start(
-        State(state),
+        State(state.clone()),
         Json(PasskeyLoginStartRequest {
             email: Some("nonexistent@schule.de".into()),
         }),
@@ -984,6 +984,25 @@ async fn test_webauthn_builder_and_origin_configuration() {
     .unwrap_err();
     assert_eq!(err.0, StatusCode::BAD_REQUEST);
     assert!(err.1.contains("Kein passender Passkey"));
+
+    // Verify discoverable passkey login without email on empty database returns expected error
+    let err_empty = passkey_login_start(
+        State(state),
+        Json(PasskeyLoginStartRequest {
+            email: None,
+        }),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err_empty.0, StatusCode::BAD_REQUEST);
+    assert!(err_empty.1.contains("Es sind noch keine Passkeys"));
+
+    // Verify well-known webauthn only publishes HTTPS / app schemes and no unencrypted HTTP localhost
+    let (_, well_known_json) = well_known_webauthn().await;
+    assert!(!well_known_json.contains("http://localhost"));
+    assert!(!well_known_json.contains("http://127.0.0.1"));
+    assert!(well_known_json.contains("https://gradus21.app"));
+    assert!(well_known_json.contains("tauri://localhost"));
 }
 
 #[tokio::test]
