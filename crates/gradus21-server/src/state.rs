@@ -622,12 +622,8 @@ pub fn create_webauthn() -> Arc<Webauthn> {
         .expect("Fehler bei der Initialisierung von WebauthnBuilder")
         .rp_name(&rp_name);
 
-    // Native Tauri app schemes (iOS WKWebView, Android, Desktop) & production Web domains
+    // Native Tauri app schemes (iOS WKWebView, Android, Desktop)
     let mut default_origins = vec![
-        "https://gradus21.app",
-        "https://gradus21.app/",
-        "https://gradus21.de",
-        "https://gradus21.de/",
         "tauri://localhost",
         "tauri://localhost/",
         "http://tauri.localhost",
@@ -635,6 +631,16 @@ pub fn create_webauthn() -> Arc<Webauthn> {
         "https://tauri.localhost",
         "https://tauri.localhost/",
     ];
+
+    // Default hosted domains for official Gradus21 deployment or local tests
+    if rp_id == "gradus21.app" || rp_id == "localhost" {
+        default_origins.extend_from_slice(&[
+            "https://gradus21.app",
+            "https://gradus21.app/",
+            "https://gradus21.de",
+            "https://gradus21.de/",
+        ]);
+    }
 
     // Localhost dev origins are only allowed if running in development mode or testing against localhost
     let is_dev = cfg!(debug_assertions)

@@ -834,10 +834,45 @@ pub async fn legacy_passkey_login_disabled(
     ))
 }
 
-pub async fn well_known_webauthn() -> ([(axum::http::header::HeaderName, &'static str); 1], &'static str) {
+pub async fn well_known_webauthn() -> ([(axum::http::header::HeaderName, &'static str); 1], String) {
+    let mut origins = Vec::new();
+    let rp_origin_str = std::env::var("WEBAUTHN_RP_ORIGIN").unwrap_or_else(|_| "https://gradus21.app".into());
+    if let Ok(u) = Url::parse(&rp_origin_str) {
+        let clean = format!("{}://{}", u.scheme(), u.host_str().unwrap_or_default());
+        if !origins.contains(&clean) {
+            origins.push(clean);
+        }
+    }
+    if let Ok(allowed_str) = std::env::var("WEBAUTHN_ALLOWED_ORIGINS") {
+        for item in allowed_str.split(',') {
+            let trimmed = item.trim();
+            if let Ok(u) = Url::parse(trimmed) {
+                let clean = format!("{}://{}", u.scheme(), u.host_str().unwrap_or_default());
+                if !origins.contains(&clean) {
+                    origins.push(clean);
+                }
+            }
+        }
+    }
+    // Standard hosted fallbacks if no custom origin configured or if gradus21.app is in use:
+    if origins.is_empty() {
+        origins.push("https://gradus21.app".to_string());
+        origins.push("https://gradus21.de".to_string());
+    }
+    if !origins.contains(&"https://tauri.localhost".to_string()) {
+        origins.push("https://tauri.localhost".to_string());
+    }
+    if !origins.contains(&"tauri://localhost".to_string()) {
+        origins.push("tauri://localhost".to_string());
+    }
+
+    let json_val = serde_json::json!({
+        "origins": origins
+    });
+
     (
         [(axum::http::header::CONTENT_TYPE, "application/json")],
-        r#"{"origins":["https://gradus21.app","https://gradus21.de","https://tauri.localhost","tauri://localhost"]}"#,
+        json_val.to_string(),
     )
 }
 

@@ -1003,6 +1003,15 @@ async fn test_webauthn_builder_and_origin_configuration() {
     assert!(!well_known_json.contains("http://127.0.0.1"));
     assert!(well_known_json.contains("https://gradus21.app"));
     assert!(well_known_json.contains("tauri://localhost"));
+
+    // Verify custom origin configuration via Docker environment variables
+    std::env::set_var("WEBAUTHN_RP_ORIGIN", "https://noten.gymnasium-schule.de");
+    std::env::set_var("WEBAUTHN_ALLOWED_ORIGINS", "https://noten.gymnasium-schule.de,https://backup.schule.de");
+    let (_, custom_well_known) = well_known_webauthn().await;
+    assert!(custom_well_known.contains("https://noten.gymnasium-schule.de"));
+    assert!(custom_well_known.contains("https://backup.schule.de"));
+    std::env::remove_var("WEBAUTHN_RP_ORIGIN");
+    std::env::remove_var("WEBAUTHN_ALLOWED_ORIGINS");
 }
 
 #[tokio::test]
