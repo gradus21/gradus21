@@ -41,6 +41,9 @@ import {
 } from 'lucide-react';
 import { isFileSystemAccessSupported } from '../utils/localBackupStorage';
 import { useLegalConfig, getDisplayDomain } from '../utils/legalConfig';
+import { checkForAppUpdate, installAppUpdate, UpdateInfo } from '../utils/updater';
+import { APP_VERSION } from '../version';
+import { isDesktopTauri, isLinux } from '../utils/platform';
 
 export type SettingsSection =
   | 'favorites'
@@ -111,6 +114,37 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [templatePendingDelete, setTemplatePendingDelete] = useState<{ id: string; name: string } | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [savedIndicator, setSavedIndicator] = useState(false);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [manualUpdateResult, setManualUpdateResult] = useState<UpdateInfo | null>(null);
+  const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
+  const [manualProgressPct, setManualProgressPct] = useState(0);
+  const [manualInstallDone, setManualInstallDone] = useState(false);
+
+  const handleManualCheckUpdate = async () => {
+    setIsCheckingUpdate(true);
+    setManualInstallDone(false);
+    try {
+      const result = await checkForAppUpdate();
+      setManualUpdateResult(result);
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
+
+  const handleManualInstallUpdate = async () => {
+    setIsInstallingUpdate(true);
+    try {
+      const ok = await installAppUpdate((pct) => setManualProgressPct(pct));
+      if (ok) setManualInstallDone(true);
+    } catch (err) {
+      setManualUpdateResult({
+        available: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setIsInstallingUpdate(false);
+    }
+  };
   const [systemIsDark, setSystemIsDark] = useState<boolean>(() => {
     if (typeof window !== 'undefined' && window.matchMedia) {
       return window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -1077,6 +1111,127 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
              ================================================================= */}
           {activeSection === 'help' && (
             <div className="space-y-4">
+              {/* Desktop App & Auto-Updater Status */}
+              <div
+                className="p-5 rounded-2xl border space-y-3.5"
+                style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                      style={{ backgroundColor: 'var(--primary-soft)', color: 'var(--primary-text)' }}
+                    >
+                      <Monitor className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
+                          Gradus21 Desktop Client
+                        </h4>
+                        <span className="text-[11px] font-mono px-2 py-0.5 rounded font-bold bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200">
+                          v{APP_VERSION}
+                        </span>
+                      </div>
+                      <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                        {isDesktopTauri()
+                          ? 'Zero-Knowledge E2EE Notenverwaltung (Native Desktop-Applikation)'
+                          : 'Web-Client / Browser-Version'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {isDesktopTauri() ? (
+                    <button
+                      onClick={handleManualCheckUpdate}
+                      disabled={isCheckingUpdate || isInstallingUpdate}
+                      className="px-4 py-2 rounded-xl text-xs font-bold text-white shadow-sm flex items-center justify-center gap-1.5 transition hover:opacity-95 disabled:opacity-50 shrink-0"
+                      style={{ backgroundColor: 'var(--primary-500)' }}
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isCheckingUpdate ? 'animate-spin' : ''}`} />
+                      <span>{isCheckingUpdate ? 'Prüfe...' : 'Nach Updates suchen'}</span>
+                    </button>
+                  ) : (
+                    <a
+                      href="https://github.com/gradus21/gradus21/releases/latest"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-4 py-2 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 hover:opacity-90 shrink-0"
+                      style={{
+                        backgroundColor: 'var(--bg-surface)',
+                        borderColor: 'var(--border-subtle)',
+                        color: 'var(--text-primary)',
+                      }}
+                    >
+                      <span>Releases ansehen</span>
+                      <ExternalLink className="w-3.5 h-3.5 opacity-70" />
+                    </a>
+                  )}
+                </div>
+
+                {/* Update Check Results & Actions */}
+                {manualUpdateResult && (
+                  <div
+                    className="p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                    style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
+                  >
+                    {manualUpdateResult.available ? (
+                      <>
+                        <div className="flex items-center gap-2.5">
+                          <Download className="w-4 h-4 text-indigo-500 shrink-0" />
+                          <div>
+                            <span className="font-bold" style={{ color: 'var(--text-primary)' }}>
+                              Neue Version verfügbar: v{manualUpdateResult.version}
+                            </span>
+                            <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                              Installierte Version: v{manualUpdateResult.currentVersion || APP_VERSION}
+                            </div>
+                          </div>
+                        </div>
+
+                        {manualInstallDone ? (
+                          <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-bold">
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span>Installiert! Bitte App neu starten.</span>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={handleManualInstallUpdate}
+                            disabled={isInstallingUpdate}
+                            className="px-3.5 py-1.5 rounded-lg text-xs font-bold text-white shadow-xs transition hover:opacity-95 inline-flex items-center gap-1.5 disabled:opacity-60"
+                            style={{ backgroundColor: 'var(--primary-500)' }}
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>{isInstallingUpdate ? `Lade... ${manualProgressPct}%` : 'Jetzt aktualisieren'}</span>
+                          </button>
+                        )}
+                      </>
+                    ) : manualUpdateResult.error ? (
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold">
+                          <AlertTriangle className="w-4 h-4 shrink-0" />
+                          <span>Update-Prüfung konnte nicht abgeschlossen werden</span>
+                        </div>
+                        <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                          {isLinux() ? (
+                            <span>
+                              Hinweis für Linux: In-App-Updates setzen das AppImage voraus. Bei einer .deb-Installation lade bitte das neue .deb direkt aus dem GitHub-Release herunter.
+                            </span>
+                          ) : (
+                            <span>Details: {manualUpdateResult.error}</span>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2.5 text-emerald-600 dark:text-emerald-400 font-medium">
+                        <CheckCircle2 className="w-4 h-4 shrink-0" />
+                        <span>Gradus21 ist auf dem neuesten Stand (v{APP_VERSION}).</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <div
                 className="p-5 rounded-2xl border space-y-4"
                 style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}

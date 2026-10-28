@@ -3,6 +3,17 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.10] - 2026-10-28
+
+### Desktop Auto-Updater Integration & Multiplatform Manifest Delivery
+- **In-App Auto-Update Benachrichtigung und manuelle Prüfung**:
+  - Automatischer Update-Check beim Start der Desktop-App via `tauri-plugin-updater` mit dezentem Benachrichtigungs-Banner (`UpdateNotificationBanner`) direkt unter dem App-Header.
+  - Dedizierte Statuskarte im Einstellungs-Dialog (`SettingsModal`) mit Anzeige der aktuellen Version, Button "Nach Updates suchen", Fortschrittsbalken beim Download und Hinweisen für Linux-Installationen (.deb vs. AppImage).
+- **Automatisierte Erzeugung und Verteilung von `latest.json` im Release-Prozess**:
+  - Aktivierung von `bundle.createUpdaterArtifacts: true` in `src-tauri/tauri.conf.json`, damit Tauri v2 bei Builds die signierten Update-Archive (`.tar.gz`, `.nsis.zip`) und Minisign-Signaturen (`.sig`) generiert.
+  - Neues Automatisierungs-Skript `scripts/update-updater-manifest.mjs`, das nach Abschluss der CI/CD-Jobs (Linux, Windows, macOS) die plattformspezifischen Signaturen aggregiert und `latest.json` im GitHub-Release veröffentlicht und aktualisiert.
+  - Erweiterung von `.github/workflows/desktop-release.yml` und `apple-release.yml` um den Upload von Updater-Archiven (`*.tar.gz*`, `*.zip*`) und den automatischen Manifest-Upload.
+
 ## [1.2.9] - 2026-10-28
 
 ### Security Hardening & Dynamic Passkey RP Configuration

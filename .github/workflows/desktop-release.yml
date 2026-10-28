@@ -108,6 +108,7 @@ jobs:
           path: |
             target/release/bundle/deb/*.deb*
             target/release/bundle/appimage/*.AppImage*
+            target/release/bundle/appimage/*.tar.gz*
             SHA256SUMS_linux.txt*
           if-no-files-found: warn
 
@@ -116,13 +117,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ github.ref_name }}" \
-            target/release/bundle/deb/*.deb \
-            target/release/bundle/deb/*.deb.asc \
-            target/release/bundle/appimage/*.AppImage \
-            target/release/bundle/appimage/*.AppImage.asc \
-            SHA256SUMS_linux.txt* \
-            --clobber || true
+          shopt -s nullglob
+          linux_artifacts=(target/release/bundle/deb/*.deb* target/release/bundle/appimage/*.AppImage* target/release/bundle/appimage/*.tar.gz* SHA256SUMS_linux.txt*)
+          if [ ${#linux_artifacts[@]} -gt 0 ]; then
+            gh release upload "${{ github.ref_name }}" "${linux_artifacts[@]}" --clobber || true
+          fi
+          node scripts/update-updater-manifest.mjs "${{ github.ref_name }}" linux || true
 
   build-windows:
     name: Build Windows Packages (.msi / .exe)
@@ -230,8 +230,9 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          artifacts=(target/release/bundle/msi/*.msi target/release/bundle/nsis/*.exe target/release/bundle/msix/*.msix target/release/bundle/msix/*.cer)
+          artifacts=(target/release/bundle/msi/*.msi target/release/bundle/nsis/*.exe target/release/bundle/nsis/*.zip* target/release/bundle/msix/*.msix target/release/bundle/msix/*.cer)
           if [ ${#artifacts[@]} -gt 0 ]; then
             echo "Uploading Windows artifacts to release ${{ github.ref_name }}..."
             gh release upload "${{ github.ref_name }}" "${artifacts[@]}" --clobber || true
           fi
+          node scripts/update-updater-manifest.mjs "${{ github.ref_name }}" windows || true

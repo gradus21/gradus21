@@ -26,6 +26,9 @@ import { GradingConfiguratorView } from './views/GradingConfiguratorView';
 import { InteractiveDemoGuide } from './components/guide/InteractiveDemoGuide';
 import { GuideChapterSelectModal } from './components/guide/GuideChapterSelectModal';
 import { WelcomeGuideBanner } from './components/guide/WelcomeGuideBanner';
+import { UpdateNotificationBanner } from './components/UpdateNotificationBanner';
+import { checkForAppUpdate, UpdateInfo } from './utils/updater';
+import { isDesktopTauri } from './utils/platform';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useInteractiveGuide } from './hooks/useInteractiveGuide';
 import { APP_VERSION } from './version';
@@ -102,6 +105,24 @@ export const App: React.FC = () => {
   // What-If Simulation State
   const [simCategoryId] = useState<string>('cat_lnw');
   const [simTargetPercent] = useState<number>(75);
+
+  // Desktop In-App Auto-Update State
+  const [appUpdate, setAppUpdate] = useState<UpdateInfo | null>(null);
+  const [dismissedUpdate, setDismissedUpdate] = useState(false);
+
+  useEffect(() => {
+    if (isDesktopTauri()) {
+      checkForAppUpdate()
+        .then((info) => {
+          if (info?.available) {
+            setAppUpdate(info);
+          }
+        })
+        .catch((err) => {
+          console.warn('[App] Background update check failed:', err);
+        });
+    }
+  }, []);
 
   // Modal Dialogs (Discriminated Union to enforce single-modal exclusivity)
   const [activeModal, setActiveModal] = useState<ActiveModal>(null);
@@ -352,6 +373,14 @@ export const App: React.FC = () => {
         mode={mode}
         setMode={setMode}
       />
+
+      {/* DESKTOP AUTO-UPDATE BANNER */}
+      {appUpdate?.available && !dismissedUpdate && (
+        <UpdateNotificationBanner
+          updateInfo={appUpdate}
+          onDismiss={() => setDismissedUpdate(true)}
+        />
+      )}
 
       {/* WELCOME GUIDE BANNER (IF FIRST VISIT & NOT DISMISSED) */}
       {showWelcomeBanner && !isGuideOpen && !isChapterSelectOpen && (

@@ -1,10 +1,16 @@
 import { isDesktopTauri } from './platform';
+import { APP_VERSION } from '../version';
 
 export interface UpdateInfo {
   available: boolean;
   version?: string;
+  currentVersion?: string;
   body?: string;
+  date?: string;
+  error?: string;
 }
+
+export type DownloadProgressCallback = (percent: number, downloaded: number, total: number) => void;
 
 /**
  * Checks whether an in-app update is available for desktop clients.
@@ -12,7 +18,7 @@ export interface UpdateInfo {
  */
 export async function checkForAppUpdate(): Promise<UpdateInfo> {
   if (!isDesktopTauri()) {
-    return { available: false };
+    return { available: false, currentVersion: APP_VERSION };
   }
 
   try {
@@ -22,27 +28,54 @@ export async function checkForAppUpdate(): Promise<UpdateInfo> {
       return {
         available: true,
         version: update.version,
+        currentVersion: update.currentVersion || APP_VERSION,
         body: update.body ?? undefined,
+        date: update.date ?? undefined,
       };
     }
+    return {
+      available: false,
+      currentVersion: update?.currentVersion || APP_VERSION,
+    };
   } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
     console.warn('[Updater] Update check failed or offline:', err);
+    return {
+      available: false,
+      currentVersion: APP_VERSION,
+      error: errMsg,
+    };
   }
-
-  return { available: false };
 }
 
 /**
- * Downloads and installs the pending update, then relaunches the desktop application.
+ * Downloads and installs the pending update, then relaunches or prompts for restart.
  */
-export async function installAppUpdate(): Promise<boolean> {
+export async function installAppUpdate(onProgress?: DownloadProgressCallback): Promise<boolean> {
   if (!isDesktopTauri()) return false;
 
   try {
     const { check } = await import('@tauri-apps/plugin-updater');
     const update = await check();
     if (update?.available) {
-      await update.downloadAndInstall();
+      let totalLength = 0;
+      let downloadedLength = 0;
+
+      await update.downloadAndInstall((event) => {
+        if (event.event === 'Started') {
+          totalLength = event.data.contentLength || 0;
+          if (onProgress) onProgress(0, 0, totalLength);
+        } else if (event.event === 'Progress') {
+          downloadedLength += event.data.chunkLength;
+          const pct = totalLength > 0 ? Math.min(100, Math.round((downloadedLength / totalLength) * 100)) : 0;
+          if (onProgress) onProgress(pct, downloadedLength, totalLength);
+        } else if (event.event === 'Finished') {
+          if (onProgress) onProgress(100, downloadedLength, totalLength);
+        }
+      });
+
+      // After downloadAndInstall, Windows automatically restarts or launches the updater.
+      // On macOS and Linux, the update is staged and will be applied on the next start.
       return true;
     }
   } catch (err) {

@@ -65,3 +65,28 @@ export const isDesktopTauri = (): boolean => {
   if (typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)) return false;
   return true;
 };
+
+/**
+ * Helper to identify Linux desktop systems (e.g. for package-manager guidance vs AppImage).
+ */
+export const isLinux = (): boolean => {
+  if (typeof navigator === 'undefined') return false;
+  return /Linux/.test(navigator.userAgent || navigator.platform);
+};
+
+/**
+ * Helper to identify Windows desktop systems.
+ */
+export const isWindows = (): boolean => {
+  if (typeof navigator === 'undefined') return false;
+  return /Win/.test(navigator.userAgent || navigator.platform);
+};
+
+/**
+ * Helper to identify macOS desktop systems.
+ */
+export const isMacOS = (): boolean => {
+  if (typeof navigator === 'undefined') return false;
+  return /Mac/.test(navigator.platform) && !isAppleTouchDevice();
+};
+

@@ -135,10 +135,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           dmg_files=$(find target -name "*.dmg" -type f)
-          if [ -n "$dmg_files" ]; then
-            echo "Uploading macOS DMG artifacts to release ${{ github.ref_name }}..."
-            gh release upload "${{ github.ref_name }}" $dmg_files --clobber || true
+          tar_files=$(find target -name "*.tar.gz*" -type f)
+          if [ -n "$dmg_files" ] || [ -n "$tar_files" ]; then
+            echo "Uploading macOS artifacts to release ${{ github.ref_name }}..."
+            gh release upload "${{ github.ref_name }}" $dmg_files $tar_files --clobber || true
           fi
+          node scripts/update-updater-manifest.mjs "${{ github.ref_name }}" macos || true
 
 
   build-ios:
