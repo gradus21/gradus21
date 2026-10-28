@@ -622,6 +622,34 @@ pub fn create_webauthn() -> Arc<Webauthn> {
         .expect("Fehler bei der Initialisierung von WebauthnBuilder")
         .rp_name(&rp_name);
 
+    // Native Tauri app schemes (iOS WKWebView, Android, Desktop), Web domains & Localhost
+    let default_origins = [
+        "https://gradus21.app",
+        "https://gradus21.app/",
+        "https://gradus21.de",
+        "https://gradus21.de/",
+        "tauri://localhost",
+        "tauri://localhost/",
+        "http://tauri.localhost",
+        "http://tauri.localhost/",
+        "https://tauri.localhost",
+        "https://tauri.localhost/",
+        "http://localhost:5173",
+        "http://localhost:3080",
+        "http://localhost",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:3080",
+        "http://127.0.0.1",
+    ];
+
+    for def in &default_origins {
+        if let Ok(u) = Url::parse(def) {
+            if u != rp_origin {
+                builder = builder.append_allowed_origin(&u);
+            }
+        }
+    }
+
     if let Ok(allowed_origins_str) = std::env::var("WEBAUTHN_ALLOWED_ORIGINS") {
         for orig_str in allowed_origins_str.split(',') {
             let trimmed = orig_str.trim();
@@ -631,13 +659,15 @@ pub fn create_webauthn() -> Arc<Webauthn> {
                         builder = builder.append_allowed_origin(&u);
                     }
                 }
-            }
-        }
-    } else {
-        for default_orig in &["http://localhost:5173", "http://localhost:3080", "http://127.0.0.1:5173", "http://127.0.0.1:3080"] {
-            if let Ok(u) = Url::parse(default_orig) {
-                if u != rp_origin {
-                    builder = builder.append_allowed_origin(&u);
+                let alt = if trimmed.ends_with('/') {
+                    trimmed.trim_end_matches('/')
+                } else {
+                    &format!("{}/", trimmed)
+                };
+                if let Ok(u) = Url::parse(alt) {
+                    if u != rp_origin {
+                        builder = builder.append_allowed_origin(&u);
+                    }
                 }
             }
         }
