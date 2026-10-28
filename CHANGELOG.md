@@ -3,6 +3,16 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.7] - 2026-10-27
+
+### Zero-Knowledge Passkey Resilience & Error Diagnostics
+- **Behebung des `ReferenceError` bei Passkey-Wrapping (`unlocked.dek_b64`)**:
+  - Korrektur einer Variablenreferenz (`unwrapped.dek_b64` -> `unlocked.dek_b64`) bei der Ableitung und Speicherung des lokalen Geräte-Passkeys im `VaultLockAndAuthModal`. Dies verhinderte, dass Benutzer nach erfolgreicher Passworteingabe irrtümlich mit *"Das eingegebene Passwort stimmt leider nicht"* abgewiesen wurden.
+- **Präzise Fehlerdiagnostik im Tresor- und Authentifizierungs-Modal**:
+  - Differenzierte Fehleranzeige bei echten Initialisierungs-, WASM- oder Netzwerkfehlern anstelle pauschaler Fehlermeldungen bei Passkey-Entsperrung und Passwort-Login.
+- **Type-Check-Absicherung der Web-Builds**:
+  - `npm run build` und `npm run build:client` führen vor dem Vite-Bundling nun strikt `tsc -b` aus.
+
 ## [1.2.6] - 2026-10-27
 
 ### iOS Native Passkey & WASM Engine Hardening
