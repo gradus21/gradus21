@@ -124,6 +124,15 @@ jobs:
           fi
           node scripts/update-updater-manifest.mjs "${{ github.ref_name }}" linux || true
 
+      - name: Deploy Linux Packages to GitHub Pages APT Repository
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          sudo apt-get install -y dpkg-dev apt-utils
+          bash scripts/deploy-apt-repo.sh || true
+
   build-windows:
     name: Build Windows Packages (.msi / .exe)
     if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'windows'

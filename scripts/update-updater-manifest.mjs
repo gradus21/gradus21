@@ -9,7 +9,7 @@ const platform = args[1] || 'all';
 
 if (!tag) {
   console.error('Usage: node scripts/update-updater-manifest.mjs <tag> [platform]');
-  console.error('Example: node scripts/update-updater-manifest.mjs v1.2.9 linux');
+  console.error('Example: node scripts/update-updater-manifest.mjs v1.2.10 linux');
   process.exit(1);
 }
 
@@ -49,7 +49,7 @@ try {
   console.log('[Updater Manifest] No existing latest.json found in release; creating new manifest.');
 }
 
-function findArtifacts(dir, ext) {
+function findFiles(dir, filterFn) {
   if (!fs.existsSync(dir)) return [];
   const files = [];
   function scan(current) {
@@ -57,7 +57,7 @@ function findArtifacts(dir, ext) {
       const full = path.join(current, item.name);
       if (item.isDirectory()) {
         scan(full);
-      } else if (item.isFile() && item.name.endsWith(ext)) {
+      } else if (item.isFile() && filterFn(item.name)) {
         files.push(full);
       }
     }
@@ -66,15 +66,15 @@ function findArtifacts(dir, ext) {
   return files;
 }
 
-// 1. Linux
+// 1. Linux: Check for AppImage (.sig) or tar.gz (.sig)
 if (platform === 'linux' || platform === 'all') {
   const linuxDir = path.join(repoRoot, 'target', 'release', 'bundle', 'appimage');
-  const tarFiles = findArtifacts(linuxDir, '.tar.gz');
-  for (const tarFile of tarFiles) {
-    const sigFile = tarFile + '.sig';
-    if (fs.existsSync(sigFile)) {
+  const sigFiles = findFiles(linuxDir, (n) => (n.endsWith('.AppImage.sig') || n.endsWith('.tar.gz.sig')) && !n.endsWith('.asc'));
+  for (const sigFile of sigFiles) {
+    const artifactFile = sigFile.slice(0, -4);
+    if (fs.existsSync(artifactFile)) {
       const sigContent = fs.readFileSync(sigFile, 'utf8').trim();
-      const filename = path.basename(tarFile);
+      const filename = path.basename(artifactFile);
       manifest.platforms['linux-x86_64'] = {
         signature: sigContent,
         url: `https://github.com/gradus21/gradus21/releases/download/${tag}/${filename}`,
@@ -84,15 +84,15 @@ if (platform === 'linux' || platform === 'all') {
   }
 }
 
-// 2. Windows
+// 2. Windows: Check for NSIS zip (.sig) or exe (.sig)
 if (platform === 'windows' || platform === 'all') {
   const nsisDir = path.join(repoRoot, 'target', 'release', 'bundle', 'nsis');
-  const zipFiles = findArtifacts(nsisDir, '.zip');
-  for (const zipFile of zipFiles) {
-    const sigFile = zipFile + '.sig';
-    if (fs.existsSync(sigFile)) {
+  const sigFiles = findFiles(nsisDir, (n) => (n.endsWith('.zip.sig') || n.endsWith('.exe.sig')) && !n.endsWith('.asc'));
+  for (const sigFile of sigFiles) {
+    const artifactFile = sigFile.slice(0, -4);
+    if (fs.existsSync(artifactFile)) {
       const sigContent = fs.readFileSync(sigFile, 'utf8').trim();
-      const filename = path.basename(zipFile);
+      const filename = path.basename(artifactFile);
       manifest.platforms['windows-x86_64'] = {
         signature: sigContent,
         url: `https://github.com/gradus21/gradus21/releases/download/${tag}/${filename}`,
@@ -102,22 +102,18 @@ if (platform === 'windows' || platform === 'all') {
   }
 }
 
-// 3. macOS
+// 3. macOS: Check for .tar.gz (.sig)
 if (platform === 'macos' || platform === 'all') {
   const targetDir = path.join(repoRoot, 'target');
-  const macTarFiles = findArtifacts(targetDir, '.tar.gz').filter((p) => p.includes('bundle') && p.includes('macos'));
-  for (const tarFile of macTarFiles) {
-    const sigFile = tarFile + '.sig';
-    if (fs.existsSync(sigFile)) {
+  const sigFiles = findFiles(targetDir, (n) => n.endsWith('.tar.gz.sig') && !n.endsWith('.asc'));
+  for (const sigFile of sigFiles) {
+    const artifactFile = sigFile.slice(0, -4);
+    if (fs.existsSync(artifactFile)) {
       const sigContent = fs.readFileSync(sigFile, 'utf8').trim();
-      const filename = path.basename(tarFile);
+      const filename = path.basename(artifactFile);
       const url = `https://github.com/gradus21/gradus21/releases/download/${tag}/${filename}`;
-      if (filename.includes('aarch64') || filename.includes('universal')) {
-        manifest.platforms['darwin-aarch64'] = { signature: sigContent, url };
-      }
-      if (filename.includes('x64') || filename.includes('x86_64') || filename.includes('universal')) {
-        manifest.platforms['darwin-x86_64'] = { signature: sigContent, url };
-      }
+      manifest.platforms['darwin-aarch64'] = { signature: sigContent, url };
+      manifest.platforms['darwin-x86_64'] = { signature: sigContent, url };
       console.log(`[Updater Manifest] Found macOS updater artifact: ${filename}`);
     }
   }

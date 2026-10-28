@@ -14,6 +14,11 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   - Neues Automatisierungs-Skript `scripts/update-updater-manifest.mjs`, das nach Abschluss der CI/CD-Jobs (Linux, Windows, macOS) die plattformspezifischen Signaturen aggregiert und `latest.json` im GitHub-Release veröffentlicht und aktualisiert.
   - Erweiterung von `.github/workflows/desktop-release.yml` und `apple-release.yml` um den Upload von Updater-Archiven (`*.tar.gz*`, `*.zip*`) und den automatischen Manifest-Upload.
 
+- **Offizielles Linux APT-Repository (GitHub Pages)**:
+  - Vollständiges Debian/Ubuntu/Pop!_OS APT-Repository auf `https://gradus21.github.io/gradus21/` mit kryptografischer GPG-Signierung (`InRelease`, `Release.gpg`), `Packages.gz` und Landing-Page.
+  - Automatisierte Verteilung neuer `.deb`-Versionen über GitHub Actions via `scripts/build-apt-repo.sh` und `scripts/deploy-apt-repo.sh`.
+  - Nahtlose System-Aktualisierung für Linux-Benutzer direkt über `sudo apt update && sudo apt upgrade`.
+
 ## [1.2.9] - 2026-10-28
 
 ### Security Hardening & Dynamic Passkey RP Configuration

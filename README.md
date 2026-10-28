@@ -180,6 +180,30 @@ rm -f web/src/wasm-pkg/.gitignore
 
 ---
 
+## 🐧 Linux Installation & APT Repository (Debian, Ubuntu, Pop!_OS)
+
+Gradus21 verfügt über ein offizielles, kryptografisch signiertes APT-Repository für automatische Updates:
+
+```bash
+# 1. GPG-Schlüssel von Gradus21 importieren
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://gradus21.github.io/gradus21/KEY.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/gradus21.gpg
+sudo chmod a+r /etc/apt/keyrings/gradus21.gpg
+
+# 2. Paketquelle eintragen
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/gradus21.gpg] https://gradus21.github.io/gradus21 stable main" \
+  | sudo tee /etc/apt/sources.list.d/gradus21.list
+
+# 3. Installieren
+sudo apt update
+sudo apt install gradus21
+```
+
+Zukünftige Updates werden automatisch via `sudo apt update && sudo apt upgrade` bezogen.  
+Weitere Informationen: [https://gradus21.github.io/gradus21/](https://gradus21.github.io/gradus21/)
+
+---
+
 ## 🐳 Docker Deployment (Prebuilt Images für kleine Systeme & Server)
 
 Für Server, VPS oder ressourcenschwächere Mini-PCs/Home-Server (wie Raspberry Pi, Docker-VM, NAS) stehen vorkompilierte Multi-Arch-Images (`linux/amd64` und `linux/arm64`) auf GitHub Packages (GHCR) bereit, sodass **kein lokales Kompilieren von Rust/WASM/Node** nötig ist:
