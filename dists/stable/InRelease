@@ -1,0 +1,44 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Architectures: amd64
+Codename: stable
+Components: main
+Date: Wed, 28 Oct 2026 10:14:59 +0000
+Description: Gradus21 Official APT Repository for Debian, Ubuntu and Pop!_OS
+Label: Gradus21 Official APT Repository
+Origin: Gradus21
+Suite: stable
+MD5Sum:
+ 711d0713de21e2869ded968953e2b979              241 Release
+ e7fc2935b3efcc430260a729bf57a850             2442 main/binary-amd64/Packages
+ 4ec670dccf67ffde696d3d3accba56e3              779 main/binary-amd64/Packages.gz
+SHA1:
+ b7b2c9cc79f91f2825e4efbea216d530a4ffbf43              241 Release
+ 3298c8a84b1c1b3b004b2d0d500ebb14023408ee             2442 main/binary-amd64/Packages
+ b83699467fa307674be172fe336e8877befbc2e6              779 main/binary-amd64/Packages.gz
+SHA256:
+ 2f9ae6ded85cb31783f6c817ece08774fc88bc555dcb76bf79bf8b60273877a1              241 Release
+ 9511c597280e933f5978bfa107a680c1095d49bd1d71bb70e6e711eb2fc12277             2442 main/binary-amd64/Packages
+ 9982280ac8d73312cba2eef87d092b7d906c36a23900782a9df5bbd7f2d9c098              779 main/binary-amd64/Packages.gz
+SHA512:
+ 8d62ec1503b03c06ef84c1acb8aac7ad589e94280881a9ec9c2c12505fb6fe6f5781790b8e02f4be75a88a858d0197fcb3d047580f24552798d56c0f16e680df              241 Release
+ 9318628e1daea12bf4dc382d6914d639f0e4f19e4406e90eaaeb9bbb29325dc772958301de0be20749b44dc8f8c136b056a262089be7fe0f17f21a57f5d1692d             2442 main/binary-amd64/Packages
+ 135b7aed0c903d0e363c652ea7de16726796772ffb32789274bda6bdb1ae1a9c8feb909a1c6fcb35616d445d861f7335ec67d923319c355789fc40c53525b99c              779 main/binary-amd64/Packages.gz
+-----BEGIN PGP SIGNATURE-----
+
+iQJGBAEBCgAwFiEEuK3+nCVk435RP+Hpp8cTMb/2GNkFAmrhyyMSHGFkbWluQGdy
+YWR1czIxLmRlAAoJEKfHEzG/9hjZP7sP/0VC84hy91w6ZNdcOKboVkRLgZvCxAbT
+4BzY9gyZ4dzNJ/uM618SykHNdUZr69nvRRp+3jqe3e51CtdCFSCiD0rEwl0FhoYT
+Jk+87iuAff2KmYh/UL3TE2RWSnZScPa+7FT9pZAa2JRoqd16ypzJpYwT6DOyHVLf
+egAT23jZhWyVx+06lnxywRHw2jfuWLa9a6HYmPXUDazHrGEp/ayVIDFm7HMurELL
+A1NDSDQVWy2BgBJcsfD0gPkxalFX+cUjxT33FRmRR81F6idf8quUC90lkelBrN7R
+muHNiLZreRaBf/ET8valHxh4pEH0ZdOBs1X4CEDbj9GGUcVqkZrYt+w6WguFHX4w
+3iWbCn7tpT/MA8LpzYMb0Se4uweILj/IR+KDl+aLvYHmGP3I8QoeDgYlttkWOHMc
+kmlwgO+AIzNbYV13v3Z65pRetaDLvgTnnvlviAJXfogPc9PBNjNrhJCaa2DUm4YB
+7kB9dkXyW38TLi6iY7nObXhgidADM3cA/hcvGPaVvXwYGjKZ5+T0hQhvxJh2XdSi
+VJdVsPeHeq7H6IrDNpRsCOI/ThRUF5lCHQh4D6RMsHxzwim6EW7xikxWrTVCtiOE
+iPCkFbca3GwaMtHXqv393zaEkVtK6dZYcFDxtE/O+GOHIjUMkPPxORBRjcqSGwc2
+3uAmZMO0G3Gi
+=IlWc
+-----END PGP SIGNATURE-----
