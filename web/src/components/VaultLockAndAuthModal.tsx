@@ -91,6 +91,14 @@ import {
   enableNativeBiometricLock,
   NativeBiometricStatus,
 } from '../utils/nativeBiometric';
+import {
+  isLinuxDesktopTauri,
+  getLinuxAuthMethod,
+  unlockWithLinuxKeyring,
+  enableLinuxKeyringUnlock,
+  hasLinuxKeyringEnrollment,
+  LinuxAuthMethod,
+} from '../utils/linuxAuth';
 
 
 export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
@@ -947,6 +955,102 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     }
   };
 
+  // ===========================================================================
+  // MIT LINUX-SCHLÜSSELBUND ENTSPERREN (GNOME Keyring / KWallet & fprintd)
+  // ===========================================================================
+  const handleUnlockWithLinuxKeyring = async () => {
+    setErrorMsg(null);
+    setStatusMsg('Linux-Schlüsselbund wird abgefragt (Fingerabdruck / PIN)...');
+    setIsLoading(true);
+
+    try {
+      const targetUser = email.trim().toLowerCase() || session?.email || session?.userId;
+      const res = await unlockWithLinuxKeyring(targetUser);
+
+      await ensureWasmLoaded();
+
+      const effectiveEmail = res.email || email.trim().toLowerCase() || session?.email || '';
+      const effectiveUserId = res.userId || session?.userId || 'user_local';
+
+      const localCached = findLocalCachedVault(effectiveEmail, effectiveUserId);
+      const cachedMeta = loadLocalRecoveryMeta(effectiveEmail);
+
+      let recoveryKeyFormatted = session?.recoveryKeyFormatted;
+      let recoveryEncryptedDek =
+        session?.recoveryEncryptedDek ||
+        localCached?.recoveryEncryptedDek ||
+        cachedMeta?.recoveryEncryptedDek ||
+        '';
+
+      if (!recoveryEncryptedDek && res.dekB64) {
+        try {
+          const wrapped = JSON.parse(
+            wasm_wrap_dek_with_recovery(res.dekB64, recoveryKeyFormatted || '')
+          );
+          recoveryKeyFormatted = wrapped.recovery_key_formatted;
+          recoveryEncryptedDek = wrapped.recovery_encrypted_dek;
+          saveLocalRecoveryMeta({
+            email: effectiveEmail,
+            recoveryEncryptedDek,
+          });
+        } catch {
+          // ignore
+        }
+      }
+
+      if (effectiveEmail) {
+        saveLastLoginEmail(effectiveEmail);
+        setEmail(effectiveEmail);
+      }
+
+      const unlockedSession: ActiveVaultSession = {
+        token: session?.token || '',
+        userId: effectiveUserId,
+        email: effectiveEmail,
+        isAdmin: session?.isAdmin ?? false,
+        kdfSaltB64: session?.kdfSaltB64 || localCached?.kdfSaltB64 || '',
+        kdfParams: session?.kdfParams || localCached?.kdfParams,
+        authKeyB64: session?.authKeyB64 || '',
+        dekB64: res.dekB64,
+        encryptedDek: session?.encryptedDek || localCached?.encryptedDek || '',
+        recoveryEncryptedDek,
+        recoveryKeyFormatted,
+        totpEnabled: session?.totpEnabled ?? localCached?.totpEnabled ?? false,
+        totpSecretBase32: session?.totpSecretBase32 ?? localCached?.totpSecretBase32,
+        passkeyCredentialId: session?.passkeyCredentialId,
+        passkeyLabel: session?.passkeyLabel,
+        serverSyncedCount: session?.serverSyncedCount || 0,
+      };
+
+      sessionStorage.setItem(`gradus21_dek_${effectiveUserId}`, res.dekB64);
+      sessionStorage.setItem(`bte_notenflow_dek_${effectiveUserId}`, res.dekB64);
+
+      setStatusMsg('Freigabe erfolgreich! Tresor wird entsperrt...');
+      await onUnlockSuccess(unlockedSession);
+    } catch (err: any) {
+      console.warn('Linux Keyring unlock failed or cancelled:', err);
+      setStatusMsg(null);
+      const msg = err?.message || String(err) || '';
+      const isCancelled =
+        msg.toLowerCase().includes('cancel') ||
+        msg.toLowerCase().includes('abgebrochen') ||
+        msg.toLowerCase().includes('user cancelled') ||
+        msg.toLowerCase().includes('dismiss');
+
+      if (isCancelled) {
+        setErrorMsg('Schlüsselbund-Entsperrung abgebrochen.');
+      } else {
+        setErrorMsg(msg || 'Schlüsselbund-Entsperrung fehlgeschlagen.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const isLinuxDesktop = isLinuxDesktopTauri();
+  const hasLinuxKey = hasLinuxKeyringEnrollment(email || session?.email || session?.userId);
+  const linuxAuthMethod = getLinuxAuthMethod(cloudSyncEnabled);
+
   useEffect(() => {
     if (
       isLockedScreen &&
@@ -961,7 +1065,22 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       }, 250);
       return () => clearTimeout(t);
     }
-  }, [isLockedScreen, hasNativeBio, nativeBioStatus.available, desktopAuthParams]);
+
+    if (
+      isLockedScreen &&
+      isLinuxDesktop &&
+      hasLinuxKey &&
+      linuxAuthMethod === 'keyring' &&
+      !autoBioAttemptedRef.current &&
+      !desktopAuthParams
+    ) {
+      autoBioAttemptedRef.current = true;
+      const t = setTimeout(() => {
+        handleUnlockWithLinuxKeyring();
+      }, 250);
+      return () => clearTimeout(t);
+    }
+  }, [isLockedScreen, hasNativeBio, nativeBioStatus.available, isLinuxDesktop, hasLinuxKey, linuxAuthMethod, desktopAuthParams]);
 
   // ===========================================================================
   // MIT PASSKEY ÖFFNEN (1-Klick Entsperrung per Fingerabdruck / Face ID & PRF)
@@ -1440,6 +1559,24 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         recoveryEncryptedDek: bundle.recovery_encrypted_dek,
       });
 
+      // Pure client-side offline TOTP (RFC 6238) - 160-bit cryptographically secure random secret
+      const { secretBase32 } = generateTotpSecret();
+      const offlineTotpUri = buildTotpUri(trimmedEmail, secretBase32, 'Gradus21 (Lokal)');
+
+      // Generate offline TOTP QR code
+      try {
+        const qrUrl = await QRCode.toDataURL(offlineTotpUri, {
+          width: 240,
+          margin: 3,
+          errorCorrectionLevel: 'M',
+          color: { dark: '#000000', light: '#FFFFFF' },
+        });
+        setRegQrDataUrl(qrUrl);
+      } catch (qrErr) {
+        console.warn('Local QR code generation error:', qrErr);
+        setRegQrDataUrl(null);
+      }
+
       const localUserId = `local_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`;
       const newSession: ActiveVaultSession = {
         token: '',
@@ -1453,6 +1590,8 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         recoveryEncryptedDek: bundle.recovery_encrypted_dek,
         recoveryKeyFormatted: bundle.recovery_key_formatted,
         totpEnabled: false,
+        totpSetupUri: offlineTotpUri,
+        totpSecretBase32: secretBase32,
         serverSyncedCount: 0,
       };
 
@@ -1700,9 +1839,58 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     }
   };
 
-  // Schritt 4 der Registrierung: Passkey (Optional)
+  // Schritt 4 der Registrierung: Passkey / Biometrie / Linux-Schlüsselbund (Optional)
   const handleSetupRegistrationPasskey = async () => {
     if (!regSession) return;
+    setErrorMsg(null);
+    setStatusMsg(null);
+
+    // 1. Linux Desktop (Tauri): FreeDesktop Secret Service / Keyring
+    if (isLinuxDesktop) {
+      try {
+        setStatusMsg('Schlüssel wird im Linux-Schlüsselbund hinterlegt...');
+        const ok = await enableLinuxKeyringUnlock(
+          regSession.userId,
+          regSession.email,
+          regSession.dekB64
+        );
+        if (ok) {
+          setRegPasskeyDone(true);
+          setStatusMsg('Erfolgreich im Linux-Schlüsselbund hinterlegt!');
+          setTimeout(() => setStatusMsg(null), 1500);
+          return;
+        }
+      } catch (err: any) {
+        setStatusMsg(null);
+        setErrorMsg('Fehler beim Einrichten im Linux-Schlüsselbund: ' + String(err?.message || err));
+        return;
+      }
+    }
+
+    // 2. Native Biometrics (Android Keystore / Apple Secure Enclave / Touch ID)
+    if (isTauri() && nativeBioStatus.available) {
+      try {
+        setStatusMsg('Biometrische Autorisierung wird angefordert...');
+        const ok = await enableNativeBiometricLock(
+          regSession.userId,
+          regSession.email,
+          regSession.dekB64
+        );
+        if (ok) {
+          setHasNativeBio(true);
+          setRegPasskeyDone(true);
+          setStatusMsg('Biometrische Schnell-Anmeldung erfolgreich eingerichtet!');
+          setTimeout(() => setStatusMsg(null), 1500);
+          return;
+        }
+      } catch (err: any) {
+        setStatusMsg(null);
+        setErrorMsg('Biometrische Einrichtung fehlgeschlagen: ' + String(err?.message || err));
+        return;
+      }
+    }
+
+    // 3. WebAuthn PRF (Web-Browser)
     const ok = await handleSetupPasskey(regSession);
     if (ok) {
       setRegPasskeyDone(true);
@@ -1763,7 +1951,8 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         }
       }
 
-      if (saltData?.totp_enabled && !totpCode.trim()) {
+      const localCachedForCheck = findLocalCachedVault(cleanEmail, session?.userId);
+      if ((saltData?.totp_enabled || localCachedForCheck?.totpEnabled) && !totpCode.trim()) {
         setLoginRequiresTotp(true);
         setErrorMsg('Bitte gib den 6-stelligen Code aus deiner Authenticator-App ein.');
         setStatusMsg(null);
@@ -2574,6 +2763,81 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                     </button>
                   )}
                 </>
+              ) : isLinuxDesktop && hasLinuxKey && linuxAuthMethod === 'keyring' ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleUnlockWithLinuxKeyring}
+                    disabled={isLoading}
+                    className="w-full py-3.5 px-4 rounded-2xl text-xs font-bold text-white flex items-center justify-center gap-2.5 shadow-md transition hover:opacity-95 disabled:opacity-50 cursor-pointer"
+                    style={{ backgroundColor: 'var(--primary-500)' }}
+                  >
+                    <Fingerprint className="w-5 h-5" />
+                    <span>Mit Fingerabdruck / Linux-Keyring entsperren</span>
+                  </button>
+                  <div
+                    className="text-[11px] text-center"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    <span>
+                      Freigabe über GNOME Keyring / KWallet (FreeDesktop Secret Service &amp; fprintd).
+                    </span>
+                  </div>
+                  {cloudSyncEnabled && useBrowserFlow && (
+                    <button
+                      type="button"
+                      onClick={() => handleUnlockWithBrowserPasskey()}
+                      disabled={isLoading}
+                      className="w-full py-2 px-3 rounded-xl text-[11px] font-semibold border flex items-center justify-center gap-1.5 transition hover:opacity-80 cursor-pointer"
+                      style={{
+                        backgroundColor: 'var(--bg-surface)',
+                        borderColor: 'var(--border-subtle)',
+                        color: 'var(--text-primary)',
+                      }}
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 opacity-80" />
+                      <span>Alternativ: Mit Cloud-Passkey im Browser anmelden</span>
+                    </button>
+                  )}
+                </>
+              ) : isLinuxDesktop && linuxAuthMethod === 'local_passkey' ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleUnlockWithBrowserPasskey('http://127.0.0.1')}
+                    disabled={isLoading}
+                    className="w-full py-3 px-4 rounded-2xl text-xs font-bold text-white flex items-center justify-center gap-2.5 shadow-md transition hover:opacity-95 disabled:opacity-50 cursor-pointer"
+                    style={{ backgroundColor: 'var(--primary-500)' }}
+                  >
+                    <Shield className="w-5 h-5" />
+                    <span>Mit lokalem Passkey (YubiKey) entsperren</span>
+                  </button>
+                  <div
+                    className="text-[11px] text-center"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    <span>
+                      100% offline via lokalem FIDO2-Dienst (127.0.0.1 Loopback).
+                    </span>
+                  </div>
+                </>
+              ) : !cloudSyncEnabled && isLinuxDesktop ? (
+                // Reine lokale Linux-Nutzung ohne Keyring: Direkt zum Master-Passwort, kein Cloud-Browser Zwang!
+                <div
+                  className="p-3 rounded-2xl border text-xs text-center space-y-1"
+                  style={{
+                    backgroundColor: 'var(--bg-subtle)',
+                    borderColor: 'var(--border-subtle)',
+                    color: 'var(--text-secondary)',
+                  }}
+                >
+                  <div className="font-bold text-xs" style={{ color: 'var(--text-primary)' }}>
+                    🔐 Lokaler Tresor-Schutz
+                  </div>
+                  <p className="text-[11px]">
+                    Bitte entsperre deinen Tresor mit deinem Master-Passwort.
+                  </p>
+                </div>
               ) : (
                 <>
                   <button
@@ -2623,7 +2887,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                       style={{ color: 'var(--text-secondary)' }}
                     >
                       <span>
-                        Unterstützt auch neue Geräte & synchronisierte Passkeys (iCloud, 1Password, Google).
+                        Unterstützt auch neue Geräte &amp; synchronisierte Passkeys (iCloud, 1Password, Google).
                       </span>
                     </div>
                   )}
@@ -2761,6 +3025,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               copiedRecoveryKey={copiedRecoveryKey}
               onCopyRegSecret={handleCopyRegSecret}
               onOpenLegal={handleOpenLegal}
+              isLinuxDesktop={isLinuxDesktop}
+              nativeBiometricAvailable={nativeBioStatus.available}
+              biometryType={nativeBioStatus.biometryType}
             />
           ) : authTab === 'recover' ? (
             <RecoveryUnlockTab

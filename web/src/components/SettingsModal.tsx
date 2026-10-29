@@ -55,6 +55,15 @@ import {
   disableNativeBiometricLock,
   NativeBiometricStatus,
 } from '../utils/nativeBiometric';
+import {
+  getLinuxAuthMethod,
+  setLinuxAuthMethod,
+  isLinuxKeyringSupported,
+  hasLinuxKeyringEnrollment,
+  enableLinuxKeyringUnlock,
+  disableLinuxKeyringUnlock,
+  LinuxAuthMethod,
+} from '../utils/linuxAuth';
 
 export type SettingsSection =
   | 'favorites'
@@ -122,6 +131,50 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     available: false,
     biometryType: 'none',
   });
+  const [linuxMethod, setLinuxMethod] = useState<LinuxAuthMethod>(() =>
+    getLinuxAuthMethod(settings.cloudSyncEnabled)
+  );
+  const [hasLinuxKeyring, setHasLinuxKeyring] = useState<boolean>(() =>
+    hasLinuxKeyringEnrollment(session?.userId || session?.email)
+  );
+  const [isEnrollingLinuxKeyring, setIsEnrollingLinuxKeyring] = useState<boolean>(false);
+
+  const handleEnableLinuxKeyring = async () => {
+    if (!session?.dekB64 || !session.userId || !session.email) {
+      alert('Hauptschlüssel (DEK) nicht im Speicher. Bitte melde dich erneut mit deinem Master-Passwort an.');
+      return;
+    }
+    try {
+      setIsEnrollingLinuxKeyring(true);
+      await enableLinuxKeyringUnlock(session.userId, session.email, session.dekB64);
+      setHasLinuxKeyring(true);
+      setLinuxMethod('keyring');
+      triggerSaved();
+      alert('Linux-Schlüsselbund erfolgreich verknüpft! Du kannst Gradus21 ab sofort per Fingerabdruck / Keyring entsperren.');
+    } catch (err: any) {
+      console.warn('Linux Keyring enrollment failed:', err);
+      alert('Aktivierung fehlgeschlagen: ' + (err?.message || String(err)));
+    } finally {
+      setIsEnrollingLinuxKeyring(false);
+    }
+  };
+
+  const handleDisableLinuxKeyring = async () => {
+    if (window.confirm('Möchtest du die Entsperrung über den Linux-Schlüsselbund wirklich deaktivieren?')) {
+      if (session?.userId) {
+        await disableLinuxKeyringUnlock(session.userId);
+      }
+      setHasLinuxKeyring(false);
+      setLinuxMethod('password');
+      triggerSaved();
+    }
+  };
+
+  const handleSelectLinuxMethod = (m: LinuxAuthMethod) => {
+    setLinuxMethod(m);
+    setLinuxAuthMethod(m);
+    triggerSaved();
+  };
   const [hasNativeBio, setHasNativeBio] = useState<boolean>(false);
   const [isEnrollingBio, setIsEnrollingBio] = useState<boolean>(false);
 
@@ -874,8 +927,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
              ================================================================= */}
           {activeSection === 'storage' && (
             <div className="space-y-5">
-              {/* Card 0: Biometrische Entsperrung (Android Keystore / Apple Secure Enclave) */}
-              {isTauri() && (
+              {/* Card 0-Android/Apple: Biometrische Entsperrung (Android Keystore / Apple Secure Enclave) */}
+              {isTauri() && !isLinux() && (
                 <div
                   className="p-5 rounded-2xl border space-y-4"
                   style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
@@ -935,6 +988,190 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       Biometrische Hardware auf diesem Gerät derzeit nicht verfügbar oder in den Systemeinstellungen nicht eingerichtet.
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Card 0-Linux: Linux-Entsperrmethoden (Schlüsselbund, lokaler FIDO2, Passwort) */}
+              {isTauri() && isLinux() && (
+                <div
+                  className="p-5 rounded-2xl border space-y-4"
+                  style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Fingerprint className="w-4 h-4" style={{ color: 'var(--primary-500)' }} />
+                        <h4 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
+                          Linux-Entsperrmethode wählen
+                        </h4>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            hasLinuxKeyring
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                              : 'bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+                          }`}
+                        >
+                          {hasLinuxKeyring ? 'Keyring verknüpft' : 'Standard'}
+                        </span>
+                      </div>
+                      <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                        Wähle, wie dein Noten-Tresor auf diesem Linux-Rechner entsperrt werden soll. Alle Methoden arbeiten nach Zero-Knowledge-Grundsätzen.
+                      </p>
+                    </div>
+
+                    <div className="shrink-0 mt-1">
+                      {hasLinuxKeyring ? (
+                        <button
+                          type="button"
+                          onClick={handleDisableLinuxKeyring}
+                          className="px-3.5 py-1.5 rounded-xl border border-rose-500/30 text-rose-600 text-xs font-semibold hover:bg-rose-500/10 transition"
+                        >
+                          Keyring trennen
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleEnableLinuxKeyring}
+                          disabled={isEnrollingLinuxKeyring}
+                          className="px-4 py-2 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 shadow-sm transition hover:opacity-95 disabled:opacity-50"
+                          style={{ backgroundColor: 'var(--primary-500)' }}
+                        >
+                          <Fingerprint className="w-3.5 h-3.5" />
+                          <span>{isEnrollingLinuxKeyring ? 'Wird verknüpft...' : 'Mit Keyring verknüpfen'}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Methoden-Auswahl */}
+                  <div className="space-y-2 pt-1">
+                    <label
+                      className="flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition hover:bg-black/5 dark:hover:bg-white/5"
+                      style={{
+                        borderColor: linuxMethod === 'keyring' ? 'var(--primary-500)' : 'var(--border-subtle)',
+                        backgroundColor: linuxMethod === 'keyring' ? 'var(--primary-soft)' : 'transparent',
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="linuxAuthMethod"
+                        value="keyring"
+                        checked={linuxMethod === 'keyring'}
+                        onChange={() => handleSelectLinuxMethod('keyring')}
+                        className="mt-0.5 text-teal-600 focus:ring-teal-500"
+                      />
+                      <div className="space-y-0.5">
+                        <div className="font-bold text-xs flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+                          <span>Nativer Linux-Schlüsselbund &amp; Fingerabdruck (Empfohlen)</span>
+                          <span className="text-[10px] px-1.5 py-0.2 bg-teal-500/20 text-teal-700 dark:text-teal-300 rounded font-bold">100% lokal</span>
+                        </div>
+                        <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                          Nutzt den FreeDesktop Secret Service (GNOME Keyring / KWallet). Entsperrung via Laptop-Fingerabdruck (fprintd) oder System-PIN. Kein offener Netzwerkport.
+                        </p>
+                      </div>
+                    </label>
+
+                    <label
+                      className="flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition hover:bg-black/5 dark:hover:bg-white/5"
+                      style={{
+                        borderColor: linuxMethod === 'local_passkey' ? 'var(--primary-500)' : 'var(--border-subtle)',
+                        backgroundColor: linuxMethod === 'local_passkey' ? 'var(--primary-soft)' : 'transparent',
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="linuxAuthMethod"
+                        value="local_passkey"
+                        checked={linuxMethod === 'local_passkey'}
+                        onChange={() => handleSelectLinuxMethod('local_passkey')}
+                        className="mt-0.5 text-teal-600 focus:ring-teal-500"
+                      />
+                      <div className="space-y-0.5">
+                        <div className="font-bold text-xs flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+                          <span>Lokaler FIDO2 / Passkey-Dienst (127.0.0.1 Loopback)</span>
+                          <span className="text-[10px] px-1.5 py-0.2 bg-teal-500/20 text-teal-700 dark:text-teal-300 rounded font-bold">YubiKey offline</span>
+                        </div>
+                        <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                          Eingebetteter WebAuthn-Dienst auf 127.0.0.1 mit Einmal-Transit-Token. Ermöglicht Hardware-Tokens (YubiKey, Nitrokey) ohne externen Cloud-Server.
+                        </p>
+                      </div>
+                    </label>
+
+                    <label
+                      className="flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition hover:bg-black/5 dark:hover:bg-white/5"
+                      style={{
+                        borderColor: linuxMethod === 'password' ? 'var(--primary-500)' : 'var(--border-subtle)',
+                        backgroundColor: linuxMethod === 'password' ? 'var(--primary-soft)' : 'transparent',
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="linuxAuthMethod"
+                        value="password"
+                        checked={linuxMethod === 'password'}
+                        onChange={() => handleSelectLinuxMethod('password')}
+                        className="mt-0.5 text-teal-600 focus:ring-teal-500"
+                      />
+                      <div className="space-y-0.5">
+                        <div className="font-bold text-xs flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+                          <span>Nur Master-Passwort</span>
+                        </div>
+                        <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                          Rein kryptografische Entsperrung via Argon2id im RAM. Keine Schlüsselablage im System-Keyring, keine Hintergrunddienste.
+                        </p>
+                      </div>
+                    </label>
+
+                    {settings.cloudSyncEnabled && (
+                      <label
+                        className="flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition hover:bg-black/5 dark:hover:bg-white/5"
+                        style={{
+                          borderColor: linuxMethod === 'cloud_passkey' ? 'var(--primary-500)' : 'var(--border-subtle)',
+                          backgroundColor: linuxMethod === 'cloud_passkey' ? 'var(--primary-soft)' : 'transparent',
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name="linuxAuthMethod"
+                          value="cloud_passkey"
+                          checked={linuxMethod === 'cloud_passkey'}
+                          onChange={() => handleSelectLinuxMethod('cloud_passkey')}
+                          className="mt-0.5 text-teal-600 focus:ring-teal-500"
+                        />
+                        <div className="space-y-0.5">
+                          <div className="font-bold text-xs flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+                            <span>Cloud-Passkey (gradus21.app)</span>
+                            <span className="text-[10px] px-1.5 py-0.2 bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 rounded font-bold">Geräteübergreifend</span>
+                          </div>
+                          <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                            Öffnet den Standard-Browser zur Anmeldung mit synchronisierten Passkeys (Google, Apple iCloud, 1Password).
+                          </p>
+                        </div>
+                      </label>
+                    )}
+                  </div>
+
+                  {/* Security Officer Auflage & Empfehlung */}
+                  <div
+                    className="p-3.5 rounded-xl border space-y-1.5 text-[11px]"
+                    style={{
+                      backgroundColor: 'var(--bg-surface)',
+                      borderColor: 'var(--border-subtle)',
+                    }}
+                  >
+                    <div className="font-bold text-xs flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+                      <Shield className="w-3.5 h-3.5 shrink-0" />
+                      <span>IT-Sicherheitsauflage &amp; Datenschutz-Hinweis (BSI IT-Grundschutz):</span>
+                    </div>
+                    <ul className="space-y-1 list-disc list-inside text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                      <li>
+                        <strong>Festplattenverschlüsselung (LUKS):</strong> Um Notendaten bei Geräteverlust auch im ausgeschalteten Zustand vor physischer Extraktion zu schützen, sollte das Linux-System zwingend mit voller Festplattenverschlüsselung (LUKS / dm-crypt) betrieben werden.
+                      </li>
+                      <li>
+                        <strong>Zero-Telemetry:</strong> Im reinen Offline- und lokalen Modus werden keinerlei Telemetrie- oder Anmeldedaten an externe Server übermittelt.
+                      </li>
+                    </ul>
+                  </div>
                 </div>
               )}
 

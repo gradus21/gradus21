@@ -206,4 +206,87 @@ describe('VaultRegistrationWizard component', () => {
     fireEvent.click(finishBtn);
     expect(onFinish).toHaveBeenCalledTimes(1);
   });
+
+  it('renders Linux Keyring registration step with LUKS advisory and triggers keyring setup', () => {
+    const onSetupPasskey = vi.fn();
+    const mockSession = {
+      token: '',
+      userId: 'local_123',
+      email: 'linux@schule.intern',
+      isAdmin: false,
+      kdfSaltB64: 'salt',
+      dekB64: 'dek',
+      encryptedDek: 'enc_dek',
+      recoveryEncryptedDek: 'rec_enc_dek',
+      totpEnabled: true,
+      serverSyncedCount: 0,
+    };
+
+    render(
+      <VaultRegistrationWizard
+        {...defaultProps}
+        step="passkey"
+        regSession={mockSession}
+        optInCloudSync={false}
+        isLinuxDesktop={true}
+        onSetupRegistrationPasskey={onSetupPasskey}
+      />
+    );
+
+    // Title should be Linux Keyring
+    expect(screen.getByText(/Schnell-Anmeldung per Linux-Schlüsselbund/i)).toBeInTheDocument();
+
+    // Security Officer LUKS advisory should be displayed
+    expect(screen.getByText(/Sicherheitshinweis für Linux:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Festplattenverschlüsselung \(LUKS \/ dm-crypt\) empfohlen/i)).toBeInTheDocument();
+
+    // Action button should be for Linux Keyring
+    const keyringBtn = screen.getByRole('button', {
+      name: /Im Linux-Schlüsselbund hinterlegen/i,
+    });
+    expect(keyringBtn).toBeInTheDocument();
+
+    fireEvent.click(keyringBtn);
+    expect(onSetupPasskey).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders native biometrics registration step on mobile/Apple platforms', () => {
+    const onSetupPasskey = vi.fn();
+    const mockSession = {
+      token: '',
+      userId: 'local_456',
+      email: 'mobile@schule.intern',
+      isAdmin: false,
+      kdfSaltB64: 'salt',
+      dekB64: 'dek',
+      encryptedDek: 'enc_dek',
+      recoveryEncryptedDek: 'rec_enc_dek',
+      totpEnabled: true,
+      serverSyncedCount: 0,
+    };
+
+    render(
+      <VaultRegistrationWizard
+        {...defaultProps}
+        step="passkey"
+        regSession={mockSession}
+        optInCloudSync={false}
+        isLinuxDesktop={false}
+        nativeBiometricAvailable={true}
+        biometryType="face"
+        onSetupRegistrationPasskey={onSetupPasskey}
+      />
+    );
+
+    // Title should be Face ID
+    expect(screen.getByText(/Schnell-Anmeldung per Face ID/i)).toBeInTheDocument();
+
+    const faceBtn = screen.getByRole('button', {
+      name: /Face ID auf diesem Gerät einrichten/i,
+    });
+    expect(faceBtn).toBeInTheDocument();
+
+    fireEvent.click(faceBtn);
+    expect(onSetupPasskey).toHaveBeenCalledTimes(1);
+  });
 });

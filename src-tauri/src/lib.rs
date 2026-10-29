@@ -1,8 +1,53 @@
 mod browser_auth;
+mod keyring_auth;
 
 #[tauri::command]
 fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
+}
+
+#[tauri::command]
+fn keyring_is_available() -> bool {
+    keyring_auth::is_available()
+}
+
+#[tauri::command]
+fn keyring_save_secret(service: String, user: String, secret: String) -> Result<(), String> {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        keyring_auth::save_secret(&service, &user, &secret)
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let _ = (service, user, secret);
+        Err("Keyring ist auf mobilen Plattformen nicht verfügbar.".into())
+    }
+}
+
+#[tauri::command]
+fn keyring_get_secret(service: String, user: String) -> Result<String, String> {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        keyring_auth::get_secret(&service, &user)
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let _ = (service, user);
+        Err("Keyring ist auf mobilen Plattformen nicht verfügbar.".into())
+    }
+}
+
+#[tauri::command]
+fn keyring_delete_secret(service: String, user: String) -> Result<(), String> {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        keyring_auth::delete_secret(&service, &user)
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let _ = (service, user);
+        Err("Keyring ist auf mobilen Plattformen nicht verfügbar.".into())
+    }
 }
 
 #[tauri::command]
@@ -47,6 +92,10 @@ pub fn run() {
     builder
         .invoke_handler(tauri::generate_handler![
             get_app_version,
+            keyring_is_available,
+            keyring_save_secret,
+            keyring_get_secret,
+            keyring_delete_secret,
             start_desktop_browser_auth,
             focus_main_window
         ])

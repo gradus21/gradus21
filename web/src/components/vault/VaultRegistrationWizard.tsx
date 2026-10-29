@@ -59,6 +59,9 @@ interface VaultRegistrationWizardProps {
   copiedRecoveryKey: boolean;
   onCopyRegSecret: (secret: string) => void;
   onOpenLegal: (tab: LegalTab) => void;
+  isLinuxDesktop?: boolean;
+  nativeBiometricAvailable?: boolean;
+  biometryType?: 'fingerprint' | 'face' | 'iris' | 'touch_id' | 'face_id' | 'none';
 }
 
 export const VaultRegistrationWizard: React.FC<VaultRegistrationWizardProps> = ({
@@ -100,6 +103,9 @@ export const VaultRegistrationWizard: React.FC<VaultRegistrationWizardProps> = (
   copiedRecoveryKey,
   onCopyRegSecret,
   onOpenLegal,
+  isLinuxDesktop = false,
+  nativeBiometricAvailable = false,
+  biometryType = 'none',
 }) => {
   const legalConfig = useLegalConfig();
 
@@ -568,25 +574,54 @@ export const VaultRegistrationWizard: React.FC<VaultRegistrationWizardProps> = (
         </form>
       )}
 
-      {/* SCHRITT 3: PASSKEY EINRICHTEN (OPTIONAL) */}
+      {/* SCHRITT 3: PASSKEY / BIOMETRIE / LINUX-SCHLÜSSELBUND EINRICHTEN (OPTIONAL) */}
       {step === 'passkey' && regSession && (
         <div className="space-y-4 text-xs">
           <div className="p-3.5 rounded-2xl bg-teal-500/10 border border-teal-500/20 text-teal-800 dark:text-teal-300 space-y-1">
             <div className="font-bold flex items-center gap-1.5 text-xs">
               <Fingerprint className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
-              <span>Schnell-Anmeldung per Passkey (Optional)</span>
+              <span>
+                {isLinuxDesktop
+                  ? 'Schnell-Anmeldung per Linux-Schlüsselbund (Optional)'
+                  : nativeBiometricAvailable
+                  ? biometryType === 'face' || biometryType === 'face_id'
+                    ? 'Schnell-Anmeldung per Face ID (Optional)'
+                    : 'Schnell-Anmeldung per Fingerabdruck (Optional)'
+                  : 'Schnell-Anmeldung per Passkey (Optional)'}
+              </span>
             </div>
             <p className="text-[11px] leading-relaxed opacity-90">
-              Entsperre Gradus21 in Zukunft per Fingerabdruck, Face ID oder PIN – ganz ohne langes Passwort. Der Schlüssel wird sicher im Hardware-Sicherheitschip (TPM / Secure Enclave) dieses Geräts verankert.
+              {isLinuxDesktop
+                ? 'Hinterlegt deinen Tresorschlüssel sicher im systemeigenen Linux-Schlüsselbund (GNOME Keyring / KWallet via Secret Service API). Unterstützt System-Fingerabdruck (fprintd) oder automatisches Entsperren bei Desktop-Login.'
+                : nativeBiometricAvailable
+                ? 'Entsperre Gradus21 in Zukunft per Fingerabdruck oder Face ID – ganz ohne langes Passwort. Der Schlüssel wird hardware-verschlüsselt im Sicherheitschip (Android Keystore / Apple Secure Enclave) dieses Geräts verankert.'
+                : 'Entsperre Gradus21 in Zukunft per Fingerabdruck, Face ID oder PIN – ganz ohne langes Passwort. Der Schlüssel wird sicher im Hardware-Sicherheitschip (TPM / Secure Enclave) dieses Geräts verankert.'}
             </p>
           </div>
+
+          {isLinuxDesktop && (
+            <div className="p-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300 text-[11px] leading-relaxed flex items-start gap-2">
+              <Shield className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+              <span>
+                <strong>Sicherheitshinweis für Linux:</strong> Der Schlüsselbund schützt deinen Tresor auf Benutzerebene. Für vollständigen Hardware-Diebstahlschutz wird eine Festplattenverschlüsselung (LUKS / dm-crypt) empfohlen.
+              </span>
+            </div>
+          )}
 
           {regPasskeyDone ? (
             <div className="p-4 rounded-2xl border text-center space-y-2 bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-300">
               <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
-              <div className="font-bold text-xs">Passkey erfolgreich eingerichtet!</div>
+              <div className="font-bold text-xs">
+                {isLinuxDesktop
+                  ? 'Im Linux-Schlüsselbund erfolgreich hinterlegt!'
+                  : nativeBiometricAvailable
+                  ? 'Biometrische Schnell-Anmeldung erfolgreich eingerichtet!'
+                  : 'Passkey erfolgreich eingerichtet!'}
+              </div>
               <p className="text-[11px] opacity-90">
-                Du kannst Gradus21 auf diesem Gerät ab sofort mit nur einem Klick entsperren.
+                {isLinuxDesktop
+                  ? 'Gradus21 kann auf diesem Rechner ab sofort bequem über den Linux-Schlüsselbund entsperrt werden.'
+                  : 'Du kannst Gradus21 auf diesem Gerät ab sofort mit nur einem Klick entsperren.'}
               </p>
             </div>
           ) : (
@@ -598,7 +633,15 @@ export const VaultRegistrationWizard: React.FC<VaultRegistrationWizardProps> = (
                 style={{ backgroundColor: 'var(--primary-500)' }}
               >
                 <Fingerprint className="w-5 h-5" />
-                <span>Passkey auf diesem Gerät einrichten</span>
+                <span>
+                  {isLinuxDesktop
+                    ? 'Im Linux-Schlüsselbund hinterlegen'
+                    : nativeBiometricAvailable
+                    ? biometryType === 'face' || biometryType === 'face_id'
+                      ? 'Face ID auf diesem Gerät einrichten'
+                      : 'Fingerabdruck auf diesem Gerät einrichten'
+                    : 'Passkey auf diesem Gerät einrichten'}
+                </span>
               </button>
             </div>
           )}
@@ -699,7 +742,11 @@ export const VaultRegistrationWizard: React.FC<VaultRegistrationWizardProps> = (
                 <>
                   <Check className="w-4 h-4 text-emerald-600 stroke-[3]" />
                   <span className="text-emerald-700 dark:text-emerald-400">
-                    Passkey für 1-Klick-Entsperrung eingerichtet
+                    {isLinuxDesktop
+                      ? 'Linux-Schlüsselbund für Schnell-Entsperrung eingerichtet'
+                      : nativeBiometricAvailable
+                      ? 'Biometrische Schnell-Entsperrung eingerichtet'
+                      : 'Passkey für 1-Klick-Entsperrung eingerichtet'}
                   </span>
                 </>
               ) : (
@@ -708,7 +755,11 @@ export const VaultRegistrationWizard: React.FC<VaultRegistrationWizardProps> = (
                     ○
                   </div>
                   <span style={{ color: 'var(--text-secondary)' }}>
-                    Passkey übersprungen (in den Einstellungen jederzeit möglich)
+                    {isLinuxDesktop
+                      ? 'Linux-Schlüsselbund übersprungen (in den Einstellungen jederzeit möglich)'
+                      : nativeBiometricAvailable
+                      ? 'Biometrie übersprungen (in den Einstellungen jederzeit möglich)'
+                      : 'Passkey übersprungen (in den Einstellungen jederzeit möglich)'}
                   </span>
                 </>
               )}
@@ -722,7 +773,7 @@ export const VaultRegistrationWizard: React.FC<VaultRegistrationWizardProps> = (
               <span>Wichtiger Hinweis zum Noten-Speicherort:</span>
             </div>
             <p className="leading-relaxed opacity-95">
-              „Gradus21 schützt Ihre Daten durch Zero-Knowledge: Standardmäßig verlassen Ihre Noten niemals diesen Browser. Bitte sichern Sie Ihren Tresor regelmäßig als .gradus21-Datei oder aktivieren Sie den verschlüsselten Cloud-Sync.“
+              „Gradus21 schützt Ihre Daten durch Zero-Knowledge: Standardmäßig verlassen Ihre Noten niemals dieses Gerät. Bitte sichern Sie Ihren Tresor regelmäßig als .gradus21-Datei oder aktivieren Sie den verschlüsselten Cloud-Sync.“
             </p>
           </div>
 
