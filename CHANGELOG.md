@@ -3,6 +3,23 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.11] - 2026-10-29
+
+### Android Passkey Authentication & Resilient Dual-Channel Auth Relay
+- **Sichere Passkey-Anmeldung für Android-Apps (RFC 8628 / Zero-Knowledge Relay)**:
+  - Behebung des Problems, dass Passkeys in der nativen Android-App aufgrund der W3C WebAuthn Origin-Isolation in der Android-WebView (`http://tauri.localhost` vs. `gradus21.de`) fehlschlugen.
+  - Aktivierung des sicheren System-Browser-Flows (`startDesktopBrowserAuth`) auf Android via `tauri-plugin-opener`, womit die biometrische Authentifizierung nahtlos über den System-Standardbrowser (Chrome / Google Passwortmanager) ausgeführt wird.
+  - Entfernung der `#[cfg(desktop)]`-Beschränkung in `src-tauri/src/browser_auth.rs`, sodass mobile Plattformen den Browser-Handshake nativ ansteuern können.
+  - Fehlertolerante Kapselung des lokalen Loopback-Sockets: Falls Android-Sandboxes Loopback-Sockets (`127.0.0.1`) sperren, bricht der Vorgang nicht mehr ab, sondern nutzt unterbrechungsfrei das Server-Relais.
+- **Dual-Channel Übertragungs-Resilienz (`Promise.any`)**:
+  - Härtung der parallelen Übertragungskanäle (Loopback-Socket und Server-Relais) via `Promise.any` im Frontend (`desktopAuth.ts`). Verbindungsabbrüche des Loopback-Listeners auf Mobilgeräten führen nicht mehr zum vorzeitigen Abbruch des Server-Relay-Pollings.
+- **Plattform-Weiche & UI-Klarheit**:
+  - Korrektur der Plattform-Weiche in `VaultLockAndAuthModal.tsx` von `isDesktopTauri()` auf `isTauri()`, damit alle nativen Apps den optimierten Browser-Passkey-Flow nutzen.
+  - Harmonische Textmeldungen („App erfolgreich entsperrt“) für Desktop und mobile Endgeräte.
+  - Klarer Schutzhinweis bei versuchter Passkey-Neuregistrierung in der nativen App mit Verweis auf die Registrierung im Web-Browser.
+- **Nutzungsbedingungen (Terms of Service)**:
+  - Konkretisierung der Altersgrenze (ab 18 Jahren) gemäß den Google Play Console Richtlinien für Bildungs-Apps.
+
 ## [1.2.10] - 2026-10-28
 
 ### Desktop Auto-Updater Integration & Multiplatform Manifest Delivery
