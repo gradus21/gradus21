@@ -193,9 +193,9 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
   };
 
   return (
-    <div data-tour="configurator-container" className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div data-tour="configurator-container" className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
       <div
-        className="lg:col-span-2 rounded-2xl border p-6 shadow-sm space-y-6"
+        className="lg:col-span-2 rounded-2xl border p-3.5 sm:p-6 shadow-sm space-y-4 sm:space-y-6"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
         <div data-tour="configurator-templates" className="flex flex-wrap items-center justify-between gap-3">
@@ -1310,7 +1310,7 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
 
       {/* Right Column: Live-Vertrauens-Check */}
       <div
-        className="rounded-2xl border p-6 shadow-sm space-y-5 h-fit sticky top-24"
+        className="rounded-2xl border p-3.5 sm:p-6 shadow-sm space-y-4 sm:space-y-5 h-fit sticky top-24"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
         <div>

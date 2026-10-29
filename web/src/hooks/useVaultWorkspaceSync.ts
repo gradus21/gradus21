@@ -438,13 +438,16 @@ export function useVaultWorkspaceSync() {
     [datasets, activeClassId]
   );
 
-  // Sync theme attributes from synchronized userSettings
+  // Sync theme attributes from synchronized userSettings + Dynamic Mobile Status Bar theme-color
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', userSettings.themePreset);
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
     if (userSettings.darkMode) {
       document.documentElement.classList.add('dark');
+      if (metaTheme) metaTheme.setAttribute('content', '#121b20');
     } else {
       document.documentElement.classList.remove('dark');
+      if (metaTheme) metaTheme.setAttribute('content', '#0d9488');
     }
   }, [userSettings.themePreset, userSettings.darkMode]);
 

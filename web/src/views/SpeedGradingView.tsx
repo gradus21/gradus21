@@ -18,6 +18,7 @@ import {
 } from '../types/workspace';
 import type { GlobalTemplateRecord } from '../types/templates';
 import { Sliders } from 'lucide-react';
+import { triggerHapticFeedback } from '../utils/haptics';
 
 export interface SpeedGradingViewProps {
   activeDataset: ClassroomSubjectDataset;
@@ -79,14 +80,14 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
   setMode,
 }) => {
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
       <div
         data-tour="speed-grading-table"
-        className="lg:col-span-2 rounded-2xl border p-6 shadow-sm space-y-5"
+        className="lg:col-span-2 rounded-2xl border p-3.5 sm:p-6 shadow-sm space-y-4 sm:space-y-5"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
         <div
-          className="flex flex-wrap items-center justify-between gap-4 border-b pb-4"
+          className="flex flex-wrap items-center justify-between gap-3 sm:gap-4 border-b pb-3.5 sm:pb-4"
           style={{ borderColor: 'var(--border-subtle)' }}
         >
           <div>
@@ -96,16 +97,16 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
             >
               Speed-Grading Modus ({activeTerm.toUpperCase()})
             </span>
-            <h2 className="text-lg font-bold mt-1" style={{ color: 'var(--text-primary)' }}>
+            <h2 className="text-base sm:text-lg font-bold mt-1" style={{ color: 'var(--text-primary)' }}>
               Prüfung bewerten: {activeAssessment.title}
             </h2>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <select
               value={activeAssessment.id}
               onChange={(e) => setSelectedAssessmentId(e.target.value)}
-              className="px-3 py-2 rounded-xl border text-xs font-semibold max-w-full"
+              className="flex-1 sm:flex-initial px-3 py-2 rounded-xl border text-xs font-semibold max-w-full"
               style={{
                 backgroundColor: 'var(--bg-subtle)',
                 borderColor: 'var(--border-subtle)',
@@ -120,7 +121,7 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
             </select>
 
             <div
-              className="flex rounded-xl p-1 border text-xs font-semibold"
+              className="flex rounded-xl p-1 border text-xs font-semibold w-full sm:w-auto justify-center"
               style={{
                 backgroundColor: 'var(--bg-subtle)',
                 borderColor: 'var(--border-subtle)',
@@ -171,24 +172,41 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
               : undefined;
 
             return (
-              <div key={stu.id} className="py-2 sm:py-2.5 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 sm:gap-4">
-                <div className="flex items-center gap-2 sm:gap-3 min-w-[140px]">
-                  <span className="text-xs font-mono opacity-45 w-5 sm:w-6">{idx + 1}.</span>
+              <div key={stu.id} className="py-2 sm:py-2.5 flex items-center justify-between gap-1.5 sm:gap-4">
+                <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 max-w-[55%] sm:max-w-none">
+                  <span className="text-xs font-mono opacity-45 w-4 sm:w-6 shrink-0">{idx + 1}.</span>
                   <span
                     className="font-semibold text-sm truncate"
                     style={{ color: 'var(--text-primary)' }}
+                    title={stu.name}
                   >
                     {stu.name}
                   </span>
                   {stu.level && (
                     <span
-                      className="px-2 py-0.5 rounded text-[11px] font-bold font-mono shrink-0"
+                      className="px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-bold font-mono shrink-0"
                       style={{
                         backgroundColor: LEVEL_BADGE_STYLES[stu.level]?.bg,
                         color: LEVEL_BADGE_STYLES[stu.level]?.text,
                       }}
                     >
                       {stu.level}
+                    </span>
+                  )}
+                  {/* Mobile Instant Grade Result Indicator */}
+                  {entry?.percent_value != null && (
+                    <span className="sm:hidden px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/25 shrink-0">
+                      {entry.direct_grade_value ??
+                        percentToGradeThreshold(
+                          entry.percent_value,
+                          activeDataset.config,
+                          stu.level
+                        ).display_label}
+                    </span>
+                  )}
+                  {entry?.direct_grade_value != null && entry?.percent_value == null && (
+                    <span className="sm:hidden px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/25 shrink-0">
+                      {entry.direct_grade_value}
                     </span>
                   )}
                 </div>
@@ -238,7 +256,9 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
                   <input
                     type="text"
                     inputMode={speedInputMode === 'grade_scale' ? 'text' : 'decimal'}
+                    enterKeyHint="next"
                     data-speed-grade-idx={idx}
+                    onFocus={(e) => e.target.select()}
                     value={
                       entry?.status === 'excused'
                         ? 'K'
@@ -279,14 +299,15 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
                         ? `0–${activeAssessment.max_points || 15}`
                         : '0–100%'
                     }
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      triggerHapticFeedback(6);
                       updateGradeEntry(
                         stu.id,
                         activeAssessment.id,
                         e.target.value,
                         speedInputMode
-                      )
-                    }
+                      );
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === 'ArrowDown') {
                         e.preventDefault();
@@ -304,7 +325,7 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
                         prevInput?.select();
                       }
                     }}
-                    className="w-20 sm:w-24 px-2 sm:px-3 py-1.5 rounded-xl border text-center font-mono text-sm font-bold focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    className="w-16 sm:w-24 px-1.5 sm:px-3 py-1.5 rounded-xl border text-center font-mono text-base sm:text-sm font-bold focus:outline-none focus:ring-2 focus:ring-teal-500 min-h-[44px] sm:min-h-0"
                     style={{
                       backgroundColor: 'var(--bg-subtle)',
                       borderColor: 'var(--border-subtle)',
@@ -321,21 +342,24 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
                         'excused'
                       )
                     }
-                    className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition ${
+                    className={`px-2 sm:px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition min-h-[44px] sm:min-h-0 shrink-0 ${
                       entry?.status === 'excused'
                         ? 'bg-amber-500 text-white border-amber-500'
                         : 'opacity-70 hover:opacity-100'
                     }`}
+                    title="Als entschuldigt (Krank/Attest) markieren"
                   >
-                    Attest
+                    <span className="hidden sm:inline">Attest</span>
+                    <span className="sm:hidden font-bold">K</span>
                   </button>
 
                   <span
-                    className="w-16 text-center py-1 rounded-lg font-mono text-xs font-bold"
+                    className="w-10 sm:w-16 text-center py-1 rounded-lg font-mono text-xs font-bold shrink-0"
                     style={{
                       backgroundColor: tierStyle?.bg || 'var(--bg-subtle)',
                       color: tierStyle?.text || 'var(--text-muted)',
                     }}
+                    title="Aktuelle Gesamtnote im Halbjahr"
                   >
                     {summary?.overall_display_grade || '—'}
                   </span>
@@ -347,9 +371,9 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
       </div>
 
       {/* Right Column: Live Notenspiegel + Interaktiver Notenschlüssel-Editor */}
-      <div data-tour="speed-grading-curve-box" className="space-y-5">
+      <div data-tour="speed-grading-curve-box" className="space-y-4 sm:space-y-5">
         <div
-          className="rounded-2xl border p-6 shadow-sm space-y-5"
+          className="rounded-2xl border p-3.5 sm:p-6 shadow-sm space-y-4 sm:space-y-5"
           style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
         >
           <div>

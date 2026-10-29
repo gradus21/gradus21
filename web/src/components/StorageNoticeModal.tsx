@@ -50,11 +50,11 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-xl max-h-[88vh] sm:max-h-[90vh] flex flex-col rounded-2xl border shadow-2xl overflow-hidden relative my-auto"
+        className="w-full max-w-xl h-full sm:h-auto max-h-[100dvh] sm:max-h-[90vh] flex flex-col rounded-none sm:rounded-2xl border-0 sm:border shadow-2xl overflow-hidden relative my-auto"
         style={{
           backgroundColor: 'var(--bg-surface)',
           borderColor: 'var(--border-subtle)',
@@ -311,7 +311,7 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
 
         {/* Footer - Fixed & Always Visible */}
         <div
-          className="p-4 sm:p-6 pt-3 border-t flex flex-col sm:flex-row gap-2.5 shrink-0 bg-inherit"
+          className="p-4 sm:p-6 pt-3 border-t flex flex-col sm:flex-row gap-2.5 shrink-0 bg-inherit pb-safe sm:pb-6"
           style={{ borderColor: 'var(--border-subtle)' }}
         >
           {onExportBackup && (

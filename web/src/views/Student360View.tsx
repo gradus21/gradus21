@@ -11,7 +11,8 @@ import {
 } from '../types/workspace';
 import { printStudentParentReport } from '../components/ExportAndPrintHelpers';
 import { wasm_simulate_needed_score_v2 } from '../wasm-pkg/gradus21_core';
-import { Printer, Sparkles, UserCheck, ShieldCheck, Check } from 'lucide-react';
+import { Printer, Sparkles, UserCheck, ShieldCheck, Check, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
+import { triggerHapticFeedback } from '../utils/haptics';
 
 export interface Student360ViewProps {
   activeDataset: ClassroomSubjectDataset;
@@ -132,7 +133,7 @@ export const Student360View: React.FC<Student360ViewProps> = ({
   return (
     <div data-tour="student360-container" data-privacy-sensitive="true" className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6">
       {/* MOBILE STUDENT SELECTOR (Visible on screens < lg) */}
-      <div className="block lg:hidden rounded-2xl border p-3.5 shadow-sm space-y-2" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}>
+      <div className="block lg:hidden rounded-2xl border p-3 shadow-sm space-y-2" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}>
         <div className="flex items-center justify-between gap-2">
           <label className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>
             Schüler:in auswählen:
@@ -141,25 +142,76 @@ export const Student360View: React.FC<Student360ViewProps> = ({
             {visibleStudents.findIndex((s) => s.id === activeStudent.id) + 1} von {visibleStudents.length}
           </span>
         </div>
-        <select
-          value={activeStudent.id}
-          onChange={(e) => setSelectedStudentId(e.target.value)}
-          className="w-full px-3 py-2 rounded-xl border text-sm font-semibold shadow-sm"
-          style={{
-            backgroundColor: 'var(--bg-subtle)',
-            borderColor: 'var(--border-subtle)',
-            color: 'var(--text-primary)',
-          }}
-        >
-          {visibleStudents.map((stu) => {
-            const sum = summaryByStudentId.get(stu.id);
-            return (
-              <option key={stu.id} value={stu.id}>
-                {stu.name} {stu.level ? `(${stu.level})` : ''} — Note {sum?.overall_display_grade || '—'} ({sum?.overall_percent != null ? `${sum.overall_percent}%` : 'keine Noten'})
-              </option>
-            );
-          })}
-        </select>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              const currentIdx = visibleStudents.findIndex((s) => s.id === activeStudent.id);
+              if (currentIdx > 0) {
+                triggerHapticFeedback(8);
+                setSelectedStudentId(visibleStudents[currentIdx - 1].id);
+              }
+            }}
+            disabled={visibleStudents.findIndex((s) => s.id === activeStudent.id) <= 0}
+            className="w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 disabled:opacity-30 transition active:scale-95 touch-target"
+            style={{
+              backgroundColor: 'var(--bg-subtle)',
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--text-primary)',
+            }}
+            aria-label="Vorherige:r Schüler:in"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+
+          <div className="relative flex-1 min-w-0">
+            <select
+              value={activeStudent.id}
+              onChange={(e) => {
+                triggerHapticFeedback(8);
+                setSelectedStudentId(e.target.value);
+              }}
+              className="w-full pl-3 pr-8 py-2 rounded-xl border text-xs font-bold appearance-none truncate shadow-xs min-h-[40px]"
+              style={{
+                backgroundColor: 'var(--bg-subtle)',
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--text-primary)',
+              }}
+              aria-label="Schüler:in auswählen"
+            >
+              {visibleStudents.map((stu) => {
+                const sum = summaryByStudentId.get(stu.id);
+                return (
+                  <option key={stu.id} value={stu.id}>
+                    {stu.name} {stu.level ? `(${stu.level})` : ''} — Note {sum?.overall_display_grade || '—'} ({sum?.overall_percent != null ? `${sum.overall_percent}%` : 'keine Noten'})
+                  </option>
+                );
+              })}
+            </select>
+            <ChevronDown className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              const currentIdx = visibleStudents.findIndex((s) => s.id === activeStudent.id);
+              if (currentIdx >= 0 && currentIdx < visibleStudents.length - 1) {
+                triggerHapticFeedback(8);
+                setSelectedStudentId(visibleStudents[currentIdx + 1].id);
+              }
+            }}
+            disabled={visibleStudents.findIndex((s) => s.id === activeStudent.id) >= visibleStudents.length - 1}
+            className="w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 disabled:opacity-30 transition active:scale-95 touch-target"
+            style={{
+              backgroundColor: 'var(--bg-subtle)',
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--text-primary)',
+            }}
+            aria-label="Nächste:r Schüler:in"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {/* DESKTOP SIDEBAR (Visible on screens >= lg) */}
@@ -204,7 +256,7 @@ export const Student360View: React.FC<Student360ViewProps> = ({
 
       <div className="lg:col-span-3 space-y-4 sm:space-y-6">
         <div
-          className="rounded-2xl border p-4 sm:p-6 shadow-sm flex flex-wrap items-center justify-between gap-3 sm:gap-4"
+          className="rounded-2xl border p-3.5 sm:p-6 shadow-sm flex flex-wrap items-center justify-between gap-3 sm:gap-4"
           style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
         >
           <div>
@@ -281,7 +333,7 @@ export const Student360View: React.FC<Student360ViewProps> = ({
 
         {/* Zeugnisnoten-Festlegung & Pädagogische Begründung */}
         <div
-          className="rounded-2xl border p-5 shadow-sm grid grid-cols-1 md:grid-cols-3 gap-4 items-end"
+          className="rounded-2xl border p-3.5 sm:p-5 shadow-sm grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4 items-end"
           style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
         >
           <div>
@@ -379,7 +431,7 @@ export const Student360View: React.FC<Student360ViewProps> = ({
 
         {/* Amtliche Export-Stammdaten (SchILD-NRW, ASV, etc.) - Rein optional */}
         <div
-          className="rounded-2xl border p-5 shadow-sm space-y-4"
+          className="rounded-2xl border p-3.5 sm:p-5 shadow-sm space-y-4"
           style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
         >
           <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3" style={{ borderColor: 'var(--border-subtle)' }}>
@@ -520,7 +572,7 @@ export const Student360View: React.FC<Student360ViewProps> = ({
         ) : (
           <div
             data-tour="student360-simulator-card"
-            className="rounded-2xl border p-6 shadow-sm space-y-4"
+            className="rounded-2xl border p-3.5 sm:p-6 shadow-sm space-y-4"
             style={{
               backgroundColor: 'var(--bg-surface)',
               borderColor: 'var(--border-subtle)',

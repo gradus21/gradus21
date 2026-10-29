@@ -167,10 +167,10 @@ export const ExportConfigModal: React.FC<ExportConfigModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
     >
       <div
-        className="w-full max-w-3xl rounded-2xl shadow-2xl border flex flex-col max-h-[95vh] sm:max-h-[92vh] overflow-hidden relative"
+        className="w-full max-w-3xl h-full sm:h-auto max-h-[100dvh] sm:max-h-[92vh] rounded-none sm:rounded-2xl border-0 sm:border shadow-2xl flex flex-col overflow-hidden relative"
         style={{
           backgroundColor: 'var(--bg-surface, #1e293b)',
           borderColor: 'var(--border-subtle, #334155)',
@@ -516,7 +516,7 @@ export const ExportConfigModal: React.FC<ExportConfigModalProps> = ({
         </div>
 
         {/* Footer with Actions */}
-        <div className="flex items-center justify-between p-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+        <div className="flex items-center justify-between p-4 border-t pb-safe sm:pb-4" style={{ borderColor: 'var(--border-subtle)' }}>
           <button
             type="button"
             onClick={onClose}

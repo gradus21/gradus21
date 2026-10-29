@@ -352,9 +352,9 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4">
       <div
-        className="max-w-5xl lg:max-w-6xl w-full rounded-2xl border p-4 sm:p-6 shadow-xl space-y-4 sm:space-y-5 max-h-[95vh] sm:max-h-[90vh] flex flex-col"
+        className="max-w-5xl lg:max-w-6xl w-full h-full sm:h-auto max-h-[100dvh] sm:max-h-[90vh] rounded-none sm:rounded-2xl border-0 sm:border p-4 sm:p-6 shadow-xl space-y-4 sm:space-y-5 flex flex-col pb-safe sm:pb-6"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
         {/* Header */}

@@ -24,10 +24,13 @@
             (mode === 'system' &&
               window.matchMedia &&
               window.matchMedia('(prefers-color-scheme: dark)').matches);
+          var metaTheme = document.querySelector('meta[name="theme-color"]');
           if (isDark) {
             document.documentElement.classList.add('dark');
+            if (metaTheme) metaTheme.setAttribute('content', '#121b20');
           } else {
             document.documentElement.classList.remove('dark');
+            if (metaTheme) metaTheme.setAttribute('content', '#0d9488');
           }
           if (pref && pref.themePreset) {
             document.documentElement.setAttribute('data-theme', pref.themePreset);

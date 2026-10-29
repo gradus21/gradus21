@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Calendar,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   Cloud,
   CloudOff,
@@ -142,10 +143,64 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             </div>
           </a>
 
-          {/* Class Switcher */}
+          {/* Mobile Class Switcher (Compact select on small displays) */}
+          <div className="flex sm:hidden items-center gap-1 min-w-0">
+            <div className="relative">
+              <select
+                value={activeDataset.id}
+                onChange={(e) => setActiveClassId(e.target.value)}
+                className="text-xs font-bold rounded-xl border py-1.5 pl-2 pr-6 max-w-[130px] truncate focus:outline-none focus:ring-1 focus:ring-teal-500"
+                style={{
+                  backgroundColor: 'var(--bg-subtle)',
+                  borderColor: 'var(--border-subtle)',
+                  color: 'var(--text-primary)',
+                }}
+                aria-label="Klasse auswählen"
+              >
+                {datasets.map((ds) => (
+                  <option key={ds.id} value={ds.id}>
+                    {ds.className} · {ds.subjectName}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                className="w-3.5 h-3.5 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-60"
+                style={{ color: 'var(--text-secondary)' }}
+              />
+            </div>
+
+            <button
+              onClick={onOpenClassManager}
+              className="w-8 h-8 rounded-xl border flex items-center justify-center shrink-0 transition active:scale-95"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--text-primary)',
+              }}
+              title="Aktuelle Klasse bearbeiten"
+              aria-label="Klasse bearbeiten"
+            >
+              <Edit3 className="w-3.5 h-3.5" style={{ color: 'var(--primary-500)' }} />
+            </button>
+
+            <button
+              onClick={onOpenClassWizard}
+              className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition active:scale-95"
+              style={{
+                backgroundColor: 'var(--primary-soft)',
+                color: 'var(--primary-text)',
+              }}
+              title="Neue Klasse erstellen"
+              aria-label="Neue Klasse"
+            >
+              <FolderPlus className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Desktop/Tablet Class Switcher */}
           <div
             data-tour="header-class-switcher"
-            className="flex items-center gap-1 p-1 rounded-xl border max-w-full overflow-x-auto"
+            className="hidden sm:flex items-center gap-1 p-1 rounded-xl border max-w-full overflow-x-auto"
             style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
           >
             {datasets.map((ds) => {
@@ -208,7 +263,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         </div>
 
         {/* Right Controls */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {/* OPTIONAL SUBTLE GUIDE BUTTON (CAN BE TOGGLED IN SETTINGS) */}
           {showGuideButtonInHeader && (
             <button
@@ -491,7 +546,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           <button
             onClick={() => onOpenSettings()}
             data-tour="header-settings-btn"
-            className="w-10 h-10 xl:w-auto xl:h-auto p-0 xl:px-3 xl:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition hover:opacity-90 shrink-0"
+            className="w-9 h-9 sm:w-10 sm:h-10 xl:w-auto xl:h-auto p-0 xl:px-3 xl:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition active:scale-95 shrink-0"
             style={{
               backgroundColor: 'var(--bg-subtle)',
               color: 'var(--text-primary)',
@@ -507,7 +562,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           <button
             onClick={onOpenVaultInspector}
             data-tour="header-vault-btn"
-            className="w-10 h-10 lg:w-auto lg:h-auto p-0 lg:px-3 lg:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition hover:opacity-90 shrink-0"
+            className="w-9 h-9 sm:w-10 sm:h-10 lg:w-auto lg:h-auto p-0 lg:px-3 lg:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition active:scale-95 shrink-0"
             style={{
               backgroundColor: 'var(--primary-soft)',
               color: 'var(--primary-text)',
@@ -523,7 +578,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           {isAdmin && (
             <button
               onClick={onOpenAdmin}
-              className="w-10 h-10 xl:w-auto xl:h-auto p-0 xl:px-3 xl:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition hover:opacity-90 shadow-sm shrink-0"
+              className="w-9 h-9 sm:w-10 sm:h-10 xl:w-auto xl:h-auto p-0 xl:px-3 xl:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition active:scale-95 shadow-sm shrink-0"
               style={{
                 backgroundColor: 'rgba(239, 68, 68, 0.1)',
                 color: '#dc2626',
@@ -540,7 +595,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           <button
             onClick={() => setPrivacyBlur((b) => !b)}
             data-tour="header-privacy-blur"
-            className={`w-10 h-10 md:w-auto md:h-auto p-0 md:px-3 md:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition shrink-0 ${
+            className={`w-9 h-9 sm:w-10 sm:h-10 md:w-auto md:h-auto p-0 md:px-3 md:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition active:scale-95 shrink-0 ${
               privacyBlur ? 'ring-2 ring-amber-500 bg-amber-500/10 text-amber-600' : ''
             }`}
             style={
@@ -561,7 +616,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
           <button
             onClick={onLockVault}
-            className="w-10 h-10 sm:w-auto sm:h-auto p-0 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition hover:opacity-90 shrink-0"
+            className="w-9 h-9 sm:w-10 sm:h-10 sm:w-auto sm:h-auto p-0 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition active:scale-95 shrink-0"
             style={{
               backgroundColor: 'var(--bg-subtle)',
               color: 'var(--text-secondary)',
@@ -598,9 +653,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               <Calendar className="w-3 h-3 ml-1.5" style={{ color: 'var(--primary-500)' }} />
               {(
                 [
-                  { id: 'hj1', label: '1. Halbjahr' },
-                  { id: 'hj2', label: '2. Halbjahr' },
-                  { id: 'all', label: 'Gesamtjahr' },
+                  { id: 'hj1', label: '1. Halbjahr', short: '1. HJ' },
+                  { id: 'hj2', label: '2. Halbjahr', short: '2. HJ' },
+                  { id: 'all', label: 'Gesamtjahr', short: 'Gesamt' },
                 ] as const
               ).map((term) => (
                 <button
@@ -614,32 +669,34 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                     color: activeTerm === term.id ? '#fff' : 'var(--text-secondary)',
                   }}
                 >
-                  {term.label}
+                  <span className="hidden sm:inline">{term.label}</span>
+                  <span className="sm:hidden">{term.short}</span>
                 </button>
               ))}
             </div>
           </div>
 
           <h1
-            className="text-lg sm:text-xl font-bold flex flex-wrap items-center gap-2 sm:gap-3"
+            className="text-base sm:text-xl font-bold flex flex-wrap items-center gap-1.5 sm:gap-3"
             style={{ color: 'var(--text-primary)' }}
           >
             <span>
               {activeDataset.subjectName} – {activeDataset.className}
             </span>
             <span
-              className="text-xs font-semibold px-2 sm:px-2.5 py-0.5 rounded-full"
+              className="text-[11px] sm:text-xs font-semibold px-2 sm:px-2.5 py-0.5 rounded-full"
               style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--text-secondary)' }}
             >
-              {activeDataset.students.filter((s) => !s.is_archived).length} aktive Schüler
-              {archivedCount > 0 ? ` (+${archivedCount} archiviert)` : ''}
+              {activeDataset.students.filter((s) => !s.is_archived).length} Schüler
+              {archivedCount > 0 ? ` (+${archivedCount})` : ''}
             </span>
             {calculationReport?.class_average_percent != null && (
               <span
-                className="text-xs font-mono font-semibold px-2 sm:px-2.5 py-0.5 rounded-full"
+                className="text-[11px] sm:text-xs font-mono font-semibold px-2 sm:px-2.5 py-0.5 rounded-full"
                 style={{ backgroundColor: 'var(--primary-soft)', color: 'var(--primary-text)' }}
               >
-                Live-Klassenschnitt ({activeTerm.toUpperCase()}):{' '}
+                <span className="hidden sm:inline">Live-Klassenschnitt ({activeTerm.toUpperCase()}): </span>
+                <span className="sm:hidden">Ø </span>
                 {calculationReport.class_average_percent}% (Ø{' '}
                 {calculationReport.class_display_grade})
               </span>
@@ -650,10 +707,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           </p>
         </div>
 
-        {/* 4 Specialized Workspace Mode Tabs */}
+        {/* 4 Specialized Workspace Mode Tabs (Desktop / Tablet - on mobile replaced by persistent bottom bar) */}
         <div
           data-tour="header-mode-tabs"
-          className="flex items-center gap-1 sm:gap-1.5 p-1 sm:p-1.5 rounded-2xl border max-w-full overflow-x-auto"
+          className="hidden md:flex items-center gap-1 sm:gap-1.5 p-1 sm:p-1.5 rounded-2xl border max-w-full overflow-x-auto"
           style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
         >
           {(

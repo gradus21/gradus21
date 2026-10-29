@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle, ExternalLink, GitMerge, X } from 'lucide-react';
 import { AppHeader } from './components/AppHeader';
+import { MobileTabBar } from './components/MobileTabBar';
 import { ClassSetupAndExcelWizard } from './components/ClassSetupAndExcelWizard';
 import { ClassManagementModal } from './components/ClassManagementModal';
 import { SettingsModal, SettingsSection } from './components/SettingsModal';
@@ -291,13 +292,16 @@ export const App: React.FC = () => {
     setIsChapterSelectOpen,
   });
 
-  // Sync Themes & Dark Mode
+  // Sync Themes & Dark Mode + Dynamic Mobile Status Bar theme-color
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', userSettings.themePreset);
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
     if (userSettings.darkMode) {
       document.documentElement.classList.add('dark');
+      if (metaTheme) metaTheme.setAttribute('content', '#121b20');
     } else {
       document.documentElement.classList.remove('dark');
+      if (metaTheme) metaTheme.setAttribute('content', '#0d9488');
     }
   }, [userSettings.themePreset, userSettings.darkMode]);
 
@@ -405,7 +409,7 @@ export const App: React.FC = () => {
 
       {/* MAIN WORKSPACE CONTENT */}
       <main
-        className={`flex-1 p-2 sm:p-4 md:p-6 w-full mx-auto transition pb-safe ${
+        className={`flex-1 p-2 sm:p-4 md:p-6 w-full mx-auto transition pb-24 md:pb-safe ${
           mode === 'matrix' ? 'max-w-none px-2 sm:px-4 lg:px-6' : 'max-w-[1600px]'
         } ${privacyBlur ? 'privacy-blur-active' : ''}`}
       >
@@ -554,7 +558,7 @@ export const App: React.FC = () => {
       </main>
 
       {/* APP FOOTER / LEGAL COMPLIANCE LINKS */}
-      <footer className="mt-auto py-3 px-3 sm:px-6 border-t border-slate-200/60 dark:border-slate-800/60 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500 dark:text-slate-400 pb-safe">
+      <footer className="mt-auto py-3 px-3 sm:px-6 border-t border-slate-200/60 dark:border-slate-800/60 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500 dark:text-slate-400 mb-16 md:mb-0 pb-safe">
         <div className="flex items-center gap-2 font-medium">
           <span className="font-bold text-slate-700 dark:text-slate-300">Gradus21 v{APP_VERSION}</span>
           <span>·</span>
@@ -616,6 +620,9 @@ export const App: React.FC = () => {
           </a>
         </div>
       </footer>
+
+      {/* MOBILE BOTTOM NAVIGATION BAR */}
+      <MobileTabBar mode={mode} setMode={setMode} />
 
       {/* MODALS */}
       {activeModal?.type === 'classWizard' && (
