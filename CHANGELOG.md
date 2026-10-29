@@ -3,7 +3,7 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.2.15] - 2026-10-29
+## [1.2.16] - 2026-10-29
 
 ### Client-Side API Routing & Mobile Tauri E-Mail-Verifikationsfix
 - **Behebung der E-Mail-Verifikation in nativen Mobile-Apps (`EmailVerificationModal`)**:
@@ -22,6 +22,22 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   - Entfernung von `Auto-Submitted: auto-generated`, um Fehlklassifizierungen als Junk/Abwesenheitsbenachrichtigung bei Google Mail, Outlook 365 und Web.de zu verhindern.
 - **Transparente Fehlerübermittlung bei Benutzer-Einladungen**:
   - `invite_user`-Endpunkt meldet den Mail-Versandstatus (`mail_sent: bool`, `mail_error: Option<String>`) an das Admin-UI (`UserManagementTab`) zurück, sodass SMTP-Ausfälle nicht mehr fälschlicherweise als erfolgreicher Mailversand dargestellt werden.
+
+### Platform Separation & Linux Desktop Keyring Isolation
+- **Saubere Trennung von Android und Linux Desktop im Tauri-Client (`linuxAuth.ts` & `platform.ts`)**:
+  - Expliziter Ausschluss von Android (`!isAndroid()`) bei `isLinuxDesktop()`, da der Linux-Kernel auf Android läuft (`navigator.platform` / `userAgent` enthält Linux), Android-Apps jedoch keinen FreeDesktop Secret Service / D-Bus bereitstellen.
+  - Verhindert Fehlversuche, den Linux-Keyring auf Android-Geräten aufzurufen, und stellt sicher, dass auf Android ausschließlich der Android Keystore (Biometrie / StrongBox) verwendet wird.
+
+### UI Harmonization & Code Input Contrast
+- **Modernisierung und Kontrastoptimierung im E-Mail-Verifikationsdialog (`EmailVerificationModal`)**:
+  - Vollständige Angleichung des Modal-Designs an das moderne Glassmorphism-/Tailwind-Design der anderen Modale (harmonische Badges, Icons, strukturierte Infoboxen).
+  - Deutlich verbesserter Ziffern- und Zeichenkontrast der 6-stelligen Verifikationscode-Eingabefelder sowohl im Light- als auch im Dark-Mode.
+
+### CI/CD & Delivery Pipeline
+- **Automatisierte Dev-Builds & interne Test-Artefakte**:
+  - Automatische Erstellung von Vorab-Releases (`dev-build`) und Bereitstellung dedizierter Android App Bundles (`.aab`) sowie APKs bei Pushes auf den `dev`-Branch für schnelles Sideloading und interne Tests über die Google Play Console.
+
+## [1.2.15] - 2026-10-29
 
 ### iOS Face ID Support, Modal Accessibility & Native Registration Flow
 - **iOS LocalAuthentication & Face ID Freigabe**:
