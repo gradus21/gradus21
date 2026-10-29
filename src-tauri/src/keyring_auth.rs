@@ -14,7 +14,7 @@ pub fn get_secret(service: &str, user: &str) -> Result<String, String> {
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn delete_secret(service: &str, user: &str) -> Result<(), String> {
     let entry = keyring::Entry::new(service, user).map_err(|e| e.to_string())?;
-    let _ = entry.delete_password();
+    let _ = entry.delete_credential();
     Ok(())
 }
 
