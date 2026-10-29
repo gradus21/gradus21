@@ -1779,7 +1779,7 @@ dependencies = [
 
 [[package]]
 name = "gradus21-app"
-version = "1.2.11"
+version = "1.2.12"
 dependencies = [
  "gradus21-core",
  "rand 0.8.8",
@@ -1794,7 +1794,7 @@ dependencies = [
 
 [[package]]
 name = "gradus21-core"
-version = "1.2.11"
+version = "1.2.12"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -1813,7 +1813,7 @@ dependencies = [
 
 [[package]]
 name = "gradus21-server"
-version = "1.2.11"
+version = "1.2.12"
 dependencies = [
  "aes-gcm",
  "argon2",
