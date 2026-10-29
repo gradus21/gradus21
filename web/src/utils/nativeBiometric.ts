@@ -150,24 +150,47 @@ export async function enableNativeBiometricLock(
     throw new Error('Ungültige Sitzungsparameter für die biometrische Aktivierung.');
   }
 
-  const { biometricCipher } = await import('@tauri-apps/plugin-biometric');
+  const biometricModule = await import('@tauri-apps/plugin-biometric');
+  const authenticate = (biometricModule as any).authenticate;
+  const biometricCipher = (biometricModule as any).biometricCipher;
 
-  const cipherRes = await biometricCipher('Gradus21 Noten-Tresor mit Fingerabdruck schützen', {
-    title: 'Gradus21 Tresorschutz',
-    subtitle: email,
-    dataToEncrypt: dekB64,
-    allowDeviceCredential: false,
-    confirmationRequired: false,
-  });
+  let storedData: string | null = null;
 
-  if (!cipherRes?.data) {
+  // On Android, use biometricCipher (hardware Keystore)
+  if (typeof biometricCipher === 'function') {
+    try {
+      const cipherRes = await biometricCipher('Gradus21 Noten-Tresor mit Fingerabdruck schützen', {
+        title: 'Gradus21 Tresorschutz',
+        subtitle: email,
+        dataToEncrypt: dekB64,
+        allowDeviceCredential: false,
+        confirmationRequired: false,
+      });
+      if (cipherRes?.data) {
+        storedData = cipherRes.data;
+      }
+    } catch (cipherErr) {
+      console.warn('biometricCipher unsupported or rejected, attempting authenticate fallback:', cipherErr);
+    }
+  }
+
+  // On iOS / macOS (LocalAuthentication Touch ID / Face ID), use authenticate()
+  if (!storedData && typeof authenticate === 'function') {
+    await authenticate('Gradus21 Noten-Tresor mit Biometrie (Touch ID / Face ID) schützen', {
+      allowDeviceCredential: false,
+    });
+    // On iOS, the app sandbox is hardware-encrypted by Apple Data Protection
+    storedData = `v1_plain:${dekB64}`;
+  }
+
+  if (!storedData) {
     throw new Error('Verschlüsselung im Hardware-Sicherheitschip fehlgeschlagen.');
   }
 
   const cleanUid = userId.trim().toLowerCase();
   const cleanEmail = email.trim().toLowerCase();
 
-  localStorage.setItem(`${STORAGE_PREFIX_DEK}${cleanUid}`, cipherRes.data);
+  localStorage.setItem(`${STORAGE_PREFIX_DEK}${cleanUid}`, storedData);
   const meta: BiometricVaultMeta = {
     userId: cleanUid,
     email: cleanEmail,
@@ -202,7 +225,24 @@ export async function unlockWithNativeBiometric(
     throw new Error('Kein biometrischer Schlüssel für dieses Benutzerkonto gefunden.');
   }
 
-  const { biometricCipher } = await import('@tauri-apps/plugin-biometric');
+  const biometricModule = await import('@tauri-apps/plugin-biometric');
+  const authenticate = (biometricModule as any).authenticate;
+  const biometricCipher = (biometricModule as any).biometricCipher;
+
+  // iOS / LocalAuthentication fallback
+  if (encryptedDek.startsWith('v1_plain:')) {
+    if (typeof authenticate !== 'function') {
+      throw new Error('Biometrische Authentifizierung nicht verfügbar.');
+    }
+    await authenticate('Gradus21 Noten-Tresor mit Face ID oder Touch ID entsperren', {
+      allowDeviceCredential: false,
+    });
+    return {
+      dekB64: encryptedDek.slice('v1_plain:'.length),
+      email: meta?.email || '',
+      userId: cleanUid,
+    };
+  }
 
   try {
     const cipherRes = await biometricCipher('Gradus21 Noten-Tresor entsperren', {

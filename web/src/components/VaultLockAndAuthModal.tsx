@@ -1891,7 +1891,12 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       }
     }
 
-    // 3. WebAuthn PRF (Web-Browser)
+    // 3. WebAuthn PRF (nur im Web-Browser)
+    if (isTauri()) {
+      handleSkipPasskey();
+      return;
+    }
+
     const ok = await handleSetupPasskey(regSession);
     if (ok) {
       setRegPasskeyDone(true);
@@ -1907,6 +1912,11 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   // Schritt 5 der Registrierung: Registrierung abschließen & Tresor starten
   const handleFinishRegistration = async () => {
     if (!regSession) return;
+    try {
+      localStorage.setItem('gradus21_storage_notice_ack_v1', 'true');
+    } catch {
+      // ignore
+    }
     onUnlockSuccess(regSession, { enableCloudSync: Boolean(optInCloudSync) });
   };
 

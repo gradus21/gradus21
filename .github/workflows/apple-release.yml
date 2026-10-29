@@ -204,6 +204,9 @@ jobs:
             echo "Setting ITSAppUsesNonExemptEncryption=false in $plist"
             /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$plist" 2>/dev/null || \
             /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$plist" 2>/dev/null || true
+            echo "Setting NSFaceIDUsageDescription in $plist"
+            /usr/libexec/PlistBuddy -c "Add :NSFaceIDUsageDescription string 'Gradus21 nutzt Face ID, um Ihren Noten-Tresor sicher und schnell zu entsperren.'" "$plist" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Set :NSFaceIDUsageDescription 'Gradus21 nutzt Face ID, um Ihren Noten-Tresor sicher und schnell zu entsperren.'" "$plist" 2>/dev/null || true
           done
           # Configure Associated Domains (webcredentials:gradus21.app) for Passkey WebAuthn
           ENT_FILE="src-tauri/gen/apple/gradus21-app_iOS/gradus21-app_iOS.entitlements"

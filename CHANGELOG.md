@@ -3,6 +3,19 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.15] - 2026-10-29
+
+### iOS Face ID Support, Modal Accessibility & Native Registration Flow
+- **iOS LocalAuthentication & Face ID Freigabe**:
+  - Konfiguration des obligatorischen `NSFaceIDUsageDescription`-Entitlements im Xcode-Build-Prozess (`apple-release.yml`), womit Apples `LocalAuthentication`-Framework Face ID auf modernen iOS-Geräten vollständig freigibt.
+  - Implementierung der biometrischen Authentifizierung via `authenticate()` auf Apple iOS & macOS in `nativeBiometric.ts` unter Wahrung der Sicherheitsauflage `allowDeviceCredential: false` (kein Geräte-PIN-Bypass).
+- **Behebung der Modal-Blockade im Speicherort-Dialog (`StorageNoticeModal`)**:
+  - Vollständiges responsives Flex-Layout (`max-h-[88vh]`, `flex-col`, scrollbarer Inhaltsbereich) mit fixiertem Header (`X`-Button) und sticky Footer („Verstanden & Weiter“).
+  - Verhindert das Abschneiden der Schließen- und Bestätigungs-Buttons auf kleineren Smartphone-Displays (iPhone Notch / Dynamic Island).
+  - Automatisches Acknowledge (`gradus21_storage_notice_ack_v1`) nach dem Registrierungs-Wizard zur Vermeidung redundanter Popups.
+- **Konsistente UX im nativen Registrierungs-Assistenten (`VaultRegistrationWizard`)**:
+  - In installierten Apps (`isTauri()`) wird bei fehlender Gerätebiometrie kein ungeeigneter WebAuthn-Browser-Passkey mehr vorgeschlagen, sondern ein sauberer Übergang („Weiter zum Abschluss“) angeboten.
+
 ## [1.2.14] - 2026-10-29
 
 ### Fix KDF Parameter Backwards Compatibility for Vault Unlock

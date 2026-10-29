@@ -59,6 +59,7 @@ describe('nativeBiometric utilities', () => {
 
       vi.doMock('@tauri-apps/plugin-biometric', () => ({
         biometricCipher: mockBiometricCipher,
+        authenticate: vi.fn(),
       }));
 
       const success = await enableNativeBiometricLock(mockUid, mockEmail, mockDek);
@@ -97,6 +98,7 @@ describe('nativeBiometric utilities', () => {
 
       vi.doMock('@tauri-apps/plugin-biometric', () => ({
         biometricCipher: mockBiometricCipher,
+        authenticate: vi.fn(),
       }));
 
       const res = await unlockWithNativeBiometric(mockEmail);
@@ -124,6 +126,7 @@ describe('nativeBiometric utilities', () => {
 
       vi.doMock('@tauri-apps/plugin-biometric', () => ({
         biometricCipher: vi.fn().mockRejectedValue(new Error('KeyPermanentlyInvalidatedException')),
+        authenticate: vi.fn(),
       }));
 
       await expect(unlockWithNativeBiometric(mockUid)).rejects.toThrow(
@@ -132,6 +135,29 @@ describe('nativeBiometric utilities', () => {
 
       // Should be purged from localStorage
       expect(hasNativeBiometricEnrollment(mockUid)).toBe(false);
+    });
+
+    it('enables and unlocks via iOS LocalAuthentication authenticate() fallback', async () => {
+      (window as any).__TAURI_INTERNALS__ = {};
+
+      const mockAuthenticate = vi.fn().mockResolvedValue(undefined);
+
+      vi.doMock('@tauri-apps/plugin-biometric', () => ({
+        authenticate: mockAuthenticate,
+        biometricCipher: undefined,
+      }));
+
+      const success = await enableNativeBiometricLock(mockUid, mockEmail, mockDek);
+      expect(success).toBe(true);
+      expect(mockAuthenticate).toHaveBeenCalledWith(
+        expect.stringContaining('Biometrie'),
+        expect.objectContaining({ allowDeviceCredential: false })
+      );
+
+      const unlocked = await unlockWithNativeBiometric(mockUid);
+      expect(unlocked.dekB64).toBe(mockDek);
+      expect(unlocked.email).toBe(mockEmail);
+      expect(unlocked.userId).toBe(mockUid);
     });
 
     it('disables biometric lock cleanly', () => {
