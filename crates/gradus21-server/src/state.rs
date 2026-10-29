@@ -101,6 +101,12 @@ pub fn tenant_env_key(owner_id: &Uuid, envelope_id: &Uuid) -> String {
     format!("{}:{}", owner_id, envelope_id)
 }
 
+#[derive(Debug, Clone)]
+pub struct DesktopRelayEntry {
+    pub created_at: Instant,
+    pub encrypted_payload: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub db: Option<PgPool>,
@@ -120,6 +126,7 @@ pub struct AppState {
     pub auth_challenges: AuthChallengeMap,
     pub legal_config: LegalConfig,
     pub mem_email_verifications: Arc<RwLock<HashMap<String, EmailVerificationEntry>>>,
+    pub desktop_relay_sessions: Arc<RwLock<HashMap<String, DesktopRelayEntry>>>,
     pub app_env: String,
 }
 

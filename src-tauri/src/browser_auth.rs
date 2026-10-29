@@ -17,28 +17,59 @@ pub fn start_desktop_browser_auth(
     app: AppHandle,
     server_url: String,
     email: Option<String>,
+    session_token: Option<String>,
+    transit_key_override: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .map_err(|e| format!("Fehler beim Binden des lokalen Loopback-Servers: {}", e))?;
-    listener
-        .set_nonblocking(true)
-        .map_err(|e| format!("Fehler beim Konfigurieren des Sockets: {}", e))?;
+    let listener_res = TcpListener::bind("127.0.0.1:0").and_then(|l| {
+        l.set_nonblocking(true)?;
+        let p = l.local_addr()?.port();
+        Ok((l, p))
+    });
 
-    let port = listener
-        .local_addr()
-        .map_err(|e| format!("Fehler beim Ermitteln des Ports: {}", e))?
-        .port();
+    let (listener_opt, port) = match listener_res {
+        Ok((l, p)) => (Some(l), p),
+        Err(e) => {
+            eprintln!("Lokaler Loopback-Server konnte nicht gebunden werden (wird auf Server-Relais zurückgegriffen): {}", e);
+            (None, 0)
+        }
+    };
 
     let mut state_bytes = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut state_bytes);
     let state_hex: String = state_bytes.iter().map(|b| format!("{:02x}", b)).collect();
 
     let mut transit_key = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut transit_key);
-    let transit_key_hex: String = transit_key.iter().map(|b| format!("{:02x}", b)).collect();
+    let transit_key_hex: String = if let Some(ref tk) = transit_key_override {
+        let clean = tk.trim();
+        if clean.len() == 64 {
+            for i in 0..32 {
+                if let Ok(b) = u8::from_str_radix(&clean[i * 2..i * 2 + 2], 16) {
+                    transit_key[i] = b;
+                }
+            }
+            clean.to_string()
+        } else {
+            rand::thread_rng().fill_bytes(&mut transit_key);
+            transit_key.iter().map(|b| format!("{:02x}", b)).collect()
+        }
+    } else {
+        rand::thread_rng().fill_bytes(&mut transit_key);
+        transit_key.iter().map(|b| format!("{:02x}", b)).collect()
+    };
 
     let base = server_url.trim_end_matches('/');
-    let mut auth_url = format!("{}/?desktop_auth=1&port={}&state={}", base, port, state_hex);
+    let mut auth_url = if port > 0 {
+        format!("{}/?desktop_auth=1&port={}&state={}", base, port, state_hex)
+    } else {
+        format!("{}/?desktop_auth=1&state={}", base, state_hex)
+    };
+    if let Some(ref st) = session_token {
+        let clean_st = st.trim();
+        if !clean_st.is_empty() {
+            auth_url.push_str("&session_token=");
+            auth_url.push_str(clean_st);
+        }
+    }
     if let Some(ref e) = email {
         let trimmed = e.trim();
         if !trimmed.is_empty() {
@@ -55,12 +86,20 @@ pub fn start_desktop_browser_auth(
     auth_url.push_str("#transit_key=");
     auth_url.push_str(&transit_key_hex);
 
-    // Open browser via tauri-plugin-opener
-    #[cfg(desktop)]
-    {
-        use tauri_plugin_opener::OpenerExt;
-        let _ = app.opener().open_url(&auth_url, None::<&str>);
+    // Open browser via tauri-plugin-opener (supported on both desktop and mobile platforms)
+    use tauri_plugin_opener::OpenerExt;
+    if let Err(e) = app.opener().open_url(&auth_url, None::<&str>) {
+        eprintln!("Fehler beim Öffnen des Standard-Browsers: {}", e);
     }
+
+    let listener = match listener_opt {
+        Some(l) => l,
+        None => {
+            // Loopback socket unavailable (e.g. strict mobile sandbox).
+            // The frontend Server-Relay polling handles authentication smoothly.
+            return Err("Loopback-Socket nicht verfügbar; Authentifizierung erfolgt über Server-Relais.".into());
+        }
+    };
 
     let start_time = Instant::now();
     let timeout = Duration::from_secs(300); // 5 minutes timeout
@@ -97,11 +136,12 @@ pub fn start_desktop_browser_auth(
                     let first_line = header_str.lines().next().unwrap_or("");
 
                     if first_line.starts_with("OPTIONS") {
-                        // CORS Preflight Response
+                        // CORS Preflight Response with Private Network Access support
                         let resp = "HTTP/1.1 200 OK\r\n\
                                     Access-Control-Allow-Origin: *\r\n\
                                     Access-Control-Allow-Methods: POST, OPTIONS\r\n\
-                                    Access-Control-Allow-Headers: Content-Type\r\n\
+                                    Access-Control-Allow-Headers: Content-Type, Access-Control-Request-Private-Network\r\n\
+                                    Access-Control-Allow-Private-Network: true\r\n\
                                     Content-Length: 0\r\n\
                                     Connection: close\r\n\r\n";
                         let _ = stream.write_all(resp.as_bytes());

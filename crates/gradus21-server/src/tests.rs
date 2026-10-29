@@ -51,6 +51,7 @@ fn create_test_state() -> AppState {
         auth_challenges: Arc::new(RwLock::new(HashMap::new())),
         legal_config: LegalConfig::default(),
         mem_email_verifications: Arc::new(RwLock::new(HashMap::new())),
+        desktop_relay_sessions: Arc::new(RwLock::new(HashMap::new())),
         app_env: "development".into(),
     }
 }
@@ -1895,5 +1896,65 @@ async fn test_deactivated_user_cannot_access_api_or_recover() {
     assert_eq!(login_res.unwrap_err().0, StatusCode::FORBIDDEN);
 
     // Clean up
+    let _ = fs::remove_file(&state.disk_store_path);
+}
+
+#[tokio::test]
+async fn test_desktop_relay_flow() {
+    let state = create_test_state();
+
+    // 1. Desktop app initializes relay session
+    let init_res = desktop_relay_init(State(state.clone())).await.unwrap();
+    let token = init_res.0.session_token;
+    assert!(!token.is_empty());
+
+    // 2. Poll before completion -> status must be "pending"
+    let poll_1 = desktop_relay_poll(
+        State(state.clone()),
+        axum::extract::Query(DesktopRelayPollQuery {
+            session_token: token.clone(),
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(poll_1.0.status, "pending");
+    assert!(poll_1.0.encrypted_payload.is_none());
+
+    // 3. Browser completes authentication with transit-encrypted payload
+    let sample_payload = "v1:nonce_sample:ciphertext_sample".to_string();
+    let complete_res = desktop_relay_complete(
+        State(state.clone()),
+        Json(DesktopRelayCompleteRequest {
+            session_token: token.clone(),
+            encrypted_payload: sample_payload.clone(),
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(complete_res.0["success"], true);
+
+    // 4. Desktop app polls again -> status must be "ready" with payload
+    let poll_2 = desktop_relay_poll(
+        State(state.clone()),
+        axum::extract::Query(DesktopRelayPollQuery {
+            session_token: token.clone(),
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(poll_2.0.status, "ready");
+    assert_eq!(poll_2.0.encrypted_payload, Some(sample_payload));
+
+    // 5. Subsequent poll -> single-use consumed -> "expired"
+    let poll_3 = desktop_relay_poll(
+        State(state.clone()),
+        axum::extract::Query(DesktopRelayPollQuery {
+            session_token: token.clone(),
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(poll_3.0.status, "expired");
+
     let _ = fs::remove_file(&state.disk_store_path);
 }

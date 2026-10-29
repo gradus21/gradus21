@@ -180,6 +180,7 @@ async fn main() {
         auth_challenges: Arc::new(RwLock::new(HashMap::new())),
         legal_config,
         mem_email_verifications: Arc::new(RwLock::new(HashMap::new())),
+        desktop_relay_sessions: Arc::new(RwLock::new(HashMap::new())),
         app_env,
     };
 

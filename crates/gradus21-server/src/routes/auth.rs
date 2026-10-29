@@ -924,3 +924,130 @@ pub async fn verify_email_confirm(
     }))
 }
 
+// ==============================================================================
+// DESKTOP RELAY (RFC 8628 Device Flow / E2EE Transit for Native Apps)
+// ==============================================================================
+
+#[derive(Serialize)]
+pub struct DesktopRelayInitResponse {
+    pub session_token: String,
+}
+
+#[derive(Deserialize)]
+pub struct DesktopRelayCompleteRequest {
+    pub session_token: String,
+    pub encrypted_payload: String,
+}
+
+#[derive(Deserialize)]
+pub struct DesktopRelayPollQuery {
+    pub session_token: String,
+}
+
+#[derive(Serialize)]
+pub struct DesktopRelayPollResponse {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encrypted_payload: Option<String>,
+}
+
+pub async fn desktop_relay_init(
+    State(state): State<AppState>,
+) -> Result<Json<DesktopRelayInitResponse>, (StatusCode, String)> {
+    let mut rng = rand::thread_rng();
+    let mut token_bytes = [0u8; 32];
+    rng.fill(&mut token_bytes);
+    let session_token: String = token_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+
+    let mut sessions = state
+        .desktop_relay_sessions
+        .write()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Lock error: {}", e)))?;
+
+    // Prune expired entries older than 300 seconds
+    sessions.retain(|_, entry| entry.created_at.elapsed().as_secs() < 300);
+
+    sessions.insert(
+        session_token.clone(),
+        crate::state::DesktopRelayEntry {
+            created_at: std::time::Instant::now(),
+            encrypted_payload: None,
+        },
+    );
+
+    Ok(Json(DesktopRelayInitResponse { session_token }))
+}
+
+pub async fn desktop_relay_complete(
+    State(state): State<AppState>,
+    Json(payload): Json<DesktopRelayCompleteRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let token = payload.session_token.trim();
+    if token.is_empty() || payload.encrypted_payload.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Ungültige Parameter".into()));
+    }
+
+    let mut sessions = state
+        .desktop_relay_sessions
+        .write()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Lock error: {}", e)))?;
+
+    // Prune expired entries
+    sessions.retain(|_, entry| entry.created_at.elapsed().as_secs() < 300);
+
+    match sessions.get_mut(token) {
+        Some(entry) => {
+            entry.encrypted_payload = Some(payload.encrypted_payload);
+            Ok(Json(serde_json::json!({ "success": true })))
+        }
+        None => Err((
+            StatusCode::NOT_FOUND,
+            "Autorisierungssitzung nicht gefunden oder abgelaufen".into(),
+        )),
+    }
+}
+
+pub async fn desktop_relay_poll(
+    State(state): State<AppState>,
+    axum::extract::Query(query): axum::extract::Query<DesktopRelayPollQuery>,
+) -> Result<Json<DesktopRelayPollResponse>, (StatusCode, String)> {
+    let token = query.session_token.trim();
+    if token.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Fehlendes Token".into()));
+    }
+
+    let mut sessions = state
+        .desktop_relay_sessions
+        .write()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Lock error: {}", e)))?;
+
+    match sessions.get(token) {
+        None => Ok(Json(DesktopRelayPollResponse {
+            status: "expired".into(),
+            encrypted_payload: None,
+        })),
+        Some(entry) => {
+            if entry.created_at.elapsed().as_secs() >= 300 {
+                sessions.remove(token);
+                Ok(Json(DesktopRelayPollResponse {
+                    status: "expired".into(),
+                    encrypted_payload: None,
+                }))
+            } else if let Some(ref enc) = entry.encrypted_payload {
+                let enc_clone = enc.clone();
+                sessions.remove(token); // Single-use consumption
+                Ok(Json(DesktopRelayPollResponse {
+                    status: "ready".into(),
+                    encrypted_payload: Some(enc_clone),
+                }))
+            } else {
+                Ok(Json(DesktopRelayPollResponse {
+                    status: "pending".into(),
+                    encrypted_payload: None,
+                }))
+            }
+        }
+    }
+}
+
+

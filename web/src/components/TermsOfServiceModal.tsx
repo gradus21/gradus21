@@ -135,7 +135,7 @@ export const TermsOfServiceModal: React.FC<TermsOfServiceModalProps> = ({
                 (1) Diese Nutzungsbedingungen regeln die Rechte und Pflichten zwischen <strong>{legalConfig.name || 'Julian Kallidat'}</strong> (nachfolgend <em>„Anbieter“</em>) und den Nutzerinnen und Nutzern (nachfolgend <em>„Nutzer“</em> oder <em>„Lehrkraft“</em>) bei der Nutzung der didaktischen Notenverwaltungs-Software <strong>Gradus21</strong>.
               </p>
               <p>
-                (2) Gradus21 richtet sich an Lehrkräfte, Referendare, Schulleitungen und Schulen zur formelfreien Berechnung von Leistungsständen, Notenspiegeln und pädagogischen Dokumentationen im Schulalltag.
+                (2) Gradus21 richtet sich ausschließlich an volljährige Personen (mindestens 18 Jahre alt), die als Lehrkräfte, Referendarinnen und Referendare, Schulleitungen oder pädagogisches Fachpersonal tätig sind, zur formelfreien Berechnung von Leistungsständen, Notenspiegeln und pädagogischen Dokumentationen im Schulalltag. Minderjährigen ist die Registrierung eines Benutzerkontos und die Nutzung der Software untersagt.
               </p>
               <p>
                 (3) Mit dem Anlegen eines Benutzerkontos, dem Entsperren eines Tresors oder der Nutzung der lokalen Offline-Funktionen erkennt der Nutzer diese Nutzungsbedingungen verbindlich an.

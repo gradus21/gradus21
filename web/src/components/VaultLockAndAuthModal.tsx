@@ -103,6 +103,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     return typeof window !== 'undefined' ? getDesktopAuthParams() : null;
   });
   const [desktopAuthCompleted, setDesktopAuthCompleted] = useState<boolean>(false);
+  const [pendingDesktopSession, setPendingDesktopSession] = useState<ActiveVaultSession | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const [email, setEmail] = useState(() => {
@@ -130,9 +131,12 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       if (result.success) {
         setDesktopAuthCompleted(true);
         setStatusMsg(null);
+        setPendingDesktopSession(null);
         return;
       } else {
+        setPendingDesktopSession(unlockedSession);
         setErrorMsg(`Desktop-Übertragung fehlgeschlagen: ${result.message}`);
+        return;
       }
     }
     rawOnUnlockSuccess(unlockedSession, options);
@@ -327,6 +331,14 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     );
     const activeSession = isRegistrationTarget ? target! : session;
     if (!activeSession) return false;
+
+    if (isTauri()) {
+      setStatusMsg(null);
+      setErrorMsg(
+        'In der installierten App können neue Passkeys aus Sicherheitsgründen (WebAuthn-Origin-Schutz) nicht direkt neu registriert werden. Bitte melde dich im Browser unter gradus21.de an und richte deinen Passkey dort ein. Anschließend kannst du dich in der App nahtlos per Passkey anmelden.'
+      );
+      return false;
+    }
 
     // DEK aus der Session oder aus dem sessionStorage laden
     const dek =
@@ -829,7 +841,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       }
       const targetEmail = enteredEmail || localEntry?.email || undefined;
 
-      if (isDesktopTauri()) {
+      if (isTauri()) {
         await handleUnlockWithBrowserPasskey(targetEmail);
         return;
       }
@@ -2166,14 +2178,14 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             </div>
             <div className="space-y-1">
               <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
-                Desktop-App entsperrt!
+                App erfolgreich entsperrt!
               </h2>
               <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                Deine Anmeldedaten wurden sicher über die lokale Verbindung an die Gradus21 Desktop-App übertragen.
+                Deine Anmeldedaten wurden sicher an deine Gradus21 App übertragen.
               </p>
             </div>
             <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-800 dark:text-emerald-200">
-              Du kannst diesen Browser-Tab jetzt schließen und direkt in der Desktop-App weiterarbeiten.
+              Du kannst diesen Browser-Tab jetzt schließen und direkt in der App weiterarbeiten.
             </div>
             <button
               type="button"
@@ -2190,7 +2202,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     const isRegisterWizard = authTab === 'register' && registerStep !== 'credentials';
     const isPasskeySupportedLocally =
       typeof window !== 'undefined' && Boolean(window.PublicKeyCredential && navigator.credentials?.get);
-    const useBrowserFlow = isDesktopTauri();
+    const useBrowserFlow = isTauri();
 
     return (
       <div
@@ -2226,7 +2238,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             </p>
           </div>
 
-          {/* Desktop-App Autorisierungs-Hinweis (Browser-Seite) */}
+          {/* Desktop- / Mobile-App Autorisierungs-Hinweis (Browser-Seite) */}
           {desktopAuthParams && !desktopAuthCompleted && (
             <div className="p-3.5 rounded-2xl bg-teal-500/10 border border-teal-500/25 flex items-start gap-3 text-left">
               <div className="p-2 rounded-xl bg-teal-500/20 text-teal-600 dark:text-teal-400 shrink-0 mt-0.5">
@@ -2234,10 +2246,10 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               </div>
               <div className="text-xs space-y-1">
                 <p className="font-bold text-teal-900 dark:text-teal-200">
-                  Desktop-App Anmeldung aktiv
+                  App-Anmeldung aktiv
                 </p>
                 <p className="text-teal-800/80 dark:text-teal-300/80 leading-relaxed text-[11px]">
-                  Melde dich an, um die Gradus21 Desktop-App auf diesem Gerät zu entsperren.
+                  Melde dich an, um die Gradus21 App auf diesem Gerät sicher zu entsperren.
                 </p>
               </div>
             </div>
@@ -2259,13 +2271,52 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                   if (res.success) {
                     setDesktopAuthCompleted(true);
                     setStatusMsg(null);
+                    setPendingDesktopSession(null);
                   } else {
+                    setPendingDesktopSession(session);
                     setErrorMsg(`Desktop-Übertragung fehlgeschlagen: ${res.message}`);
                   }
                 }}
                 className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 transition shadow cursor-pointer"
               >
                 Desktop-App jetzt direkt entsperren
+              </button>
+            </div>
+          )}
+
+          {/* Fehler-Retry für Desktop-Übertragung */}
+          {desktopAuthParams && !desktopAuthCompleted && pendingDesktopSession && (
+            <div className="p-4 rounded-2xl border bg-amber-500/10 border-amber-500/30 text-center space-y-2.5">
+              <p className="text-xs text-amber-900 dark:text-amber-200">
+                Tresor im Browser erfolgreich entsperrt, aber Desktop-App noch nicht erreicht.
+              </p>
+              <button
+                type="button"
+                onClick={async () => {
+                  setStatusMsg('Anmeldung wird an die Desktop-App übertragen...');
+                  setIsLoading(true);
+                  const res = await sendDesktopAuthCallback(desktopAuthParams, pendingDesktopSession);
+                  setIsLoading(false);
+                  if (res.success) {
+                    setDesktopAuthCompleted(true);
+                    setStatusMsg(null);
+                    setPendingDesktopSession(null);
+                  } else {
+                    setErrorMsg(`Desktop-Übertragung fehlgeschlagen: ${res.message}`);
+                  }
+                }}
+                className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-500 transition shadow cursor-pointer"
+              >
+                Erneut an Desktop-App senden
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  rawOnUnlockSuccess(pendingDesktopSession);
+                }}
+                className="w-full py-1 text-[11px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition underline cursor-pointer"
+              >
+                Stattdessen im Browser fortfahren
               </button>
             </div>
           )}
@@ -2345,7 +2396,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                   style={{ color: 'var(--text-secondary)' }}
                 >
                   <span>
-                    Öffnet deinen Standard-Browser für passwortlosen Login (Touch ID, Windows Hello, 1Password, Smartphone).
+                    Öffnet deinen Standard-Browser für passwortlose Anmeldung (Fingerabdruck, Face ID, Google Passwortmanager, Windows Hello, 1Password).
                   </span>
                 </div>
               ) : localPasskeyForEmail ? (
