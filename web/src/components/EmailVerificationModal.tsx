@@ -196,45 +196,60 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
       <div
         className="w-full max-w-md rounded-2xl shadow-2xl border p-6 flex flex-col relative"
         style={{
-          backgroundColor: 'var(--bg-card, #1e293b)',
-          borderColor: 'var(--border-subtle, #334155)',
-          color: 'var(--text-primary, #f8fafc)',
+          backgroundColor: 'var(--bg-surface)',
+          borderColor: 'var(--border-subtle)',
+          color: 'var(--text-primary)',
         }}
       >
         <button
           type="button"
           onClick={onCancel}
-          className="absolute top-4 right-4 w-10 h-10 rounded-xl text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800/50 transition-colors inline-flex items-center justify-center shrink-0"
+          className="absolute top-4 right-4 w-10 h-10 rounded-xl transition-colors inline-flex items-center justify-center shrink-0 hover:bg-black/5 dark:hover:bg-white/10"
+          style={{ color: 'var(--text-secondary)' }}
           aria-label="Schließen"
         >
           <X className="w-5 h-5" />
         </button>
 
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center border"
+            style={{
+              backgroundColor: 'var(--primary-soft)',
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--primary-text)',
+            }}
+          >
             <ShieldCheck className="w-6 h-6" />
           </div>
           <div>
-            <h3 className="font-semibold text-lg text-neutral-100">E-Mail-Eigentum bestätigen</h3>
-            <p className="text-xs text-neutral-400">Erforderlich vor Aktivierung des Cloud-Syncs</p>
+            <h3 className="font-semibold text-lg" style={{ color: 'var(--text-primary)' }}>
+              E-Mail-Eigentum bestätigen
+            </h3>
+            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              Erforderlich vor Aktivierung des Cloud-Syncs
+            </p>
           </div>
         </div>
 
-        <p className="text-sm text-neutral-300 mb-4 leading-relaxed">
+        <p className="text-sm mb-4 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
           Um sicherzustellen, dass nur du Zugriff auf deinen verschlüsselten Cloud-Speicher hast,
           wurde ein 6-stelliger Einmalcode an{' '}
-          <span className="font-mono font-medium text-blue-300">{email}</span> gesendet.
+          <span className="font-mono font-semibold" style={{ color: 'var(--primary-text)' }}>
+            {email}
+          </span>{' '}
+          gesendet.
         </p>
 
         {errorMsg && (
-          <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-xs flex items-start gap-2.5">
+          <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 dark:text-red-300 text-xs flex items-start gap-2.5">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <span>{errorMsg}</span>
           </div>
         )}
 
         {successMsg && !errorMsg && (
-          <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs flex items-start gap-2.5">
+          <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-300 text-xs flex items-start gap-2.5">
             <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
             <span>{successMsg}</span>
           </div>
@@ -253,19 +268,21 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
                 onChange={(e) => handleDigitChange(idx, e.target.value)}
                 onKeyDown={(e) => handleKeyDown(idx, e)}
                 disabled={loading}
-                className="w-12 h-14 text-center font-mono text-xl font-bold rounded-xl border bg-black/20 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                className="w-12 h-14 text-center font-mono text-2xl font-bold rounded-xl border focus:outline-none focus:ring-2 focus:ring-teal-500/40 transition-all"
                 style={{
-                  borderColor: digit ? 'var(--color-primary, #3b82f6)' : 'var(--border-subtle, #334155)',
-                  color: 'var(--text-primary, #f8fafc)',
+                  backgroundColor: 'var(--bg-subtle)',
+                  borderColor: digit ? 'var(--primary-500)' : 'var(--border-subtle)',
+                  color: 'var(--text-primary)',
+                  caretColor: 'var(--primary-500)',
                 }}
               />
             ))}
           </div>
 
-          <div className="flex items-center justify-between text-xs text-neutral-400 px-1">
+          <div className="flex items-center justify-between text-xs px-1" style={{ color: 'var(--text-muted)' }}>
             <span>Code 15 Minuten gültig</span>
             {remainingAttempts !== null && (
-              <span className={remainingAttempts <= 2 ? 'text-amber-400 font-medium' : ''}>
+              <span className={remainingAttempts <= 2 ? 'text-amber-500 font-medium' : ''}>
                 {remainingAttempts} / 5 Versuche übrig
               </span>
             )}
@@ -275,7 +292,10 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
             <button
               type="submit"
               disabled={loading || codeDigits.join('').length !== 6}
-              className="w-full py-2.5 px-4 rounded-xl font-medium text-sm bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2"
+              className="w-full py-2.5 px-4 rounded-xl font-medium text-sm text-white shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                backgroundColor: 'var(--primary-500)',
+              }}
             >
               {loading ? (
                 <>
@@ -294,7 +314,8 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
               type="button"
               disabled={cooldown > 0 || sendingCode}
               onClick={requestVerificationCode}
-              className="w-full py-2 px-4 rounded-xl text-xs text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/40 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1.5"
+              className="w-full py-2 px-4 rounded-xl text-xs hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1.5"
+              style={{ color: 'var(--text-secondary)' }}
             >
               <RefreshCw className={`w-3.5 h-3.5 ${sendingCode ? 'animate-spin' : ''}`} />
               {cooldown > 0
