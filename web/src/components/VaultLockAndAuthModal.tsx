@@ -370,8 +370,18 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
     if (isTauri()) {
       setStatusMsg(null);
+      const configuredServerUrl = getServerUrl();
+      let serverAddress = configuredServerUrl;
+      try {
+        serverAddress = new URL(configuredServerUrl).host;
+      } catch {
+        serverAddress = configuredServerUrl.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+      }
+      if (!serverAddress) {
+        serverAddress = 'gradus21.app';
+      }
       setErrorMsg(
-        'In der installierten App können neue Passkeys aus Sicherheitsgründen (WebAuthn-Origin-Schutz) nicht direkt neu registriert werden. Bitte melde dich im Browser unter gradus21.de an und richte deinen Passkey dort ein. Anschließend kannst du dich in der App nahtlos per Passkey anmelden.'
+        `In der installierten App können neue Passkeys aus Sicherheitsgründen (WebAuthn-Origin-Schutz) nicht direkt neu registriert werden. Bitte melde dich im Browser unter ${serverAddress} an und richte deinen Passkey dort ein. Anschließend kannst du dich in der App nahtlos per Passkey anmelden.`
       );
       return false;
     }

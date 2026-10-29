@@ -134,7 +134,9 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
             </div>
             <p className="font-medium text-xs sm:text-[13px] leading-snug">
               {storageInfo.isNative
-                ? '„Gradus21 schützt Ihre Daten durch Zero-Knowledge: Standardmäßig verlassen Ihre Noten niemals diese Desktop-App bzw. dieses Gerät. Bitte sichern Sie Ihren Tresor regelmäßig als .gradus21-Datei oder aktivieren Sie den verschlüsselten Cloud-Sync.“'
+                ? (storageInfo.isMobile
+                    ? `„Gradus21 schützt Ihre Daten durch Zero-Knowledge: Standardmäßig verlassen Ihre Noten niemals diese ${storageInfo.platformName}-App. Bitte sichern Sie Ihren Tresor regelmäßig als .gradus21-Datei oder aktivieren Sie den verschlüsselten Cloud-Sync.“`
+                    : '„Gradus21 schützt Ihre Daten durch Zero-Knowledge: Standardmäßig verlassen Ihre Noten niemals diese Desktop-App bzw. dieses Gerät. Bitte sichern Sie Ihren Tresor regelmäßig als .gradus21-Datei oder aktivieren Sie den verschlüsselten Cloud-Sync.“')
                 : '„Gradus21 schützt Ihre Daten durch Zero-Knowledge: Standardmäßig verlassen Ihre Noten niemals diesen Browser. Bitte sichern Sie Ihren Tresor regelmäßig als .gradus21-Datei oder aktivieren Sie den verschlüsselten Cloud-Sync.“'}
             </p>
           </div>
@@ -146,7 +148,9 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
               werden Schüler:innendaten und Noten standardmäßig auf keinem zentralen Cloud-Server
               gespeichert, sondern ausschließlich verschlüsselt{' '}
               {storageInfo.isNative
-                ? 'im lokalen Datenspeicher dieser Desktop-App auf diesem Endgerät abgelegt.'
+                ? (storageInfo.isMobile
+                    ? `im geschützten lokalen Datenspeicher dieser App auf Ihrem ${storageInfo.platformName}-Gerät abgelegt.`
+                    : 'im lokalen Datenspeicher dieser Desktop-App auf diesem Endgerät abgelegt.')
                 : 'in der lokalen Browser-Datenbank (IndexedDB) dieses Endgeräts abgelegt.'}
             </p>
 
@@ -163,7 +167,7 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
                   <HardDrive className="w-3.5 h-3.5 text-teal-600 shrink-0" />
                   <span>Lokaler Speicherort ({storageInfo.locationLabel}):</span>
                 </span>
-                {typeof navigator !== 'undefined' && navigator.clipboard && (
+                {storageInfo.canCopyPath && typeof navigator !== 'undefined' && navigator.clipboard && (
                   <button
                     type="button"
                     onClick={handleCopyPath}
@@ -200,10 +204,38 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
               }}
             >
               <div className="font-bold text-xs" style={{ color: 'var(--text-primary)' }}>
-                ⚠️ Typische Gefahrenquellen an Schul- und Arbeitsrechnern:
+                {storageInfo.isMobile
+                  ? `⚠️ Wichtige Hinweise für mobile Geräte (${storageInfo.platformName}):`
+                  : '⚠️ Typische Gefahrenquellen an Schul- und Arbeitsrechnern:'}
               </div>
               <ul className="space-y-1.5 list-disc list-inside">
-                {storageInfo.isNative ? (
+                {storageInfo.isMobile ? (
+                  storageInfo.isNative ? (
+                    <>
+                      <li>
+                        <strong>Gerätewechsel, Verlust &amp; Hardwaredefekte:</strong> Ohne aktiven Cloud-Sync oder Backup-Export liegen die Noten nur lokal auf diesem {storageInfo.platformName}-Gerät und können bei Geräteverlust nicht wiederhergestellt werden.
+                      </li>
+                      <li>
+                        <strong>App-Deinstallation:</strong> Wird die Gradus21-App vom Gerät gelöscht, entfernt das mobile Betriebssystem unwiderruflich auch den lokalen Noten-Tresor.
+                      </li>
+                      <li>
+                        <strong>Regelmäßige Sicherung:</strong> Sichern Sie Ihren Tresor regelmäßig über den Button <em>„Backup jetzt sichern“</em> (z.&nbsp;B. in die Dateien-App / auf einen USB-Stick) oder aktivieren Sie den verschlüsselten Cloud-Sync.
+                      </li>
+                    </>
+                  ) : (
+                    <>
+                      <li>
+                        <strong>Browser-Bereinigung &amp; Speicherbereinigung:</strong> Das Bereinigen von Websitedaten oder längere Nichtbenutzung im mobilen Browser kann ungesicherte lokale Noten löschen.
+                      </li>
+                      <li>
+                        <strong>Gerätewechsel:</strong> Im Browser gespeicherte Noten stehen ohne Export oder Cloud-Sync nur in genau diesem Browser zur Verfügung.
+                      </li>
+                      <li>
+                        <strong>Empfehlung:</strong> Sichern Sie regelmäßig eine <code>.gradus21</code>-Datei oder aktivieren Sie den E2EE Cloud-Sync.
+                      </li>
+                    </>
+                  )
+                ) : storageInfo.isNative ? (
                   <>
                     <li>
                       <strong>Gerätewechsel &amp; Hardwaredefekte:</strong> Ohne aktiven Cloud-Sync oder Backup-Import stehen die Noten nur auf genau diesem Rechner zur Verfügung.

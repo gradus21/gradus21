@@ -237,7 +237,7 @@ export const VaultRegistrationWizard: React.FC<VaultRegistrationWizardProps> = (
             <span>Wichtiger Hinweis zum Noten-Speicherort:</span>
           </div>
           <p className="leading-relaxed opacity-95">
-            „Gradus21 schützt Ihre Daten durch Zero-Knowledge: Standardmäßig verlassen Ihre Noten niemals diesen Browser. Bitte sichern Sie Ihren Tresor regelmäßig als .gradus21-Datei oder aktivieren Sie den verschlüsselten Cloud-Sync.“
+            „Gradus21 schützt Ihre Daten durch Zero-Knowledge: Standardmäßig verlassen Ihre Noten niemals dieses Gerät. Bitte sichern Sie Ihren Tresor regelmäßig als .gradus21-Datei oder aktivieren Sie den verschlüsselten Cloud-Sync.“
           </p>
         </div>
 

@@ -56,6 +56,43 @@ export const isIPad = (): boolean => {
 };
 
 /**
+ * Detects whether the current device is specifically an iPhone or iPod.
+ */
+export const isIPhone = (): boolean => {
+  if (typeof navigator === 'undefined') return false;
+  return /iPhone|iPod/.test(navigator.userAgent);
+};
+
+/**
+ * Detects whether the app is running on an Apple iOS or iPadOS platform.
+ */
+export const isIOS = (): boolean => {
+  return isAppleTouchDevice();
+};
+
+/**
+ * Detects whether the app is running on an Android platform.
+ */
+export const isAndroid = (): boolean => {
+  if (typeof navigator === 'undefined') return false;
+  return /Android/i.test(navigator.userAgent);
+};
+
+/**
+ * Detects whether the app is running on a mobile device (iOS, iPadOS or Android).
+ */
+export const isMobileDevice = (): boolean => {
+  return isAppleTouchDevice() || isAndroid();
+};
+
+/**
+ * Checks whether the app is running inside a native Tauri wrapper on a mobile device.
+ */
+export const isMobileTauri = (): boolean => {
+  return isTauri() && isMobileDevice();
+};
+
+/**
  * Checks whether the app runs inside a desktop Tauri instance (Linux, macOS, Windows).
  * Returns false on mobile (iOS, iPadOS, Android) or pure web browser.
  */
@@ -92,60 +129,135 @@ export const isMacOS = (): boolean => {
 
 export interface StorageLocationInfo {
   isNative: boolean;
+  isMobile: boolean;
   platformName: string;
   locationLabel: string;
   path: string;
   details: string;
+  canCopyPath: boolean;
 }
 
 /**
  * Returns OS- and environment-specific storage path and metadata for local data persistence.
  */
 export const getStorageLocationInfo = (): StorageLocationInfo => {
-  if (isDesktopTauri()) {
+  if (isTauri()) {
+    // 1. Mobile Tauri: iOS / iPadOS
+    if (isAppleTouchDevice()) {
+      const isTablet = isIPad();
+      const platformName = isTablet ? 'iPadOS' : 'iOS';
+      return {
+        isNative: true,
+        isMobile: true,
+        platformName,
+        locationLabel: `Geschützte App-Sandbox (${platformName})`,
+        path: `Gradus21 App-Sandbox (${platformName})`,
+        details: 'Im isolierten, verschlüsselten Datenspeicher Ihres Apple-Geräts abgelegt.',
+        canCopyPath: false,
+      };
+    }
+
+    // 2. Mobile Tauri: Android
+    if (isAndroid()) {
+      return {
+        isNative: true,
+        isMobile: true,
+        platformName: 'Android',
+        locationLabel: 'Geschützte App-Sandbox (Android)',
+        path: 'Gradus21 App-Sandbox (Interner Speicher)',
+        details: 'Im isolierten, verschlüsselten Datenspeicher Ihres Android-Geräts abgelegt.',
+        canCopyPath: false,
+      };
+    }
+
+    // 3. Desktop Tauri: Linux
     if (isLinux()) {
       return {
         isNative: true,
+        isMobile: false,
         platformName: 'Linux',
         locationLabel: 'Lokales Anwendungsdaten-Verzeichnis (XDG Data)',
         path: '~/.local/share/de.gradus21.app/',
         details: 'Dauerhafter lokaler Speicher im Benutzerverzeichnis Ihres Linux-Systems.',
+        canCopyPath: true,
       };
     }
+
+    // 4. Desktop Tauri: macOS
     if (isMacOS()) {
       return {
         isNative: true,
+        isMobile: false,
         platformName: 'macOS',
         locationLabel: 'Lokales Anwendungsdaten-Verzeichnis (Application Support)',
         path: '~/Library/Application Support/de.gradus21.app/',
         details: 'Dauerhafter lokaler Speicher im Benutzerverzeichnis Ihres Macs.',
+        canCopyPath: true,
       };
     }
+
+    // 5. Desktop Tauri: Windows
     if (isWindows()) {
       return {
         isNative: true,
+        isMobile: false,
         platformName: 'Windows',
         locationLabel: 'Lokales Anwendungsdaten-Verzeichnis (LocalAppData)',
         path: '%LOCALAPPDATA%\\de.gradus21.app\\',
         details: 'Dauerhafter lokaler Speicher im Windows-Benutzerprofil.',
+        canCopyPath: true,
       };
     }
+
+    // 6. Desktop Tauri: Fallback
     return {
       isNative: true,
+      isMobile: false,
       platformName: 'Desktop',
       locationLabel: 'Lokaler App-Datenspeicher',
       path: 'de.gradus21.app (Anwendungsdaten)',
       details: 'Dauerhafter lokaler Speicher im Benutzerprofil Ihres Betriebssystems.',
+      canCopyPath: true,
     };
   }
 
+  // Web Browser fallbacks
   const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'gradus21.de';
+
+  if (isAppleTouchDevice()) {
+    const isTablet = isIPad();
+    const platformName = isTablet ? 'Safari (iPadOS)' : 'Safari (iOS)';
+    return {
+      isNative: false,
+      isMobile: true,
+      platformName,
+      locationLabel: 'Browser-Sandbox (IndexedDB)',
+      path: `${origin} (IndexedDB & LocalStorage)`,
+      details: 'Im isolierten Speicherbereich Ihres mobilen Safari-Browsers abgelegt.',
+      canCopyPath: true,
+    };
+  }
+
+  if (isAndroid()) {
+    return {
+      isNative: false,
+      isMobile: true,
+      platformName: 'Mobile Browser (Android)',
+      locationLabel: 'Browser-Sandbox (IndexedDB)',
+      path: `${origin} (IndexedDB & LocalStorage)`,
+      details: 'Im isolierten Speicherbereich Ihres mobilen Webbrowsers abgelegt.',
+      canCopyPath: true,
+    };
+  }
+
   return {
     isNative: false,
+    isMobile: false,
     platformName: 'Web-Browser',
     locationLabel: 'Browser-Sandbox (IndexedDB)',
     path: `${origin} (IndexedDB & LocalStorage)`,
     details: 'Im isolierten, verschlüsselten Speicherbereich Ihres Webbrowsers abgelegt.',
+    canCopyPath: true,
   };
 };
 

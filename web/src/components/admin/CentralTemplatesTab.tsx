@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { apiUrl } from '../../utils/apiConfig';
 import {
   BookOpen,
   Check,
@@ -40,7 +41,7 @@ export const CentralTemplatesTab: React.FC<CentralTemplatesTabProps> = ({ token 
     setLoading(true);
     setErrorMsg(null);
     try {
-      const res = await fetch('/api/admin/templates', {
+      const res = await fetch(apiUrl('/api/admin/templates'), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
@@ -136,7 +137,7 @@ export const CentralTemplatesTab: React.FC<CentralTemplatesTabProps> = ({ token 
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
-      const url = editingId ? `/api/admin/templates/${editingId}` : '/api/admin/templates';
+      const url = editingId ? apiUrl(`/api/admin/templates/${editingId}`) : apiUrl('/api/admin/templates');
       const method = editingId ? 'PUT' : 'POST';
 
       const res = await fetch(url, {
@@ -173,7 +174,7 @@ export const CentralTemplatesTab: React.FC<CentralTemplatesTabProps> = ({ token 
     }
     setErrorMsg(null);
     try {
-      const res = await fetch(`/api/admin/templates/${tpl.id}`, {
+      const res = await fetch(apiUrl(`/api/admin/templates/${tpl.id}`), {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });

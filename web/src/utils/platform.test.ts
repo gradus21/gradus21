@@ -78,6 +78,21 @@ describe('platform utilities', () => {
   });
 
   describe('getStorageLocationInfo', () => {
+    beforeEach(() => {
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (X11; Linux x86_64)',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'platform', {
+        value: 'Linux x86_64',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'maxTouchPoints', {
+        value: 0,
+        configurable: true,
+      });
+    });
+
     it('returns browser sandbox details when not running in Tauri', () => {
       const info = getStorageLocationInfo();
       expect(info.isNative).toBe(false);
@@ -152,6 +167,76 @@ describe('platform utilities', () => {
       expect(info.path).toBe('%LOCALAPPDATA%\\de.gradus21.app\\');
 
       delete (window as any).__TAURI__;
+    });
+
+    it('returns native iOS app sandbox info when running in Tauri on iPhone', () => {
+      (window as any).__TAURI__ = {};
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'platform', {
+        value: 'iPhone',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'maxTouchPoints', {
+        value: 5,
+        configurable: true,
+      });
+
+      const info = getStorageLocationInfo();
+      expect(info.isNative).toBe(true);
+      expect(info.isMobile).toBe(true);
+      expect(info.platformName).toBe('iOS');
+      expect(info.locationLabel).toContain('iOS');
+      expect(info.canCopyPath).toBe(false);
+
+      delete (window as any).__TAURI__;
+    });
+
+    it('returns native iPadOS app sandbox info when running in Tauri on iPad', () => {
+      (window as any).__TAURI__ = {};
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (iPad; CPU OS 18_1 like Mac OS X) AppleWebKit/605.1.15',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'platform', {
+        value: 'iPad',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'maxTouchPoints', {
+        value: 5,
+        configurable: true,
+      });
+
+      const info = getStorageLocationInfo();
+      expect(info.isNative).toBe(true);
+      expect(info.isMobile).toBe(true);
+      expect(info.platformName).toBe('iPadOS');
+      expect(info.locationLabel).toContain('iPadOS');
+      expect(info.canCopyPath).toBe(false);
+
+      delete (window as any).__TAURI__;
+    });
+
+    it('returns mobile Safari info when running in browser on iOS', () => {
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'platform', {
+        value: 'iPhone',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'maxTouchPoints', {
+        value: 5,
+        configurable: true,
+      });
+
+      const info = getStorageLocationInfo();
+      expect(info.isNative).toBe(false);
+      expect(info.isMobile).toBe(true);
+      expect(info.platformName).toBe('Safari (iOS)');
     });
   });
 });

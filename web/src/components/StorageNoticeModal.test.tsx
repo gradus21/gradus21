@@ -83,4 +83,40 @@ describe('StorageNoticeModal component', () => {
 
     delete (window as any).__TAURI__;
   });
+
+  it('displays native iOS sandbox storage info and mobile warnings when running in Tauri on iPhone', () => {
+    (window as any).__TAURI__ = {};
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15',
+      configurable: true,
+    });
+    Object.defineProperty(navigator, 'platform', {
+      value: 'iPhone',
+      configurable: true,
+    });
+    Object.defineProperty(navigator, 'maxTouchPoints', {
+      value: 5,
+      configurable: true,
+    });
+
+    render(
+      <StorageNoticeModal
+        isOpen={true}
+        onClose={vi.fn()}
+        syncStatus="local_only"
+      />
+    );
+
+    expect(
+      screen.getByText(/Gradus21 schützt Ihre Daten durch Zero-Knowledge: Standardmäßig verlassen Ihre Noten niemals diese iOS-App/i)
+    ).toBeInTheDocument();
+
+    expect(screen.getByText('Speicherampel: Nur lokal (iOS)')).toBeInTheDocument();
+    expect(screen.getByText(/⚠️ Wichtige Hinweise für mobile Geräte \(iOS\):/i)).toBeInTheDocument();
+    expect(screen.getByText(/Wird die Gradus21-App vom Gerät gelöscht/i)).toBeInTheDocument();
+    expect(screen.queryByText(/HDGuard/i)).toBeNull();
+    expect(screen.queryByText('Pfad kopieren')).toBeNull();
+
+    delete (window as any).__TAURI__;
+  });
 });

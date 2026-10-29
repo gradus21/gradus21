@@ -386,9 +386,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   </p>
                   <p className="opacity-90">
                     {syncStatus === 'synced'
-                      ? 'Ihre Noten werden bei jeder Änderung als AES-256-GCM Chiffretext synchronisiert. Selbst bei Defekt oder Reboot dieses PCs bleiben Ihre Daten erhalten.'
+                      ? `Ihre Noten werden bei jeder Änderung als AES-256-GCM Chiffretext synchronisiert. Selbst bei Defekt oder Verlust dieses Geräts bleiben Ihre Daten erhalten.`
                       : storageInfo.isNative
-                      ? `Noten liegen ausschließlich im lokalen App-Speicher dieses Geräts (${storageInfo.path}). Ohne Cloud-Sync oder Backup-Export stehen sie nur auf diesem Gerät zur Verfügung.`
+                      ? `Noten liegen ausschließlich im lokalen App-Speicher dieses Geräts (${storageInfo.locationLabel}). Ohne Cloud-Sync oder Backup-Export stehen sie nur auf diesem Gerät zur Verfügung.`
+                      : storageInfo.isMobile
+                      ? 'Noten liegen nur im lokalen Browser-Speicher (IndexedDB). Bei Browser-Bereinigung, privatem Surfen oder Verlauf-Leeren gehen Daten ohne Export verloren!'
                       : 'Noten liegen nur im lokalen Browser-Speicher (IndexedDB). Bei Bereinigungs-Software an Schul-PCs (HDGuard), privatem Fenster oder Cache-Leeren gehen Daten ohne Export verloren!'}
                   </p>
                 </div>
@@ -403,10 +405,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                     <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
                       {syncStatus === 'synced'
                         ? storageInfo.isNative
-                          ? 'E2EE Cloud + Desktop-App'
+                          ? (storageInfo.isMobile ? `E2EE Cloud + ${storageInfo.platformName}-App` : 'E2EE Cloud + Desktop-App')
                           : 'E2EE Cloud + Browser'
                         : storageInfo.isNative
-                        ? `Lokale Desktop-App (${storageInfo.platformName})`
+                        ? (storageInfo.isMobile ? `Lokale App (${storageInfo.platformName})` : `Lokale Desktop-App (${storageInfo.platformName})`)
                         : 'Ausschließlich lokaler Browser'}
                     </span>
                   </div>

@@ -46,7 +46,7 @@ import { isFileSystemAccessSupported } from '../utils/localBackupStorage';
 import { useLegalConfig, getDisplayDomain } from '../utils/legalConfig';
 import { checkForAppUpdate, installAppUpdate, UpdateInfo } from '../utils/updater';
 import { APP_VERSION } from '../version';
-import { isTauri, isDesktopTauri, isLinux, getStorageLocationInfo } from '../utils/platform';
+import { isTauri, isDesktopTauri, isAppleTouchDevice, isLinux, getStorageLocationInfo } from '../utils/platform';
 import { ActiveVaultSession } from './vault/vaultTypes';
 import {
   checkNativeBiometricAvailability,
@@ -1140,7 +1140,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         />
                         <div className="space-y-0.5">
                           <div className="font-bold text-xs flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-                            <span>Cloud-Passkey (gradus21.app)</span>
+                            <span>Cloud-Passkey ({(() => { try { return new URL(serverUrl).host; } catch { return 'gradus21.app'; } })()})</span>
                             <span className="text-[10px] px-1.5 py-0.2 bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 rounded font-bold">Geräteübergreifend</span>
                           </div>
                           <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
@@ -1198,7 +1198,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </span>
                     </div>
                     <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                      Gemäß DSGVO und Grundsatz der Datensparsamkeit verbleiben alle Noten und Schülerdaten standardmäßig <strong>ausschließlich lokal verschlüsselt auf diesem Gerät</strong> ({storageInfo.isNative ? 'in der Desktop-App' : 'im Browser'}). 
+                      Gemäß DSGVO und Grundsatz der Datensparsamkeit verbleiben alle Noten und Schülerdaten standardmäßig <strong>ausschließlich lokal verschlüsselt auf diesem Gerät</strong> ({storageInfo.isNative ? (storageInfo.isMobile ? 'in der App' : 'in der Desktop-App') : 'im Browser'}). 
                       Wenn du Cloud-Sync aktivierst, werden deine Datensätze mit modernem <strong>AES-256-GCM Zero-Knowledge</strong> verschlüsselt auf dem Server gesichert, um geräteübergreifendes Arbeiten zu ermöglichen.
                     </p>
                     <div className="pt-1 flex flex-wrap items-center gap-3">
@@ -1311,7 +1311,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <HardDrive className="w-3.5 h-3.5 text-teal-600 shrink-0" />
                       <span>Lokaler Speicherort ({storageInfo.locationLabel}):</span>
                     </span>
-                    {typeof navigator !== 'undefined' && navigator.clipboard && (
+                    {storageInfo.canCopyPath && typeof navigator !== 'undefined' && navigator.clipboard && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1532,15 +1532,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <div>
                       <div className="flex items-center gap-2">
                         <h4 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
-                          Gradus21 Desktop Client
+                          {isTauri()
+                            ? (isAppleTouchDevice()
+                                ? 'Gradus21 iOS App'
+                                : 'Gradus21 Desktop Client')
+                            : 'Gradus21 Web-Client'}
                         </h4>
                         <span className="text-[11px] font-mono px-2 py-0.5 rounded font-bold bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200">
                           v{APP_VERSION}
                         </span>
                       </div>
                       <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-                        {isDesktopTauri()
-                          ? 'Zero-Knowledge E2EE Notenverwaltung (Native Desktop-Applikation)'
+                        {isTauri()
+                          ? (isAppleTouchDevice()
+                              ? 'Zero-Knowledge E2EE Notenverwaltung (Native iOS/iPadOS App)'
+                              : 'Zero-Knowledge E2EE Notenverwaltung (Native Desktop-Applikation)')
                           : 'Web-Client / Browser-Version'}
                       </p>
                     </div>

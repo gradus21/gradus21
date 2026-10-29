@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { apiUrl } from '../../utils/apiConfig';
 import {
   Check,
   Copy,
@@ -57,7 +58,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
     setLoading(true);
     setErrorMsg(null);
     try {
-      const res = await fetch('/api/admin/users', {
+      const res = await fetch(apiUrl('/api/admin/users'), {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -85,7 +86,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
     }
     setErrorMsg(null);
     try {
-      const res = await fetch(`/api/admin/users/${user.id}/status`, {
+      const res = await fetch(apiUrl(`/api/admin/users/${user.id}/status`), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -110,7 +111,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
     }
     setErrorMsg(null);
     try {
-      const res = await fetch(`/api/admin/users/${user.id}/status`, {
+      const res = await fetch(apiUrl(`/api/admin/users/${user.id}/status`), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -138,7 +139,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
     }
     setErrorMsg(null);
     try {
-      const res = await fetch(`/api/admin/users/${user.id}`, {
+      const res = await fetch(apiUrl(`/api/admin/users/${user.id}`), {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -161,7 +162,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
     setErrorMsg(null);
     setCreatedInviteUrl(null);
     try {
-      const res = await fetch('/api/admin/users/invite', {
+      const res = await fetch(apiUrl('/api/admin/users/invite'), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,

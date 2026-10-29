@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { apiUrl } from '../../utils/apiConfig';
 import {
   Check,
   Eye,
@@ -36,7 +37,7 @@ export const MailTemplatesTab: React.FC<MailTemplatesTabProps> = ({ token }) => 
     setLoading(true);
     setErrorMsg(null);
     try {
-      const res = await fetch('/api/admin/mail-templates', {
+      const res = await fetch(apiUrl('/api/admin/mail-templates'), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
@@ -95,7 +96,7 @@ export const MailTemplatesTab: React.FC<MailTemplatesTabProps> = ({ token }) => 
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
-      const res = await fetch('/api/admin/mail-templates', {
+      const res = await fetch(apiUrl('/api/admin/mail-templates'), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,

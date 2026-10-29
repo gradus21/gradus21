@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, KeyRound, Mail, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { formatApiErrorMessage } from '../utils/legalConfig';
+import { apiUrl } from '../utils/apiConfig';
 
 interface EmailVerificationModalProps {
   isOpen: boolean;
@@ -42,21 +43,23 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
     setSendingCode(true);
     setErrorMsg(null);
     try {
-      const res = await fetch('/api/auth/verify-email/start', {
+      const res = await fetch(apiUrl('/api/auth/verify-email/start'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
       const rawText = await res.text();
       let data: any = {};
+      let isJson = false;
       try {
         data = JSON.parse(rawText);
+        isJson = true;
       } catch {
         // non-JSON response
       }
 
-      if (res.ok) {
-        setCooldown(60);
+      if (res.ok && isJson && (data.status === 'code_sent' || data.dev_code)) {
+        setCooldown(data.cooldown_seconds || 60);
         setRemainingAttempts(5);
         if (data.dev_code) {
           setSuccessMsg(`Test-Modus: Dein Bestätigungscode lautet: ${data.dev_code}`);
@@ -68,10 +71,11 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
           inputRefs.current[0]?.focus();
         }, 100);
       } else if (res.status === 429) {
-        setCooldown(data.cooldown_secs || 60);
-        setErrorMsg(`Zu viele Anfragen. Bitte warte ${data.cooldown_secs || 60} Sekunden, bevor du einen neuen Code anforderst.`);
+        const wait = data.cooldown_secs || data.cooldown_seconds || 60;
+        setCooldown(wait);
+        setErrorMsg(`Zu viele Anfragen. Bitte warte ${wait} Sekunden, bevor du einen neuen Code anforderst.`);
       } else {
-        setErrorMsg(data.error || formatApiErrorMessage(rawText, res.status));
+        setErrorMsg(isJson && data.error ? data.error : formatApiErrorMessage(rawText, res.status));
       }
     } catch {
       setErrorMsg('Der Server konnte nicht erreicht werden.');
@@ -142,36 +146,38 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
     setLoading(true);
     setErrorMsg(null);
     try {
-      const res = await fetch('/api/auth/verify-email/confirm', {
+      const res = await fetch(apiUrl('/api/auth/verify-email/confirm'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, code: fullCode }),
       });
       const rawText = await res.text();
       let data: any = {};
+      let isJson = false;
       try {
         data = JSON.parse(rawText);
+        isJson = true;
       } catch {
         // non-JSON response
       }
 
-      if (res.ok && data.verified) {
+      if (res.ok && isJson && data.verified) {
         setSuccessMsg('E-Mail-Adresse erfolgreich bestätigt!');
         setTimeout(() => {
           onSuccess();
         }, 600);
       } else {
-        if (data.remaining_attempts !== undefined) {
+        if (isJson && data.remaining_attempts !== undefined) {
           setRemainingAttempts(data.remaining_attempts);
           setErrorMsg(
             `Ungültiger Bestätigungscode. Noch ${data.remaining_attempts} von 5 Versuchen übrig.`
           );
-        } else if (data.error === 'expired') {
+        } else if (isJson && data.error === 'expired') {
           setErrorMsg('Der Bestätigungscode ist abgelaufen. Bitte fordere einen neuen an.');
-        } else if (data.error === 'max_attempts_exceeded') {
+        } else if (isJson && data.error === 'max_attempts_exceeded') {
           setErrorMsg('Maximale Fehlversuche (5) erreicht. Bitte fordere einen neuen Code an.');
         } else {
-          setErrorMsg(data.error || formatApiErrorMessage(rawText, res.status));
+          setErrorMsg((isJson && data.error) || formatApiErrorMessage(rawText, res.status));
         }
       }
     } catch {

@@ -5,6 +5,14 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [1.2.15] - 2026-10-29
 
+### Client-Side API Routing & Mobile Tauri E-Mail-Verifikationsfix
+- **Behebung der E-Mail-Verifikation in nativen Mobile-Apps (`EmailVerificationModal`)**:
+  - `fetch('/api/auth/verify-email/start')` und `fetch('/api/auth/verify-email/confirm')` nutzen nun konsequent die konfigurierte Server-Basis-URL (`apiUrl(...)`).
+  - In nativen Tauri-Apps (Android & iOS) liefen relative `/api/`-Aufrufe zuvor gegen `http://tauri.localhost/`, wo der lokale WebView-Server mit `index.html` (HTTP 200) antwortete. Dadurch zeigte die UI fälschlicherweise „Ein 6-stelliger Bestätigungscode wurde an ... gesendet“ an, obwohl der Server nie kontaktiert wurde.
+  - Strikte Validierung auf JSON-Payload (`data.status === 'code_sent'`) vor Anzeigen der Erfolgsmeldung verhindert irreführendes Feedback bei HTML-Fallback-Antworten.
+- **Vollständige `apiUrl(...)`-Absicherung aller Admin-Tabs**:
+  - `SmtpConfigTab`, `UserManagementTab`, `BackupConfigTab`, `MailTemplatesTab` und `CentralTemplatesTab` sowie `legalConfig.ts` auf absolute Server-Routen (`apiUrl`) umgestellt, damit administrative Aktionen und SMTP-Tests auch in Desktop- und Mobile-Tauri-Clients reibungslos funktionieren.
+
 ### SMTP Delivery Reliability, Test Recipient Routing & Anti-Spam Headers
 - **Behebung des SMTP-Testversands an benutzerdefinierte Adressen**:
   - `test_smtp`-Endpunkt wertet nun die im Frontend (`SmtpConfigTab`) angegebene Zieladresse (`to_email`) korrekt aus, anstatt Mails fest an die Administrator-Loginadresse (`claims.email`) umzuleiten.

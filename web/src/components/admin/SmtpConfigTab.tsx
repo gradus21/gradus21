@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { apiUrl } from '../../utils/apiConfig';
 import {
   Check,
   Eye,
@@ -47,7 +48,7 @@ export const SmtpConfigTab: React.FC<SmtpConfigTabProps> = ({ token }) => {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const res = await fetch('/api/admin/smtp', {
+      const res = await fetch(apiUrl('/api/admin/smtp'), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
@@ -73,7 +74,7 @@ export const SmtpConfigTab: React.FC<SmtpConfigTabProps> = ({ token }) => {
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
-      const res = await fetch('/api/admin/smtp', {
+      const res = await fetch(apiUrl('/api/admin/smtp'), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -107,7 +108,7 @@ export const SmtpConfigTab: React.FC<SmtpConfigTabProps> = ({ token }) => {
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
-      const res = await fetch('/api/admin/smtp/test', {
+      const res = await fetch(apiUrl('/api/admin/smtp/test'), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
