@@ -2,6 +2,8 @@ name: Android Release (APK & AAB)
 
 on:
   push:
+    branches:
+      - dev
     tags:
       - 'v*'
   workflow_dispatch:

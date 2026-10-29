@@ -2,6 +2,8 @@ name: Apple Multiplatform Release (iOS, iPadOS & macOS)
 
 on:
   push:
+    branches:
+      - dev
     tags:
       - 'v*'
   workflow_dispatch:

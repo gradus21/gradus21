@@ -2,6 +2,8 @@ name: Desktop Multiplatform Release (Linux & Windows)
 
 on:
   push:
+    branches:
+      - dev
     tags:
       - 'v*'
   workflow_dispatch:
