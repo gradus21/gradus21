@@ -1,10 +1,41 @@
+export interface VaultKdfParams {
+  memory_kib?: number;
+  iterations?: number;
+  parallelism?: number;
+  m_cost?: number;
+  t_cost?: number;
+  p_cost?: number;
+}
+
+export function normalizeKdfParams(raw: unknown): { memory_kib: number; iterations: number; parallelism: number } {
+  let obj: any = raw;
+  if (typeof obj === 'string') {
+    try {
+      obj = JSON.parse(obj);
+    } catch {
+      obj = null;
+    }
+  }
+  if (!obj || typeof obj !== 'object') {
+    return { memory_kib: 19456, iterations: 2, parallelism: 1 };
+  }
+  const memory_kib = Number(obj.memory_kib ?? obj.m_cost ?? 19456);
+  const iterations = Number(obj.iterations ?? obj.t_cost ?? 2);
+  const parallelism = Number(obj.parallelism ?? obj.p_cost ?? 1);
+  return {
+    memory_kib: Number.isFinite(memory_kib) && memory_kib > 0 ? memory_kib : 19456,
+    iterations: Number.isFinite(iterations) && iterations > 0 ? iterations : 2,
+    parallelism: Number.isFinite(parallelism) && parallelism > 0 ? parallelism : 1,
+  };
+}
+
 export interface ActiveVaultSession {
   token: string;
   userId: string;
   email: string;
   isAdmin?: boolean;
   kdfSaltB64: string;
-  kdfParams?: { m_cost: number; t_cost: number; p_cost: number };
+  kdfParams?: VaultKdfParams;
   authKeyB64?: string;
   dekB64: string;
   encryptedDek: string;
@@ -65,7 +96,7 @@ export interface LocalCachedVaultMeta {
   userId: string;
   email: string;
   kdfSaltB64: string;
-  kdfParams?: { m_cost: number; t_cost: number; p_cost: number };
+  kdfParams?: VaultKdfParams;
   encryptedDek: string;
   recoveryEncryptedDek?: string;
   totpEnabled?: boolean;
@@ -121,7 +152,7 @@ export function findLocalCachedVault(targetEmail?: string, targetUserId?: string
               userId: s.userId,
               email: s.email || 'lokal@schule.intern',
               kdfSaltB64: s.kdfSaltB64,
-              kdfParams: s.kdfParams || parsed.kdfParams,
+              kdfParams: normalizeKdfParams(s.kdfParams || parsed.kdfParams),
               encryptedDek: s.encryptedDek,
               recoveryEncryptedDek: s.recoveryEncryptedDek,
               totpEnabled: s.totpEnabled,
@@ -154,7 +185,7 @@ export function findLocalCachedVault(targetEmail?: string, targetUserId?: string
               userId: s.userId,
               email: s.email || 'lokal@schule.intern',
               kdfSaltB64: s.kdfSaltB64,
-              kdfParams: s.kdfParams || parsed.kdfParams,
+              kdfParams: normalizeKdfParams(s.kdfParams || parsed.kdfParams),
               encryptedDek: s.encryptedDek,
               recoveryEncryptedDek: s.recoveryEncryptedDek,
               totpEnabled: s.totpEnabled,

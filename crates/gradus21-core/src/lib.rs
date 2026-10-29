@@ -9,6 +9,23 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
+    fn test_kdf_params_backward_compatibility() {
+        // Legacy format used in older web/local storage
+        let legacy_json = r#"{"m_cost":65536,"t_cost":3,"p_cost":1}"#;
+        let parsed_legacy: KdfParams = serde_json::from_str(legacy_json).expect("parse legacy kdf params");
+        assert_eq!(parsed_legacy.memory_kib, 65536);
+        assert_eq!(parsed_legacy.iterations, 3);
+        assert_eq!(parsed_legacy.parallelism, 1);
+
+        // Standard format
+        let standard_json = r#"{"memory_kib":19456,"iterations":2,"parallelism":1}"#;
+        let parsed_standard: KdfParams = serde_json::from_str(standard_json).expect("parse standard kdf params");
+        assert_eq!(parsed_standard.memory_kib, 19456);
+        assert_eq!(parsed_standard.iterations, 2);
+        assert_eq!(parsed_standard.parallelism, 1);
+    }
+
+    #[test]
     fn test_zero_knowledge_envelope_encryption_and_recovery() {
         let bundle = generate_vault_bundle("LehrkraftGeheim2026!").expect("vault bundle");
         assert_eq!(bundle.recovery_key_formatted.len(), 29);

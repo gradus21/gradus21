@@ -4,7 +4,7 @@ import {
   wasm_encrypt_envelope,
 } from '../wasm-pkg/gradus21_core';
 import { ensureWasmLoaded } from '../utils/wasmLoader';
-import { ActiveVaultSession } from '../components/VaultLockAndAuthModal';
+import { ActiveVaultSession, normalizeKdfParams } from '../components/vault/vaultTypes';
 import type { GlobalTemplateRecord } from '../types/templates';
 import { SyncReconciliationStrategy } from '../components/SyncReconciliationModal';
 import { apiUrl } from '../utils/apiConfig';
@@ -1137,7 +1137,9 @@ export function useVaultWorkspaceSync() {
             authKeyB64: undefined,
             recoveryKeyFormatted: undefined,
           },
-          kdfParams: vaultSession.kdfParams || { m_cost: 65536, t_cost: 3, p_cost: 1 },
+          kdfParams: vaultSession.kdfParams
+            ? normalizeKdfParams(vaultSession.kdfParams)
+            : { memory_kib: 19456, iterations: 2, parallelism: 1 },
           classEnvelopes: mergedClassEnvelopes,
           encryptedSettingsEnvelope: effectiveSettingsEnvelope,
           isLocked: isVaultLocked,
@@ -1659,7 +1661,9 @@ export function useVaultWorkspaceSync() {
             auth_key_b64: authKey,
             kdf_salt_b64: vaultSession.kdfSaltB64,
             kdf_params: JSON.stringify(
-              vaultSession.kdfParams || { m_cost: 65536, t_cost: 3, p_cost: 1 }
+              vaultSession.kdfParams
+                ? normalizeKdfParams(vaultSession.kdfParams)
+                : { memory_kib: 19456, iterations: 2, parallelism: 1 }
             ),
             encrypted_dek: vaultSession.encryptedDek,
             recovery_encrypted_dek: vaultSession.recoveryEncryptedDek,

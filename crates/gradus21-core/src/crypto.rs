@@ -29,8 +29,11 @@ pub enum CryptoError {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KdfParams {
+    #[serde(alias = "m_cost")]
     pub memory_kib: u32,
+    #[serde(alias = "t_cost")]
     pub iterations: u32,
+    #[serde(alias = "p_cost")]
     pub parallelism: u32,
 }
 

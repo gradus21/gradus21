@@ -3,6 +3,15 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.14] - 2026-10-29
+
+### Fix KDF Parameter Backwards Compatibility for Vault Unlock
+- **Rückwärtskompatibilität für KDF-Parameter (Argon2id)**:
+  - Behebung des Entschlüsselungsfehlers (`missing field 'memory_kib' at line 1 column 38`) beim Entsperren des Tresors auf Android und anderen Clients.
+  - Rust Core (`crates/gradus21-core`): Serde-Aliasse (`#[serde(alias = "m_cost")]`, `#[serde(alias = "t_cost")]`, `#[serde(alias = "p_cost")]`) für `KdfParams` hinzugefügt, sodass bestehende lokale Tresore mit Legacy-Parametern nahtlos deserialisiert werden.
+  - Web & Clients: `normalizeKdfParams`-Hilfsfunktion zur deterministischen Normalisierung von Legacy- und Standard-Parametern sowie JSON-Strings vor Übergabe an das WASM-Modul und beim Speichern im lokalen Cache.
+  - Standardisierung aller Default-Fallbacks auf standardkonforme OWASP-Empfehlungen (`{ memory_kib: 19456, iterations: 2, parallelism: 1 }`).
+
 ## [1.2.13] - 2026-10-29
 
 ### Local Offline Registration with Client-Side 2FA & Multi-Platform Keyring/Biometrics

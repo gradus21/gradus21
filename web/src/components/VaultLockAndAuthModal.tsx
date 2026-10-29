@@ -52,6 +52,7 @@ import {
   LocalCachedVaultMeta,
   RegistrationStep,
   findLocalCachedVault,
+  normalizeKdfParams,
   loadLocalPasskeys,
   saveLocalPasskey,
   removeLocalPasskey,
@@ -1988,10 +1989,11 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       let usedEncryptedDek = '';
       let usedSalt = '';
 
-      const kdfParams =
+      const kdfParams = normalizeKdfParams(
         saltData?.kdf_params ||
         localCached?.kdfParams ||
-        session?.kdfParams || { memory_kib: 19456, iterations: 2, parallelism: 1 };
+        session?.kdfParams || { memory_kib: 19456, iterations: 2, parallelism: 1 }
+      );
 
       let lastUnlockError: any = null;
       for (const s of candidateSalts) {
