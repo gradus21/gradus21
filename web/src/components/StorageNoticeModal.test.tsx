@@ -49,4 +49,38 @@ describe('StorageNoticeModal component', () => {
     fireEvent.click(confirmBtn);
     expect(handleClose).toHaveBeenCalledTimes(1);
   });
+
+  it('displays native Linux desktop storage path and adapted text when running in Tauri on Linux', () => {
+    (window as any).__TAURI__ = {};
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (X11; Linux x86_64)',
+      configurable: true,
+    });
+    Object.defineProperty(navigator, 'platform', {
+      value: 'Linux x86_64',
+      configurable: true,
+    });
+    Object.defineProperty(navigator, 'maxTouchPoints', {
+      value: 0,
+      configurable: true,
+    });
+
+    render(
+      <StorageNoticeModal
+        isOpen={true}
+        onClose={vi.fn()}
+        syncStatus="local_only"
+      />
+    );
+
+    expect(
+      screen.getByText(/Gradus21 schützt Ihre Daten durch Zero-Knowledge: Standardmäßig verlassen Ihre Noten niemals diese Desktop-App bzw. dieses Gerät/i)
+    ).toBeInTheDocument();
+
+    expect(screen.getByText('~/.local/share/de.gradus21.app/')).toBeInTheDocument();
+    expect(screen.getByText('App-Datenspeicher')).toBeInTheDocument();
+    expect(screen.getByText('Dauerhaft gesichert (Nativ)')).toBeInTheDocument();
+
+    delete (window as any).__TAURI__;
+  });
 });

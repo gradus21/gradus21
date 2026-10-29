@@ -29,6 +29,7 @@ import { FlowRibbonLogo } from './FlowRibbonLogo';
 import { ClassroomSubjectDataset, TermFilterId } from '../data/demoClasses';
 import { ClassCalculationReport, WorkspaceMode } from '../types/workspace';
 import { SettingsSection } from './SettingsModal';
+import { getStorageLocationInfo } from '../utils/platform';
 
 export interface AppHeaderProps {
   datasets: ClassroomSubjectDataset[];
@@ -87,6 +88,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 }) => {
   const [isStoragePopoverOpen, setIsStoragePopoverOpen] = useState(false);
   const storagePopoverRef = useRef<HTMLDivElement>(null);
+  const storageInfo = getStorageLocationInfo();
 
   useEffect(() => {
     if (!isStoragePopoverOpen) return;
@@ -289,7 +291,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   : syncStatus === 'synced'
                   ? 'Cloud-Sync (E2EE)'
                   : syncStatus === 'local_only'
-                  ? 'Nur lokal (Browser)'
+                  ? storageInfo.isNative
+                    ? 'Nur lokal (App)'
+                    : 'Nur lokal (Browser)'
                   : 'Offline (Lokal)'}
               </span>
 
@@ -383,6 +387,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   <p className="opacity-90">
                     {syncStatus === 'synced'
                       ? 'Ihre Noten werden bei jeder Änderung als AES-256-GCM Chiffretext synchronisiert. Selbst bei Defekt oder Reboot dieses PCs bleiben Ihre Daten erhalten.'
+                      : storageInfo.isNative
+                      ? `Noten liegen ausschließlich im lokalen App-Speicher dieses Geräts (${storageInfo.path}). Ohne Cloud-Sync oder Backup-Export stehen sie nur auf diesem Gerät zur Verfügung.`
                       : 'Noten liegen nur im lokalen Browser-Speicher (IndexedDB). Bei Bereinigungs-Software an Schul-PCs (HDGuard), privatem Fenster oder Cache-Leeren gehen Daten ohne Export verloren!'}
                   </p>
                 </div>
@@ -395,16 +401,26 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   >
                     <span>Speicherort:</span>
                     <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
-                      {syncStatus === 'synced' ? 'E2EE Cloud + Browser' : 'Ausschließlich lokaler Browser'}
+                      {syncStatus === 'synced'
+                        ? storageInfo.isNative
+                          ? 'E2EE Cloud + Desktop-App'
+                          : 'E2EE Cloud + Browser'
+                        : storageInfo.isNative
+                        ? `Lokale Desktop-App (${storageInfo.platformName})`
+                        : 'Ausschließlich lokaler Browser'}
                     </span>
                   </div>
                   <div
                     className="flex justify-between items-center py-1 border-b"
                     style={{ borderColor: 'var(--border-subtle)' }}
                   >
-                    <span>Eviction-Schutz:</span>
+                    <span>{storageInfo.isNative ? 'Speichertyp:' : 'Eviction-Schutz:'}</span>
                     <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
-                      {isPersistentStorage ? 'Aktiv (Persistenter Speicher)' : 'Standardspeicher'}
+                      {storageInfo.isNative
+                        ? 'Dauerhaft lokal gesichert (Nativ)'
+                        : isPersistentStorage
+                        ? 'Aktiv (Persistenter Speicher)'
+                        : 'Standardspeicher'}
                     </span>
                   </div>
                   <div className="flex justify-between items-center py-1">

@@ -90,3 +90,63 @@ export const isMacOS = (): boolean => {
   return /Mac/.test(navigator.platform) && !isAppleTouchDevice();
 };
 
+export interface StorageLocationInfo {
+  isNative: boolean;
+  platformName: string;
+  locationLabel: string;
+  path: string;
+  details: string;
+}
+
+/**
+ * Returns OS- and environment-specific storage path and metadata for local data persistence.
+ */
+export const getStorageLocationInfo = (): StorageLocationInfo => {
+  if (isDesktopTauri()) {
+    if (isLinux()) {
+      return {
+        isNative: true,
+        platformName: 'Linux',
+        locationLabel: 'Lokales Anwendungsdaten-Verzeichnis (XDG Data)',
+        path: '~/.local/share/de.gradus21.app/',
+        details: 'Dauerhafter lokaler Speicher im Benutzerverzeichnis Ihres Linux-Systems.',
+      };
+    }
+    if (isMacOS()) {
+      return {
+        isNative: true,
+        platformName: 'macOS',
+        locationLabel: 'Lokales Anwendungsdaten-Verzeichnis (Application Support)',
+        path: '~/Library/Application Support/de.gradus21.app/',
+        details: 'Dauerhafter lokaler Speicher im Benutzerverzeichnis Ihres Macs.',
+      };
+    }
+    if (isWindows()) {
+      return {
+        isNative: true,
+        platformName: 'Windows',
+        locationLabel: 'Lokales Anwendungsdaten-Verzeichnis (LocalAppData)',
+        path: '%LOCALAPPDATA%\\de.gradus21.app\\',
+        details: 'Dauerhafter lokaler Speicher im Windows-Benutzerprofil.',
+      };
+    }
+    return {
+      isNative: true,
+      platformName: 'Desktop',
+      locationLabel: 'Lokaler App-Datenspeicher',
+      path: 'de.gradus21.app (Anwendungsdaten)',
+      details: 'Dauerhafter lokaler Speicher im Benutzerprofil Ihres Betriebssystems.',
+    };
+  }
+
+  const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'gradus21.de';
+  return {
+    isNative: false,
+    platformName: 'Web-Browser',
+    locationLabel: 'Browser-Sandbox (IndexedDB)',
+    path: `${origin} (IndexedDB & LocalStorage)`,
+    details: 'Im isolierten, verschlüsselten Speicherbereich Ihres Webbrowsers abgelegt.',
+  };
+};
+
+

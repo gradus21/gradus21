@@ -667,6 +667,7 @@ export const App: React.FC = () => {
           onConnectBackupDirectory={handleConnectBackupDirectory}
           onDisconnectBackupDirectory={handleDisconnectBackupDirectory}
           isPersistentStorage={isPersistentStorage}
+          session={vaultSession}
         />
       )}
 

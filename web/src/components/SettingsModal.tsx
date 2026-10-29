@@ -38,12 +38,23 @@ import {
   Trash2,
   Upload,
   X,
+  Copy,
+  Check,
+  Fingerprint,
 } from 'lucide-react';
 import { isFileSystemAccessSupported } from '../utils/localBackupStorage';
 import { useLegalConfig, getDisplayDomain } from '../utils/legalConfig';
 import { checkForAppUpdate, installAppUpdate, UpdateInfo } from '../utils/updater';
 import { APP_VERSION } from '../version';
-import { isDesktopTauri, isLinux } from '../utils/platform';
+import { isTauri, isDesktopTauri, isLinux, getStorageLocationInfo } from '../utils/platform';
+import { ActiveVaultSession } from './vault/vaultTypes';
+import {
+  checkNativeBiometricAvailability,
+  hasNativeBiometricEnrollment,
+  enableNativeBiometricLock,
+  disableNativeBiometricLock,
+  NativeBiometricStatus,
+} from '../utils/nativeBiometric';
 
 export type SettingsSection =
   | 'favorites'
@@ -68,6 +79,7 @@ interface SettingsModalProps {
   onConnectBackupDirectory?: () => void;
   onDisconnectBackupDirectory?: () => void;
   isPersistentStorage?: boolean;
+  session?: ActiveVaultSession | null;
 }
 
 export const WEIGHTING_PRESET_CATALOG: Array<{
@@ -101,9 +113,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onConnectBackupDirectory,
   onDisconnectBackupDirectory,
   isPersistentStorage,
+  session,
 }) => {
   const legalConfig = useLegalConfig();
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection);
+
+  const [nativeBioStatus, setNativeBioStatus] = useState<NativeBiometricStatus>({
+    available: false,
+    biometryType: 'none',
+  });
+  const [hasNativeBio, setHasNativeBio] = useState<boolean>(false);
+  const [isEnrollingBio, setIsEnrollingBio] = useState<boolean>(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    checkNativeBiometricAvailability().then((status) => {
+      if (!isMounted) return;
+      setNativeBioStatus(status);
+      const target = session?.userId || session?.email;
+      setHasNativeBio(hasNativeBiometricEnrollment(target));
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [session?.userId, session?.email]);
 
   useEffect(() => {
     if (initialSection) {
@@ -111,6 +144,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   }, [initialSection]);
   const [showAvvConfirmation, setShowAvvConfirmation] = useState(false);
+  const [copiedPath, setCopiedPath] = useState(false);
+  const storageInfo = getStorageLocationInfo();
   const [templatePendingDelete, setTemplatePendingDelete] = useState<{ id: string; name: string } | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [savedIndicator, setSavedIndicator] = useState(false);
@@ -166,6 +201,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const triggerSaved = () => {
     setSavedIndicator(true);
     setTimeout(() => setSavedIndicator(false), 2000);
+  };
+
+  const handleEnableBiometric = async () => {
+    if (!session?.dekB64 || !session.userId || !session.email) {
+      alert('Hauptschlüssel (DEK) nicht im Speicher. Bitte melde dich erneut mit deinem Master-Passwort an.');
+      return;
+    }
+    try {
+      setIsEnrollingBio(true);
+      await enableNativeBiometricLock(session.userId, session.email, session.dekB64);
+      setHasNativeBio(true);
+      triggerSaved();
+      alert('Fingerabdruck / Face ID erfolgreich aktiviert! Du kannst Gradus21 ab sofort per Biometrie entsperren.');
+    } catch (err: any) {
+      console.warn('Biometric enrollment failed:', err);
+      alert('Aktivierung fehlgeschlagen: ' + (err?.message || String(err)));
+    } finally {
+      setIsEnrollingBio(false);
+    }
+  };
+
+  const handleDisableBiometric = () => {
+    if (window.confirm('Möchtest du die biometrische Entsperrung auf diesem Gerät wirklich deaktivieren?')) {
+      if (session?.userId) {
+        disableNativeBiometricLock(session.userId);
+      }
+      setHasNativeBio(false);
+      triggerSaved();
+    }
   };
 
   const toggleFavoritePreset = (presetId: string) => {
@@ -810,6 +874,70 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
              ================================================================= */}
           {activeSection === 'storage' && (
             <div className="space-y-5">
+              {/* Card 0: Biometrische Entsperrung (Android Keystore / Apple Secure Enclave) */}
+              {isTauri() && (
+                <div
+                  className="p-5 rounded-2xl border space-y-4"
+                  style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Fingerprint className="w-4 h-4" style={{ color: 'var(--primary-500)' }} />
+                        <h4 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
+                          Biometrische Entsperrung (Fingerabdruck / Face ID)
+                        </h4>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            hasNativeBio
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                              : 'bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+                          }`}
+                        >
+                          {hasNativeBio ? 'Aktiviert (Hardware-Schutz)' : 'Deaktiviert'}
+                        </span>
+                      </div>
+                      <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                        Entsperre deinen verschlüsselten Noten-Tresor in der App direkt per{' '}
+                        <strong>
+                          {nativeBioStatus.biometryType === 'face' ? 'Face ID' : 'Fingerabdruck'}
+                        </strong>
+                        , ohne jedes Mal das Master-Passwort einzugeben oder den Browser zu öffnen.
+                        Dein Tresorschlüssel wird sicher im Hardware-Sicherheitschip deines Geräts (Android Keystore / StrongBox) mit AES-256-GCM verschlüsselt.
+                      </p>
+                    </div>
+
+                    <div className="shrink-0 mt-1">
+                      {hasNativeBio ? (
+                        <button
+                          type="button"
+                          onClick={handleDisableBiometric}
+                          className="px-3.5 py-1.5 rounded-xl border border-rose-500/30 text-rose-600 text-xs font-semibold hover:bg-rose-500/10 transition"
+                        >
+                          Deaktivieren
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleEnableBiometric}
+                          disabled={isEnrollingBio || !nativeBioStatus.available}
+                          className="px-4 py-2 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 shadow-sm transition hover:opacity-95 disabled:opacity-50"
+                          style={{ backgroundColor: 'var(--primary-500)' }}
+                        >
+                          <Fingerprint className="w-3.5 h-3.5" />
+                          <span>{isEnrollingBio ? 'Wird eingerichtet...' : 'Jetzt aktivieren'}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {!nativeBioStatus.available && !hasNativeBio && (
+                    <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-200 text-[11px]">
+                      Biometrische Hardware auf diesem Gerät derzeit nicht verfügbar oder in den Systemeinstellungen nicht eingerichtet.
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Card 1: Cloud-Synchronisation (Opt-In) */}
               <div
                 className="p-5 rounded-2xl border space-y-4"
@@ -833,7 +961,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </span>
                     </div>
                     <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                      Gemäß DSGVO und Grundsatz der Datensparsamkeit verbleiben alle Noten und Schülerdaten standardmäßig <strong>ausschließlich lokal verschlüsselt im Browser</strong> dieses Geräts. 
+                      Gemäß DSGVO und Grundsatz der Datensparsamkeit verbleiben alle Noten und Schülerdaten standardmäßig <strong>ausschließlich lokal verschlüsselt auf diesem Gerät</strong> ({storageInfo.isNative ? 'in der Desktop-App' : 'im Browser'}). 
                       Wenn du Cloud-Sync aktivierst, werden deine Datensätze mit modernem <strong>AES-256-GCM Zero-Knowledge</strong> verschlüsselt auf dem Server gesichert, um geräteübergreifendes Arbeiten zu ermöglichen.
                     </p>
                     <div className="pt-1 flex flex-wrap items-center gap-3">
@@ -936,6 +1064,46 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                   <p className="text-[11px] text-zinc-400">
                     Standard: https://gradus21.app. Du kannst hier jederzeit einen eigenen Schulserver hinterlegen.
+                  </p>
+                </div>
+
+                {/* Lokaler Speicherort auf diesem Gerät */}
+                <div className="pt-3 border-t text-xs space-y-1.5" style={{ borderColor: 'var(--border-subtle)' }}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}>
+                      <HardDrive className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                      <span>Lokaler Speicherort ({storageInfo.locationLabel}):</span>
+                    </span>
+                    {typeof navigator !== 'undefined' && navigator.clipboard && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(storageInfo.path);
+                          setCopiedPath(true);
+                          setTimeout(() => setCopiedPath(false), 2000);
+                        }}
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400 hover:underline cursor-pointer"
+                        title="Pfad in die Zwischenablage kopieren"
+                      >
+                        {copiedPath ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-600" />
+                            <span className="text-emerald-600">Kopiert!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>Pfad kopieren</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                  <div className="font-mono text-[11px] px-2.5 py-1.5 rounded-lg bg-black/5 dark:bg-white/5 break-all select-all font-semibold text-teal-800 dark:text-teal-300">
+                    {storageInfo.path}
+                  </div>
+                  <p className="text-[11px] opacity-75">
+                    {storageInfo.details}
                   </p>
                 </div>
               </div>

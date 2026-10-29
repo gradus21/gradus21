@@ -36,7 +36,8 @@ fn focus_main_window(app: tauri::AppHandle) {
 pub fn run() {
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_biometric::init());
 
     #[cfg(desktop)]
     {

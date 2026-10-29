@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Shield,
   AlertTriangle,
@@ -9,7 +9,10 @@ import {
   X,
   FileCheck,
   Info,
+  Copy,
+  Check,
 } from 'lucide-react';
+import { getStorageLocationInfo } from '../utils/platform';
 
 export interface StorageNoticeModalProps {
   isOpen: boolean;
@@ -30,9 +33,20 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
   onExportBackup,
   onOpenStorageSettings,
 }) => {
+  const [copiedPath, setCopiedPath] = useState(false);
+
   if (!isOpen) return null;
 
   const isCloudSynced = syncStatus === 'synced';
+  const storageInfo = getStorageLocationInfo();
+
+  const handleCopyPath = () => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(storageInfo.path);
+      setCopiedPath(true);
+      setTimeout(() => setCopiedPath(false), 2000);
+    }
+  };
 
   return (
     <div
@@ -81,7 +95,11 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
                     : 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
                 }`}
               >
-                {isCloudSynced ? 'E2EE Cloud aktiv' : 'Speicherampel: Nur lokal'}
+                {isCloudSynced
+                  ? 'E2EE Cloud aktiv'
+                  : storageInfo.isNative
+                  ? `Speicherampel: Nur lokal (${storageInfo.platformName})`
+                  : 'Speicherampel: Nur lokal'}
               </span>
               <span className="text-[10px] font-semibold opacity-60">
                 § 241 Abs. 2 BGB Aufklärung
@@ -105,12 +123,12 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
         >
           <div className="flex items-center gap-2 font-bold text-xs">
             <Shield className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
-            <span>Zero-Knowledge & Speicherort-Garantie:</span>
+            <span>Zero-Knowledge &amp; Speicherort-Garantie:</span>
           </div>
           <p className="font-medium text-xs sm:text-[13px] leading-snug">
-            „Gradus21 schützt Ihre Daten durch Zero-Knowledge: Standardmäßig verlassen Ihre
-            Noten niemals diesen Browser. Bitte sichern Sie Ihren Tresor regelmäßig als
-            .gradus21-Datei oder aktivieren Sie den verschlüsselten Cloud-Sync.“
+            {storageInfo.isNative
+              ? '„Gradus21 schützt Ihre Daten durch Zero-Knowledge: Standardmäßig verlassen Ihre Noten niemals diese Desktop-App bzw. dieses Gerät. Bitte sichern Sie Ihren Tresor regelmäßig als .gradus21-Datei oder aktivieren Sie den verschlüsselten Cloud-Sync.“'
+              : '„Gradus21 schützt Ihre Daten durch Zero-Knowledge: Standardmäßig verlassen Ihre Noten niemals diesen Browser. Bitte sichern Sie Ihren Tresor regelmäßig als .gradus21-Datei oder aktivieren Sie den verschlüsselten Cloud-Sync.“'}
           </p>
         </div>
 
@@ -119,9 +137,53 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
           <p>
             Um maximale <strong>DSGVO- und Schuldatenschutz-Konformität</strong> zu garantieren,
             werden Schüler:innendaten und Noten standardmäßig auf keinem zentralen Cloud-Server
-            gespeichert, sondern ausschließlich verschlüsselt in der lokalen Browser-Datenbank
-            (IndexedDB) dieses Endgeräts abgelegt.
+            gespeichert, sondern ausschließlich verschlüsselt{' '}
+            {storageInfo.isNative
+              ? 'im lokalen Datenspeicher dieser Desktop-App auf diesem Endgerät abgelegt.'
+              : 'in der lokalen Browser-Datenbank (IndexedDB) dieses Endgeräts abgelegt.'}
           </p>
+
+          {/* Lokaler Speicherort-Pfad */}
+          <div
+            className="p-3 rounded-xl border space-y-1.5"
+            style={{
+              backgroundColor: 'var(--bg-subtle)',
+              borderColor: 'var(--border-subtle)',
+            }}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-bold flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--text-primary)' }}>
+                <HardDrive className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                <span>Lokaler Speicherort ({storageInfo.locationLabel}):</span>
+              </span>
+              {typeof navigator !== 'undefined' && navigator.clipboard && (
+                <button
+                  type="button"
+                  onClick={handleCopyPath}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400 hover:underline cursor-pointer"
+                  title="Pfad in Zwischenablage kopieren"
+                >
+                  {copiedPath ? (
+                    <>
+                      <Check className="w-3 h-3 text-emerald-600" />
+                      <span className="text-emerald-600">Kopiert!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3 h-3" />
+                      <span>Pfad kopieren</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+            <div className="font-mono text-[11px] px-2 py-1 rounded bg-black/5 dark:bg-white/5 break-all select-all text-teal-800 dark:text-teal-300 font-semibold">
+              {storageInfo.path}
+            </div>
+            <p className="text-[10px] opacity-75">
+              {storageInfo.details}
+            </p>
+          </div>
 
           <div
             className="p-3.5 rounded-xl border space-y-2 text-[11px]"
@@ -134,18 +196,34 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
               ⚠️ Typische Gefahrenquellen an Schul- und Arbeitsrechnern:
             </div>
             <ul className="space-y-1.5 list-disc list-inside">
-              <li>
-                <strong>Schul-PCs mit Rollback-Software (z. B. HDGuard, Deep Freeze):</strong> Beim
-                Neustart oder Abmelden wird das Benutzerprofil oft vollständig zurückgesetzt.
-              </li>
-              <li>
-                <strong>Browser-Bereinigung:</strong> Das Löschen von Cookies &amp; Website-Daten im
-                Browser löscht auch die lokale Notendatenbank.
-              </li>
-              <li>
-                <strong>Gerätewechsel:</strong> Ohne aktiven Cloud-Sync oder Backup-Import stehen die
-                Noten nur auf genau diesem Rechner zur Verfügung.
-              </li>
+              {storageInfo.isNative ? (
+                <>
+                  <li>
+                    <strong>Gerätewechsel &amp; Hardwaredefekte:</strong> Ohne aktiven Cloud-Sync oder Backup-Import stehen die Noten nur auf genau diesem Rechner zur Verfügung.
+                  </li>
+                  <li>
+                    <strong>Betriebssystem-Neuinstallation &amp; Profil-Löschung:</strong> Vor größeren System-Upgrades oder Benutzerwechseln stets ein verschlüsseltes <code>.gradus21</code>-Backup sichern.
+                  </li>
+                  <li>
+                    <strong>Schul-PCs mit Rollback-Software (z. B. HDGuard, Deep Freeze):</strong> Falls die App auf verwalteten Rechnern ausgeführt wird, wird das Benutzerprofil oft beim Abmelden zurückgesetzt.
+                  </li>
+                </>
+              ) : (
+                <>
+                  <li>
+                    <strong>Schul-PCs mit Rollback-Software (z. B. HDGuard, Deep Freeze):</strong> Beim
+                    Neustart oder Abmelden wird das Benutzerprofil oft vollständig zurückgesetzt.
+                  </li>
+                  <li>
+                    <strong>Browser-Bereinigung:</strong> Das Löschen von Cookies &amp; Website-Daten im
+                    Browser löscht auch die lokale Notendatenbank.
+                  </li>
+                  <li>
+                    <strong>Gerätewechsel:</strong> Ohne aktiven Cloud-Sync oder Backup-Import stehen die
+                    Noten nur auf genau diesem Rechner zur Verfügung.
+                  </li>
+                </>
+              )}
             </ul>
           </div>
 
@@ -172,15 +250,19 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
             >
               <CheckCircle2
                 className={`w-4 h-4 shrink-0 ${
-                  isPersistentStorage ? 'text-emerald-600' : 'text-amber-500'
+                  storageInfo.isNative || isPersistentStorage ? 'text-emerald-600' : 'text-amber-500'
                 }`}
               />
               <div>
                 <span className="block font-semibold" style={{ color: 'var(--text-primary)' }}>
-                  Browser-Persistenz
+                  {storageInfo.isNative ? 'App-Datenspeicher' : 'Browser-Persistenz'}
                 </span>
                 <span className="text-[10px] opacity-75">
-                  {isPersistentStorage ? 'Garantiert (Eviction-Schutz)' : 'Standardspeicher'}
+                  {storageInfo.isNative
+                    ? 'Dauerhaft gesichert (Nativ)'
+                    : isPersistentStorage
+                    ? 'Garantiert (Eviction-Schutz)'
+                    : 'Standardspeicher'}
                 </span>
               </div>
             </div>
@@ -231,3 +313,4 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
     </div>
   );
 };
+

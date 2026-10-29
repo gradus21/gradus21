@@ -84,6 +84,13 @@ import {
   DesktopAuthParams,
 } from '../utils/desktopAuth';
 import { isTauri, isDesktopTauri, isAppleTouchDevice } from '../utils/platform';
+import {
+  checkNativeBiometricAvailability,
+  hasNativeBiometricEnrollment,
+  unlockWithNativeBiometric,
+  enableNativeBiometricLock,
+  NativeBiometricStatus,
+} from '../utils/nativeBiometric';
 
 
 export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
@@ -105,6 +112,13 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   const [desktopAuthCompleted, setDesktopAuthCompleted] = useState<boolean>(false);
   const [pendingDesktopSession, setPendingDesktopSession] = useState<ActiveVaultSession | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [nativeBioStatus, setNativeBioStatus] = useState<NativeBiometricStatus>({
+    available: false,
+    biometryType: 'none',
+  });
+  const [hasNativeBio, setHasNativeBio] = useState<boolean>(false);
+  const [enableBioOnLogin, setEnableBioOnLogin] = useState<boolean>(true);
+  const autoBioAttemptedRef = React.useRef(false);
 
   const [email, setEmail] = useState(() => {
     if (desktopAuthParams?.email) return desktopAuthParams.email;
@@ -214,6 +228,19 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     const entry = store[email.trim().toLowerCase()] || null;
     setLocalPasskeyForEmail(entry);
   }, [email, session?.passkeyCredentialId]);
+
+  useEffect(() => {
+    let active = true;
+    checkNativeBiometricAvailability().then((status) => {
+      if (!active) return;
+      setNativeBioStatus(status);
+      const target = email || session?.email || session?.userId;
+      setHasNativeBio(hasNativeBiometricEnrollment(target));
+    });
+    return () => {
+      active = false;
+    };
+  }, [email, session?.email, session?.userId]);
 
   useEffect(() => {
     if (session?.token) {
@@ -802,6 +829,14 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     try {
       const serverUrl = getServerUrl();
       const authSession = await startDesktopBrowserAuth(serverUrl, targetEmail || email.trim() || undefined);
+      if (nativeBioStatus.available && !hasNativeBio && authSession?.dekB64 && authSession?.userId) {
+        try {
+          await enableNativeBiometricLock(authSession.userId, authSession.email, authSession.dekB64);
+          setHasNativeBio(true);
+        } catch (bioErr) {
+          console.warn('Native biometric setup after browser auth skipped or cancelled:', bioErr);
+        }
+      }
       setStatusMsg('Anmeldung erfolgreich! Tresor wird entsperrt...');
       await onUnlockSuccess(authSession);
     } catch (err: any) {
@@ -817,6 +852,116 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       setIsLoading(false);
     }
   };
+
+  // ===========================================================================
+  // MIT NATIVEM FINGERABDRUCK / BIOMETRIE ENTSPERREN (Android / Mobile Hardware KeyStore)
+  // ===========================================================================
+  const handleUnlockWithNativeBiometric = async () => {
+    setErrorMsg(null);
+    setStatusMsg(
+      nativeBioStatus.biometryType === 'face'
+        ? 'Face ID wird geprüft...'
+        : 'Fingerabdruck wird geprüft...'
+    );
+    setIsLoading(true);
+
+    try {
+      const targetUser = email.trim().toLowerCase() || session?.email || session?.userId;
+      const res = await unlockWithNativeBiometric(targetUser);
+
+      await ensureWasmLoaded();
+
+      const effectiveEmail = res.email || email.trim().toLowerCase() || session?.email || '';
+      const effectiveUserId = res.userId || session?.userId || 'user_local';
+
+      const localCached = findLocalCachedVault(effectiveEmail, effectiveUserId);
+      const cachedMeta = loadLocalRecoveryMeta(effectiveEmail);
+
+      let recoveryKeyFormatted = session?.recoveryKeyFormatted;
+      let recoveryEncryptedDek =
+        session?.recoveryEncryptedDek ||
+        localCached?.recoveryEncryptedDek ||
+        cachedMeta?.recoveryEncryptedDek ||
+        '';
+
+      if (!recoveryEncryptedDek && res.dekB64) {
+        try {
+          const wrapped = JSON.parse(
+            wasm_wrap_dek_with_recovery(res.dekB64, recoveryKeyFormatted || '')
+          );
+          recoveryKeyFormatted = wrapped.recovery_key_formatted;
+          recoveryEncryptedDek = wrapped.recovery_encrypted_dek;
+          saveLocalRecoveryMeta({
+            email: effectiveEmail,
+            recoveryEncryptedDek,
+          });
+        } catch {
+          // ignore
+        }
+      }
+
+      if (effectiveEmail) {
+        saveLastLoginEmail(effectiveEmail);
+        setEmail(effectiveEmail);
+      }
+
+      const unlockedSession: ActiveVaultSession = {
+        token: session?.token || '',
+        userId: effectiveUserId,
+        email: effectiveEmail,
+        isAdmin: session?.isAdmin ?? false,
+        kdfSaltB64: session?.kdfSaltB64 || localCached?.kdfSaltB64 || '',
+        kdfParams: session?.kdfParams || localCached?.kdfParams,
+        authKeyB64: session?.authKeyB64 || '',
+        dekB64: res.dekB64,
+        encryptedDek: session?.encryptedDek || localCached?.encryptedDek || '',
+        recoveryEncryptedDek,
+        recoveryKeyFormatted,
+        totpEnabled: session?.totpEnabled ?? localCached?.totpEnabled ?? false,
+        totpSecretBase32: session?.totpSecretBase32 ?? localCached?.totpSecretBase32,
+        passkeyCredentialId: session?.passkeyCredentialId,
+        passkeyLabel: session?.passkeyLabel,
+        serverSyncedCount: session?.serverSyncedCount || 0,
+      };
+
+      setStatusMsg('Tresor erfolgreich entsperrt!');
+      await onUnlockSuccess(unlockedSession);
+    } catch (err: any) {
+      console.warn('Native biometric unlock failed or cancelled:', err);
+      setStatusMsg(null);
+      const msg = err?.message || String(err) || '';
+      const isCancelled =
+        msg.toLowerCase().includes('cancel') ||
+        msg.toLowerCase().includes('abgebrochen') ||
+        msg.toLowerCase().includes('user cancelled') ||
+        msg.toLowerCase().includes('dismiss');
+
+      if (isCancelled) {
+        setErrorMsg('Biometrische Entsperrung abgebrochen.');
+      } else {
+        setErrorMsg(msg || 'Biometrische Entsperrung fehlgeschlagen.');
+      }
+      setHasNativeBio(hasNativeBiometricEnrollment(email || session?.email || session?.userId));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (
+      isLockedScreen &&
+      hasNativeBio &&
+      nativeBioStatus.available &&
+      !autoBioAttemptedRef.current &&
+      !desktopAuthParams
+    ) {
+      autoBioAttemptedRef.current = true;
+      const t = setTimeout(() => {
+        handleUnlockWithNativeBiometric();
+      }, 250);
+      return () => clearTimeout(t);
+    }
+  }, [isLockedScreen, hasNativeBio, nativeBioStatus.available, desktopAuthParams]);
 
   // ===========================================================================
   // MIT PASSKEY ÖFFNEN (1-Klick Entsperrung per Fingerabdruck / Face ID & PRF)
@@ -840,6 +985,11 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         }
       }
       const targetEmail = enteredEmail || localEntry?.email || undefined;
+
+      if (hasNativeBio) {
+        await handleUnlockWithNativeBiometric();
+        return;
+      }
 
       if (isTauri()) {
         await handleUnlockWithBrowserPasskey(targetEmail);
@@ -1808,6 +1958,16 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       const cachedMeta = loadLocalRecoveryMeta(email);
       const effectiveUserId = loginData?.user_id || session?.userId || localCached?.userId || 'user_local';
 
+      // Falls native Biometrie verfügbar ist, aber noch nicht eingerichtet wurde:
+      if (enableBioOnLogin && nativeBioStatus.available && unlocked.dek_b64) {
+        try {
+          await enableNativeBiometricLock(effectiveUserId, email.trim().toLowerCase(), unlocked.dek_b64);
+          setHasNativeBio(true);
+        } catch (bioErr) {
+          console.warn('Biometric setup during login skipped or cancelled:', bioErr);
+        }
+      }
+
       onUnlockSuccess({
         token: loginData?.token || '',
         userId: effectiveUserId,
@@ -2373,56 +2533,101 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           {/* 1-Klick Passkey-Schnellstart (nur im Login-Tab) */}
           {authTab === 'login' && !isRegisterWizard && (
             <div className="space-y-2">
-              <button
-                type="button"
-                onClick={handleUnlockWithPasskey}
-                disabled={isLoading}
-                className="w-full py-3 px-4 rounded-2xl text-xs font-bold text-white flex items-center justify-center gap-2.5 shadow-md transition hover:opacity-95 disabled:opacity-50 cursor-pointer"
-                style={{ backgroundColor: 'var(--primary-500)' }}
-              >
-                <Fingerprint className="w-5 h-5" />
-                <span>
-                  {useBrowserFlow
-                    ? 'Mit Passkey im Browser anmelden'
-                    : localPasskeyForEmail
-                    ? 'Mit Fingerabdruck / Face ID öffnen (Passkey)'
-                    : 'Mit Passkey anmelden'}
-                </span>
-                {useBrowserFlow && <ExternalLink className="w-3.5 h-3.5 opacity-80" />}
-              </button>
-              {useBrowserFlow ? (
-                <div
-                  className="text-[11px] text-center"
-                  style={{ color: 'var(--text-secondary)' }}
-                >
-                  <span>
-                    Öffnet deinen Standard-Browser für passwortlose Anmeldung (Fingerabdruck, Face ID, Google Passwortmanager, Windows Hello, 1Password).
-                  </span>
-                </div>
-              ) : localPasskeyForEmail ? (
-                <div
-                  className="text-[11px] text-center flex items-center justify-center gap-1.5 flex-wrap"
-                  style={{ color: 'var(--text-secondary)' }}
-                >
-                  <span>
-                    Passkey aktiv für <strong>{localPasskeyForEmail.email}</strong>
-                  </span>
-                  {localPasskeyForEmail.prfSupported && (
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100/80 text-emerald-800 border border-emerald-300/60 inline-flex items-center gap-1">
-                      <Shield className="w-2.5 h-2.5" />
-                      Hardware PRF
+              {hasNativeBio ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleUnlockWithNativeBiometric}
+                    disabled={isLoading}
+                    className="w-full py-3.5 px-4 rounded-2xl text-xs font-bold text-white flex items-center justify-center gap-2.5 shadow-md transition hover:opacity-95 disabled:opacity-50 cursor-pointer"
+                    style={{ backgroundColor: 'var(--primary-500)' }}
+                  >
+                    <Fingerprint className="w-5 h-5" />
+                    <span>
+                      {nativeBioStatus.biometryType === 'face'
+                        ? 'Mit Face ID entsperren'
+                        : 'Mit Fingerabdruck entsperren'}
                     </span>
+                  </button>
+                  <div
+                    className="text-[11px] text-center"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    <span>
+                      Hardware-geschützter Schnellzugriff via Android Keystore.
+                    </span>
+                  </div>
+                  {useBrowserFlow && (
+                    <button
+                      type="button"
+                      onClick={() => handleUnlockWithBrowserPasskey()}
+                      disabled={isLoading}
+                      className="w-full py-2 px-3 rounded-xl text-[11px] font-semibold border flex items-center justify-center gap-1.5 transition hover:opacity-80 cursor-pointer"
+                      style={{
+                        backgroundColor: 'var(--bg-surface)',
+                        borderColor: 'var(--border-subtle)',
+                        color: 'var(--text-primary)',
+                      }}
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 opacity-80" />
+                      <span>Alternativ: Mit Passkey im Browser anmelden</span>
+                    </button>
                   )}
-                </div>
+                </>
               ) : (
-                <div
-                  className="text-[11px] text-center"
-                  style={{ color: 'var(--text-secondary)' }}
-                >
-                  <span>
-                    Unterstützt auch neue Geräte & synchronisierte Passkeys (iCloud, 1Password, Google).
-                  </span>
-                </div>
+                <>
+                  <button
+                    type="button"
+                    onClick={handleUnlockWithPasskey}
+                    disabled={isLoading}
+                    className="w-full py-3 px-4 rounded-2xl text-xs font-bold text-white flex items-center justify-center gap-2.5 shadow-md transition hover:opacity-95 disabled:opacity-50 cursor-pointer"
+                    style={{ backgroundColor: 'var(--primary-500)' }}
+                  >
+                    <Fingerprint className="w-5 h-5" />
+                    <span>
+                      {useBrowserFlow
+                        ? 'Mit Passkey im Browser anmelden'
+                        : localPasskeyForEmail
+                        ? 'Mit Fingerabdruck / Face ID öffnen (Passkey)'
+                        : 'Mit Passkey anmelden'}
+                    </span>
+                    {useBrowserFlow && <ExternalLink className="w-3.5 h-3.5 opacity-80" />}
+                  </button>
+                  {useBrowserFlow ? (
+                    <div
+                      className="text-[11px] text-center"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      <span>
+                        Öffnet deinen Standard-Browser für passwortlose Anmeldung (Fingerabdruck, Face ID, Google Passwortmanager, Windows Hello, 1Password).
+                      </span>
+                    </div>
+                  ) : localPasskeyForEmail ? (
+                    <div
+                      className="text-[11px] text-center flex items-center justify-center gap-1.5 flex-wrap"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      <span>
+                        Passkey aktiv für <strong>{localPasskeyForEmail.email}</strong>
+                      </span>
+                      {localPasskeyForEmail.prfSupported && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100/80 text-emerald-800 border border-emerald-300/60 inline-flex items-center gap-1">
+                          <Shield className="w-2.5 h-2.5" />
+                          Hardware PRF
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <div
+                      className="text-[11px] text-center"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      <span>
+                        Unterstützt auch neue Geräte & synchronisierte Passkeys (iCloud, 1Password, Google).
+                      </span>
+                    </div>
+                  )}
+                </>
               )}
               <div className="flex items-center gap-3 pt-1">
                 <div className="h-px flex-1" style={{ backgroundColor: 'var(--border-subtle)' }} />
@@ -2652,6 +2857,22 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                     style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
                   />
                 </div>
+              )}
+
+              {nativeBioStatus.available && !hasNativeBio && (
+                <label className="flex items-center gap-2 cursor-pointer text-xs py-1 select-none">
+                  <input
+                    type="checkbox"
+                    checked={enableBioOnLogin}
+                    onChange={(e) => setEnableBioOnLogin(e.target.checked)}
+                    className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500 border-zinc-300"
+                  />
+                  <span style={{ color: 'var(--text-secondary)' }}>
+                    {nativeBioStatus.biometryType === 'face'
+                      ? 'Auf diesem Gerät per Face ID entsperren'
+                      : 'Auf diesem Gerät per Fingerabdruck entsperren'}
+                  </span>
+                </label>
               )}
 
               <button

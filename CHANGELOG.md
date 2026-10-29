@@ -3,6 +3,21 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.12] - 2026-10-29
+
+### Native In-App Biometric Authentication (Android Keystore / BiometricPrompt)
+- **Nativer Hardware-Biometrie-Prompt direkt in der Android-App (`@tauri-apps/plugin-biometric`)**:
+  - Implementierung einer nativen, hardwaregestützten Fingerabdruck- und Face-ID-Entsperrung für Android, sodass Lehrkräfte die App direkt per Sensor berühren und entsperren können, ohne den Browser zu öffnen.
+  - Der Tresor-Hauptschlüssel (DEK) wird im Hardware-Sicherheitschip des Android-Geräts (`AndroidKeyStore` StrongBox/TEE) per AES-256-GCM verschlüsselt (`biometricCipher`).
+  - **Sicherheitsauflage 1 (PIN-Ausschluss)**: Striktes Erzwingen von `allowDeviceCredential: false`, wodurch ein Aushebeln der biometrischen Abfrage durch den allgemeinen Geräte-PIN/Muster ausgeschlossen ist.
+  - **Sicherheitsauflage 2 (KeyStore-Invalidierung)**: Bei Änderung oder Hinzufügen von biometrischen Daten in den Android-Systemeinstellungen invalidiert der Android-KeyStore den Schlüssel automatisch (`KeyPermanentlyInvalidatedException`). Die App erkennt dies, setzt den biometrischen Schnellzugriff zurück und verlangt zur erneuten Autorisierung die einmalige Eingabe des Master-Passworts.
+  - **Sicherheitsauflage 3 (Root of Trust)**: Das Master-Passwort bleibt das kryptografische Fundament; der Biometrie-Slot dient als lokaler Hardware-Beschleuniger für die native App.
+- **Intuitiver Entsperr- und Einrichtungs-Flow**:
+  - Bei aktiver biometrischer Einrichtung auf dem gesperrten Bildschirm erscheint ein prominenter primärer Button „Mit Fingerabdruck entsperren“ (bzw. Face ID), der bei App-Start automatisch per BiometricPrompt aufgerufen werden kann.
+  - Nach Erstanmeldung mit Master-Passwort oder Browser-Passkey kann die biometrische Entsperrung mit einem Klick aktiviert werden.
+  - Dedizierte Statuskarte in den Einstellungen (`SettingsModal` -> Datenschutz & Speicher) zum bequemen Aktivieren oder Deaktivieren der Biometrie.
+  - Vollständiger Erhalt des Browser-Passkey-Flows als alternative Anmeldeoption auf allen Plattformen.
+
 ## [1.2.11] - 2026-10-29
 
 ### Android Passkey Authentication & Resilient Dual-Channel Auth Relay

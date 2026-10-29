@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { isStandaloneClient, isTauri, isAppleTouchDevice, isIPad } from './platform';
+import {
+  isStandaloneClient,
+  isTauri,
+  isAppleTouchDevice,
+  isIPad,
+  getStorageLocationInfo,
+} from './platform';
 
 describe('platform utilities', () => {
   const originalWindow = global.window;
@@ -69,5 +75,83 @@ describe('platform utilities', () => {
     });
     expect(isAppleTouchDevice()).toBe(true);
     expect(isIPad()).toBe(true);
+  });
+
+  describe('getStorageLocationInfo', () => {
+    it('returns browser sandbox details when not running in Tauri', () => {
+      const info = getStorageLocationInfo();
+      expect(info.isNative).toBe(false);
+      expect(info.platformName).toBe('Web-Browser');
+      expect(info.path).toContain('IndexedDB');
+    });
+
+    it('returns Linux XDG path when running in Tauri on Linux', () => {
+      (window as any).__TAURI__ = {};
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (X11; Linux x86_64)',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'platform', {
+        value: 'Linux x86_64',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'maxTouchPoints', {
+        value: 0,
+        configurable: true,
+      });
+
+      const info = getStorageLocationInfo();
+      expect(info.isNative).toBe(true);
+      expect(info.platformName).toBe('Linux');
+      expect(info.path).toBe('~/.local/share/de.gradus21.app/');
+
+      delete (window as any).__TAURI__;
+    });
+
+    it('returns macOS Application Support path when running in Tauri on Mac', () => {
+      (window as any).__TAURI__ = {};
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'platform', {
+        value: 'MacIntel',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'maxTouchPoints', {
+        value: 0,
+        configurable: true,
+      });
+
+      const info = getStorageLocationInfo();
+      expect(info.isNative).toBe(true);
+      expect(info.platformName).toBe('macOS');
+      expect(info.path).toBe('~/Library/Application Support/de.gradus21.app/');
+
+      delete (window as any).__TAURI__;
+    });
+
+    it('returns Windows LocalAppData path when running in Tauri on Windows', () => {
+      (window as any).__TAURI__ = {};
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'platform', {
+        value: 'Win32',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'maxTouchPoints', {
+        value: 0,
+        configurable: true,
+      });
+
+      const info = getStorageLocationInfo();
+      expect(info.isNative).toBe(true);
+      expect(info.platformName).toBe('Windows');
+      expect(info.path).toBe('%LOCALAPPDATA%\\de.gradus21.app\\');
+
+      delete (window as any).__TAURI__;
+    });
   });
 });
