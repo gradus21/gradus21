@@ -105,9 +105,12 @@ export const isDesktopTauri = (): boolean => {
 
 /**
  * Helper to identify Linux desktop systems (e.g. for package-manager guidance vs AppImage).
+ * Note: Android devices report 'Linux; Android ...' in userAgent and 'Linux aarch64' in platform.
+ * Therefore Android must be explicitly excluded to avoid confusing Android with Linux desktop.
  */
 export const isLinux = (): boolean => {
   if (typeof navigator === 'undefined') return false;
+  if (isAndroid()) return false;
   return /Linux/.test(navigator.userAgent || navigator.platform);
 };
 

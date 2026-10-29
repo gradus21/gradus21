@@ -12,7 +12,7 @@
  * - Zero external telemetry in local-only mode.
  */
 
-import { isTauri, isLinux } from './platform';
+import { isTauri, isLinux, isDesktopTauri } from './platform';
 
 export type LinuxAuthMethod =
   | 'password'        // Master-Passwort (Standard, 100% offline, kein Hintergrunddienst)
@@ -34,9 +34,10 @@ export interface LinuxAuthMeta {
 
 /**
  * Checks whether the current runtime is Linux inside a Tauri desktop app.
+ * Returns false on mobile platforms (Android/iOS) and web browsers.
  */
 export const isLinuxDesktopTauri = (): boolean => {
-  return isTauri() && isLinux();
+  return isDesktopTauri() && isLinux();
 };
 
 /**
@@ -72,7 +73,7 @@ export const setLinuxAuthMethod = (method: LinuxAuthMethod): void => {
 // ============================================================================
 
 export const isLinuxKeyringSupported = async (): Promise<boolean> => {
-  if (!isTauri()) return false;
+  if (!isLinuxDesktopTauri()) return false;
   try {
     const { invoke } = await import('@tauri-apps/api/core');
     const available = await invoke<boolean>('keyring_is_available');

@@ -4,6 +4,10 @@ import {
   isTauri,
   isAppleTouchDevice,
   isIPad,
+  isAndroid,
+  isLinux,
+  isDesktopTauri,
+  isMobileTauri,
   getStorageLocationInfo,
 } from './platform';
 
@@ -75,6 +79,56 @@ describe('platform utilities', () => {
     });
     expect(isAppleTouchDevice()).toBe(true);
     expect(isIPad()).toBe(true);
+  });
+
+  it('correctly distinguishes Android devices from Linux desktop systems', () => {
+    // Android device (User Agent contains 'Linux; Android ...' and platform 'Linux aarch64')
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UQ1A.240105.004; wv) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36',
+      configurable: true,
+    });
+    Object.defineProperty(navigator, 'platform', {
+      value: 'Linux aarch64',
+      configurable: true,
+    });
+    Object.defineProperty(navigator, 'maxTouchPoints', {
+      value: 5,
+      configurable: true,
+    });
+
+    expect(isAndroid()).toBe(true);
+    // Must NOT be detected as Linux desktop!
+    expect(isLinux()).toBe(false);
+
+    // Simulated Tauri on Android
+    (window as any).__TAURI__ = {};
+    expect(isTauri()).toBe(true);
+    expect(isMobileTauri()).toBe(true);
+    expect(isDesktopTauri()).toBe(false);
+
+    delete (window as any).__TAURI__;
+
+    // Real Linux Desktop (X11 / Wayland)
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      configurable: true,
+    });
+    Object.defineProperty(navigator, 'platform', {
+      value: 'Linux x86_64',
+      configurable: true,
+    });
+    Object.defineProperty(navigator, 'maxTouchPoints', {
+      value: 0,
+      configurable: true,
+    });
+
+    expect(isAndroid()).toBe(false);
+    expect(isLinux()).toBe(true);
+
+    (window as any).__TAURI__ = {};
+    expect(isDesktopTauri()).toBe(true);
+    expect(isMobileTauri()).toBe(false);
+    delete (window as any).__TAURI__;
   });
 
   describe('getStorageLocationInfo', () => {

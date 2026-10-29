@@ -10,6 +10,7 @@ import {
   enableLocalPasskeyEnrollment,
   hasLocalPasskeyEnrollment,
   disableLocalPasskeyEnrollment,
+  isLinuxDesktopTauri,
 } from './linuxAuth';
 
 describe('linuxAuth utilities', () => {
@@ -20,6 +21,36 @@ describe('linuxAuth utilities', () => {
 
   it('defaults to password when no keyring or passkey is configured and cloudSync is false', () => {
     expect(getLinuxAuthMethod(false)).toBe('password');
+  });
+
+  it('correctly evaluates isLinuxDesktopTauri, strictly rejecting Android and web', () => {
+    // 1. In browser without Tauri
+    expect(isLinuxDesktopTauri()).toBe(false);
+
+    // 2. In Tauri on Android
+    (window as any).__TAURI__ = {};
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UQ1A.240105.004) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
+      configurable: true,
+    });
+    Object.defineProperty(navigator, 'platform', {
+      value: 'Linux aarch64',
+      configurable: true,
+    });
+    expect(isLinuxDesktopTauri()).toBe(false);
+
+    // 3. In Tauri on Linux Desktop
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+      configurable: true,
+    });
+    Object.defineProperty(navigator, 'platform', {
+      value: 'Linux x86_64',
+      configurable: true,
+    });
+    expect(isLinuxDesktopTauri()).toBe(true);
+
+    delete (window as any).__TAURI__;
   });
 
   it('defaults to cloud_passkey when cloudSync is true and no local keyring is configured', () => {
