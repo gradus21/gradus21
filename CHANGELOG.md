@@ -3,6 +3,28 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.13] - 2026-10-29
+
+### Local Offline Registration with Client-Side 2FA & Multi-Platform Keyring/Biometrics
+- **Vollständig offline-fähige Registrierung ohne Cloud-Zwang**:
+  - Zero-Knowledge Tresorerstellung läuft bei deaktivierter Cloud-Synchronisation (`!optInCloudSync`) zu 100 % lokal ab (0 Byte Netzwerk-Traffic, keine Telemetrie, keine Abhängigkeit von Server-Verfügbarkeit).
+  - Clientseitige Generierung des 2-Faktor-Authentifizierungs-Geheimnisses (RFC 6238 TOTP) mit 160 Bit kryptografischer Entropie (`crypto.getRandomValues(new Uint8Array(20))`) und sofortige Generierung des QR-Codes für Authenticator-Apps (Aegis, 2FAS, Google Authenticator).
+  - Offline-Verifizierung des Bestätigungscodes direkt im Browser/Client via WebCrypto HMAC-SHA-1 mit Drift-Toleranz.
+- **Plattform-native Hardware-Verankerung im Registrierungs-Wizard (Schritt 3)**:
+  - **Linux Desktop (FreeDesktop Secret Service & fprintd)**:
+    - Sicherung des Tresor-Hauptschlüssels (DEK) im systemeigenen Linux-Schlüsselbund (GNOME Keyring / KWallet via DBus) über das native Tauri-Modul `keyring_auth`.
+    - Unterstützung für System-Entsperrung bei Desktop-Login sowie Fingerabdruck-Sensorik (`fprintd`).
+    - CISO-Sicherheitshinweis im Wizard: Aufklärung über die Abhängigkeit vom Benutzer-Session-Schutz und ausdrückliche Empfehlung einer Festplattenverschlüsselung (LUKS / dm-crypt).
+  - **Android (Android Keystore StrongBox / TEE)**:
+    - Direkte Aktivierung der Hardware-Biometrie (Fingerabdruck / Face ID) im Registrierungsschritt via `@tauri-apps/plugin-biometric` mit AES-256-GCM und striktem PIN-Bypass-Ausschluss (`allowDeviceCredential: false`).
+  - **Apple macOS / iOS (Secure Enclave & Keychain)**:
+    - Hardware-gebundene Touch ID- und Face ID-Aktivierung im Apple Keychain.
+  - **Web-Browser**:
+    - WebAuthn PRF-Extension für browser-interne Hardware-Schlüsselableitung.
+- **Intelligente Login-Erkennung & Speicherort-Transparenz**:
+  - Proaktive 2FA-Code-Abfrage beim lokalen Offline-Tresor-Login anhand des gecachten Headers vor Ausführung der rechenintensiven Argon2id-Entschlüsselung.
+  - Detaillierte Anzeige des lokalen Speicherpfads (`~/.local/share/de.gradus21.app/` unter Linux, `%APPDATA%` unter Windows, `~/Library/Application Support` unter macOS) samt Kopier-Button und angepasster Belehrung für native Apps.
+
 ## [1.2.12] - 2026-10-29
 
 ### Native In-App Biometric Authentication (Android Keystore / BiometricPrompt)
