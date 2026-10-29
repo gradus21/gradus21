@@ -1958,3 +1958,86 @@ async fn test_desktop_relay_flow() {
 
     let _ = fs::remove_file(&state.disk_store_path);
 }
+
+#[tokio::test]
+async fn test_smtp_configuration_and_test_recipient_handling() {
+    let state = create_test_state();
+    let bundle = generate_vault_bundle("AdminPass123!").expect("bundle");
+
+    let Json(admin_auth) = register_user(
+        State(state.clone()),
+        Json(RegisterRequest {
+            email: "admin_smtp@schule.de".into(),
+            auth_key_b64: bundle.auth_key_b64.clone(),
+            kdf_salt_b64: bundle.kdf_salt_b64.clone(),
+            kdf_params: bundle.kdf_params.clone(),
+            encrypted_dek: bundle.encrypted_dek.clone(),
+            recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
+            recovery_auth_key_b64: None,
+            user_id: None,
+        }),
+    )
+    .await
+    .unwrap();
+    assert!(admin_auth.is_admin);
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "authorization",
+        format!("Bearer {}", admin_auth.token).parse().unwrap(),
+    );
+
+    // 1. Without SMTP configured, test_smtp returns 400 Bad Request
+    let no_cfg_err = admin::test_smtp(State(state.clone()), headers.clone(), None).await;
+    assert!(no_cfg_err.is_err());
+    assert_eq!(no_cfg_err.unwrap_err().0, StatusCode::BAD_REQUEST);
+
+    // 2. Configure dummy SMTP
+    let cfg_val = serde_json::json!({
+        "host": "127.0.0.1",
+        "port": 2525,
+        "security": "none",
+        "username": "user",
+        "password": "pwd",
+        "from_email": "noreply@schule.de",
+        "from_name": "Gradus21 System"
+    });
+    {
+        let mut settings = state.mem_settings.write().unwrap();
+        settings.insert("smtp_config".into(), cfg_val);
+    }
+
+    // 3. With custom to_email, test_smtp attempts delivery to specified address (fails connection on dummy port)
+    let custom_target = "teacher_dest@schule.de".to_string();
+    let res = admin::test_smtp(
+        State(state.clone()),
+        headers.clone(),
+        Some(Json(admin::TestSmtpRequest {
+            to_email: Some(custom_target.clone()),
+        })),
+    )
+    .await;
+    assert!(res.is_err());
+    let err_str = res.unwrap_err().1;
+    // Error should be connection/transport failure, not missing config
+    assert!(err_str.contains("SMTP"));
+
+    // 4. Invite user with send_mail returns mail_sent and mail_error status
+    let invite_res = admin::invite_user(
+        State(state.clone()),
+        headers.clone(),
+        Json(admin::InviteUserRequest {
+            email: "invited_teacher@schule.de".into(),
+            is_admin: Some(false),
+            send_mail: Some(true),
+        }),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(invite_res.0["success"], true);
+    assert_eq!(invite_res.0["mail_sent"], false);
+    assert!(invite_res.0["mail_error"].as_str().is_some());
+
+    let _ = fs::remove_file(&state.disk_store_path);
+}

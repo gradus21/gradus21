@@ -119,7 +119,9 @@ export const SmtpConfigTab: React.FC<SmtpConfigTabProps> = ({ token }) => {
         const errorText = await res.text();
         throw new Error(errorText || `Status ${res.status} (${res.statusText || 'Fehler'})`);
       }
-      setSuccessMsg(`Test-E-Mail wurde erfolgreich an ${testEmail} gesendet!`);
+      const data = await res.json().catch(() => null);
+      const sentTo = data?.sent_to || testEmail;
+      setSuccessMsg(`Test-E-Mail wurde erfolgreich an ${sentTo} gesendet!`);
     } catch (err: any) {
       setErrorMsg('Test-E-Mail fehlgeschlagen: ' + (err.message || String(err)));
     } finally {

@@ -5,6 +5,16 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [1.2.15] - 2026-10-29
 
+### SMTP Delivery Reliability, Test Recipient Routing & Anti-Spam Headers
+- **Behebung des SMTP-Testversands an benutzerdefinierte Adressen**:
+  - `test_smtp`-Endpunkt wertet nun die im Frontend (`SmtpConfigTab`) angegebene Zieladresse (`to_email`) korrekt aus, anstatt Mails fest an die Administrator-Loginadresse (`claims.email`) umzuleiten.
+  - Das Frontend zeigt nach dem Versand transparent die tatsächlich adressierte E-Mail-Adresse an (`data.sent_to`).
+- **RFC 5322 E-Mail-Zustellbarkeit & Spam-Prävention**:
+  - Automatische Generierung einer RFC-5322-konformen `Message-ID` (`<UUID@domain>`) in `send_email_internal`, wodurch SpamAssassin-Strafpunkte (`DOS_BODY_HIGH_NO_MID`, `MISSING_MID`) von ~3.9 Punkten eliminiert werden.
+  - Entfernung von `Auto-Submitted: auto-generated`, um Fehlklassifizierungen als Junk/Abwesenheitsbenachrichtigung bei Google Mail, Outlook 365 und Web.de zu verhindern.
+- **Transparente Fehlerübermittlung bei Benutzer-Einladungen**:
+  - `invite_user`-Endpunkt meldet den Mail-Versandstatus (`mail_sent: bool`, `mail_error: Option<String>`) an das Admin-UI (`UserManagementTab`) zurück, sodass SMTP-Ausfälle nicht mehr fälschlicherweise als erfolgreicher Mailversand dargestellt werden.
+
 ### iOS Face ID Support, Modal Accessibility & Native Registration Flow
 - **iOS LocalAuthentication & Face ID Freigabe**:
   - Konfiguration des obligatorischen `NSFaceIDUsageDescription`-Entitlements im Xcode-Build-Prozess (`apple-release.yml`), womit Apples `LocalAuthentication`-Framework Face ID auf modernen iOS-Geräten vollständig freigibt.

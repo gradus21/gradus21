@@ -181,7 +181,13 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
         ? data.invite_url
         : `${window.location.origin}${data.invite_url}`;
       setCreatedInviteUrl(fullUrl);
-      setSuccessMsg(`Einladung für ${inviteEmail} erfolgreich erstellt!`);
+      if (inviteSendMail && data.mail_sent === false) {
+        setErrorMsg(
+          `Einladung erstellt, aber E-Mail-Versand fehlgeschlagen: ${data.mail_error || 'SMTP-Fehler'}`
+        );
+      } else {
+        setSuccessMsg(`Einladung für ${inviteEmail} erfolgreich erstellt!`);
+      }
     } catch (err: any) {
       setErrorMsg('Einladung fehlgeschlagen: ' + (err.message || String(err)));
     } finally {

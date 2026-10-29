@@ -10,7 +10,7 @@ use axum::{
 use chrono::{DateTime, Utc};
 use lettre::{
     message::{
-        header::{ContentType, HeaderName, HeaderValue},
+        header::ContentType,
         Mailbox,
     },
     transport::smtp::authentication::Credentials,
@@ -320,6 +320,9 @@ pub async fn invite_user(
     let invite_full_url = format!("{}/#invite={}", base_url.trim_end_matches('/'), invite_token);
 
     // If send_mail is true and SMTP is configured, trigger invite mail
+    let mut mail_sent = None;
+    let mut mail_error = None;
+
     if payload.send_mail.unwrap_or(false) {
         let smtp_cfg = get_smtp_config_internal(&state);
         if let Some(cfg) = smtp_cfg {
@@ -342,11 +345,17 @@ pub async fn invite_user(
             match send_email_internal(&cfg, &clean_email, &subject, &body).await {
                 Ok(_) => {
                     tracing::info!("Einladungs-E-Mail erfolgreich an {} versendet", clean_email);
+                    mail_sent = Some(true);
                 }
                 Err(e) => {
                     tracing::error!("Fehler beim Senden der Einladungs-E-Mail an {}: {}", clean_email, e);
+                    mail_sent = Some(false);
+                    mail_error = Some(e);
                 }
             }
+        } else {
+            mail_sent = Some(false);
+            mail_error = Some("SMTP ist auf diesem Server nicht konfiguriert.".into());
         }
     }
 
@@ -354,7 +363,9 @@ pub async fn invite_user(
         "success": true,
         "email": clean_email,
         "invite_token": invite_token,
-        "invite_url": invite_full_url
+        "invite_url": invite_full_url,
+        "mail_sent": mail_sent,
+        "mail_error": mail_error
     })))
 }
 
@@ -1309,15 +1320,20 @@ pub async fn send_email_internal(
         .parse()
         .map_err(|e| format!("Ungültige Empfänger-Adresse: {}", e))?;
 
-    let hdr_auto = HeaderName::new_from_ascii_str("Auto-Submitted");
-    let hdr_suppress = HeaderName::new_from_ascii_str("X-Auto-Response-Suppress");
+    let domain = cfg
+        .from_email
+        .split('@')
+        .nth(1)
+        .filter(|d| !d.is_empty())
+        .unwrap_or(if cfg.host.is_empty() { "gradus21.app" } else { &cfg.host });
+    let message_id = format!("<{}@{}>", Uuid::new_v4(), domain);
+
     let email = Message::builder()
         .from(from_mailbox)
         .to(to_mailbox)
         .subject(subject)
+        .message_id(Some(message_id))
         .header(ContentType::TEXT_PLAIN)
-        .raw_header(HeaderValue::new(hdr_auto, "auto-generated".into()))
-        .raw_header(HeaderValue::new(hdr_suppress, "All".into()))
         .body(body.to_string())
         .map_err(|e| format!("Fehler beim Erstellen der E-Mail: {}", e))?;
 
@@ -1362,9 +1378,16 @@ pub async fn send_email_internal(
     Ok(())
 }
 
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct TestSmtpRequest {
+    #[serde(default)]
+    pub to_email: Option<String>,
+}
+
 pub async fn test_smtp(
     State(state): State<AppState>,
     headers: HeaderMap,
+    payload: Option<Json<TestSmtpRequest>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let claims = require_admin(&state, &headers)?;
     let cfg = get_smtp_config_internal(&state).ok_or((
@@ -1372,10 +1395,17 @@ pub async fn test_smtp(
         "SMTP ist noch nicht konfiguriert.".into(),
     ))?;
 
+    let recipient = payload
+        .as_ref()
+        .and_then(|p| p.to_email.as_deref())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty() && s.contains('@'))
+        .unwrap_or(&claims.email);
+
     let subject = "Gradus21: SMTP-Test erfolgreich";
     let body = format!(
-        "Hallo {},\n\ndiese Test-E-Mail bestätigt, dass die SMTP-Konfiguration in deiner Gradus21 Homelab-Instanz einwandfrei funktioniert!\n\nServer: {}:{}\nAbsender: {} <{}>\nZeitstempel: {}\n\nMit freundlichen Grüßen,\nDein Gradus21 System",
-        claims.email,
+        "Hallo {},\n\ndiese Test-E-Mail bestätigt, dass die SMTP-Konfiguration in deiner Gradus21 Instanz einwandfrei funktioniert!\n\nServer: {}:{}\nAbsender: {} <{}>\nZeitstempel: {}\n\nMit freundlichen Grüßen,\nDein Gradus21 System",
+        recipient,
         cfg.host,
         cfg.port,
         cfg.from_name,
@@ -1383,13 +1413,13 @@ pub async fn test_smtp(
         Utc::now().to_rfc3339()
     );
 
-    send_email_internal(&cfg, &claims.email, subject, &body)
+    send_email_internal(&cfg, recipient, subject, &body)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     Ok(Json(serde_json::json!({
         "success": true,
-        "sent_to": claims.email
+        "sent_to": recipient
     })))
 }
 
