@@ -1,6 +1,6 @@
 [package]
 name = "gradus21-app"
-version = "1.2.14"
+version = "1.2.15"
 description = "Gradus21 — Zero-Knowledge E2EE Notenverwaltung"
 authors = ["Julian Kallidat <julian.kallidat@campus.tu-berlin.de>"]
 edition = "2021"
