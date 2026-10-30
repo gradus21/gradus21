@@ -116,7 +116,7 @@ describe('desktopAuth utilities', () => {
       expect(body.encrypted_payload).toMatch(/^v1:/);
     });
 
-    it('sends POST request to 127.0.0.1 with session payload when port is present', async () => {
+    it('sends POST request to 127.0.0.1 with encrypted payload when port and transitKey are present', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         text: () => Promise.resolve('OK'),
@@ -126,6 +126,7 @@ describe('desktopAuth utilities', () => {
       const params = {
         port: 48999,
         state: 'auth_state_xyz',
+        transitKey: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
       };
 
       const result = await sendDesktopAuthCallback(params, dummySession);
@@ -137,7 +138,17 @@ describe('desktopAuth utilities', () => {
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
       expect(body.state).toBe('auth_state_xyz');
-      expect(body.session.email).toBe('test@schule.de');
+      expect(body.session).toBeUndefined();
+      expect(body.encrypted_payload).toMatch(/^v1:/);
+    });
+
+    it('rejects callback when transitKey is missing to prevent cleartext session leak', async () => {
+      const fetchMock = vi.fn();
+      global.fetch = fetchMock;
+
+      const result = await sendDesktopAuthCallback({ port: 48999, state: 'auth_state_xyz' }, dummySession);
+      expect(result.success).toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it('handles network error cleanly without crashing', async () => {
@@ -146,6 +157,7 @@ describe('desktopAuth utilities', () => {
       const params = {
         port: 48999,
         state: 'auth_state_xyz',
+        transitKey: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
       };
 
       const result = await sendDesktopAuthCallback(params, dummySession);

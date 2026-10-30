@@ -39,9 +39,14 @@ describe('triggerHapticFeedback cross-platform haptics', () => {
     expect(vibrateMock).toHaveBeenCalledWith(12);
   });
 
-  it('falls back to iOS WebKit switch haptic bridge when navigator.vibrate is unavailable', () => {
+  it('falls back to iOS WebKit switch haptic bridge on iOS touch devices when navigator.vibrate is unavailable', () => {
     Object.defineProperty(navigator, 'vibrate', {
       value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X)',
       configurable: true,
       writable: true,
     });
@@ -57,6 +62,43 @@ describe('triggerHapticFeedback cross-platform haptics', () => {
     expect(input?.hasAttribute('switch')).toBe(true);
     // Clicking the label toggles the hidden switch input
     expect(input?.checked).toBe(true);
+  });
+
+  it('does not trigger switch fallback on desktop browsers or when an input is focused', () => {
+    Object.defineProperty(navigator, 'vibrate', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    // Desktop user agent
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (X11; Linux x86_64)',
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(navigator, 'maxTouchPoints', {
+      value: 0,
+      configurable: true,
+      writable: true,
+    });
+
+    triggerHapticFeedback('snap');
+    expect(document.body.querySelector('label[data-haptic-bridge="ios-switch"]')).toBeNull();
+
+    // Even on iOS, if an input is focused, it must NEVER click the switch to prevent focus theft / cursor loss
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X)',
+      configurable: true,
+      writable: true,
+    });
+    const textInput = document.createElement('input');
+    document.body.appendChild(textInput);
+    textInput.focus();
+
+    triggerHapticFeedback('snap');
+    // Still not clicked/created while focused
+    expect(document.body.querySelector('label[data-haptic-bridge="ios-switch"]')).toBeNull();
+    expect(document.activeElement).toBe(textInput);
   });
 
   it('invokes Tauri native haptic command when running in Tauri runtime', () => {

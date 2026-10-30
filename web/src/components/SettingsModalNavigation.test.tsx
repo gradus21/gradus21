@@ -3,7 +3,12 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { SettingsModal } from './SettingsModal';
 import { AppHeader } from './AppHeader';
-import { INITIAL_CLASS_DATASETS } from '../data/demoClasses';
+import {
+  DEFAULT_USER_SYNC_SETTINGS,
+  INITIAL_CLASS_DATASETS,
+  applyResolvedThemeToSettings,
+  resolveIsDarkMode,
+} from '../data/demoClasses';
 
 describe('SettingsModal Navigation & Account Security Architecture', () => {
   const dummySettings = {
@@ -73,6 +78,49 @@ describe('SettingsModal Navigation & Account Security Architecture', () => {
 
     expect(screen.getByText(/e2ee cloud-synchronisation/i)).toBeDefined();
     expect(screen.getByText(/verschlüsseltes datei-backup/i)).toBeDefined();
+  });
+
+  it('automatically resolves and applies system dark mode when themeMode is "system"', () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(prefers-color-scheme: dark)',
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+
+    try {
+      expect(resolveIsDarkMode('system', false)).toBe(true);
+      const resolved = applyResolvedThemeToSettings({
+        ...DEFAULT_USER_SYNC_SETTINGS,
+        themeMode: 'system',
+        darkMode: false,
+      });
+      expect(resolved.themeMode).toBe('system');
+      expect(resolved.darkMode).toBe(true);
+
+      const onUpdateSettings = vi.fn();
+      render(
+        <SettingsModal
+          settings={{ ...dummySettings, themeMode: 'system', darkMode: false }}
+          onUpdateSettings={onUpdateSettings}
+          onClose={vi.fn()}
+          session={dummySession}
+          initialSection="appearance"
+        />
+      );
+
+      expect(onUpdateSettings).toHaveBeenCalled();
+      const updater = onUpdateSettings.mock.calls[0][0];
+      const updated = updater({ ...dummySettings, themeMode: 'system', darkMode: false });
+      expect(updated.darkMode).toBe(true);
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
   });
 });
 

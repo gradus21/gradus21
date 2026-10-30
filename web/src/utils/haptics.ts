@@ -1,3 +1,5 @@
+import { isAppleTouchDevice } from './platform';
+
 export type HapticPreset =
   | 'selection'
   | 'light'
@@ -129,7 +131,19 @@ export function triggerHapticFeedback(pattern: HapticPattern = 'snap'): void {
   }
 
   // 3. iOS Safari / WebKit 17.4+ Switch Taptic Engine Fallback
-  if (!vibrated) {
+  // MUST only execute on Apple touch devices (iPhone/iPad), and NEVER when an editable/input element has focus,
+  // because clicking any DOM element/label steals focus and blurs the active text input / virtual keyboard!
+  const hasFocusedInput =
+    typeof document !== 'undefined' &&
+    Boolean(
+      document.activeElement &&
+        (document.activeElement.tagName === 'INPUT' ||
+          document.activeElement.tagName === 'TEXTAREA' ||
+          document.activeElement.tagName === 'SELECT' ||
+          (document.activeElement as HTMLElement).isContentEditable)
+    );
+
+  if (!vibrated && isAppleTouchDevice() && !hasFocusedInput) {
     try {
       const switchLabel = ensureIosHapticSwitch();
       switchLabel?.click();

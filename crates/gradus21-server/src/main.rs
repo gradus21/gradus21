@@ -188,11 +188,22 @@ async fn main() {
     tokio::spawn(admin::start_backup_scheduler(state.clone()));
 
     let cors = if let Ok(origin) = std::env::var("CORS_ALLOWED_ORIGIN") {
-        let origins: Vec<HeaderValue> = origin
+        let mut origins: Vec<HeaderValue> = origin
             .split(',')
             .filter_map(|s| s.trim().parse::<HeaderValue>().ok())
             .collect();
         if !origins.is_empty() {
+            for tauri_origin in &[
+                "tauri://localhost",
+                "https://tauri.localhost",
+                "http://tauri.localhost",
+            ] {
+                if let Ok(hv) = tauri_origin.parse::<HeaderValue>() {
+                    if !origins.contains(&hv) {
+                        origins.push(hv);
+                    }
+                }
+            }
             CorsLayer::new()
                 .allow_origin(origins)
                 .allow_methods(Any)

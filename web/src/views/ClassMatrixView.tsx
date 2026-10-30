@@ -894,7 +894,6 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                                       placeholder="—"
                                       onFocus={(e) => e.target.select()}
                                       onChange={(e) => {
-                                        triggerHapticFeedback('selection');
                                         updateGradeEntry(
                                           currentStudent.id,
                                           assess.id,

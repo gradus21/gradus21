@@ -60,6 +60,70 @@ export interface SpeedGradingViewProps {
   onAddStudent?: (name: string, level: 'G' | 'M' | 'E') => void;
 }
 
+interface SpeedGradingRowInputProps {
+  idx: number;
+  studentId: string;
+  speedInputMode: 'percent' | 'points' | 'grade_scale';
+  displayValue: string;
+  placeholder: string;
+  onUpdate: (value: string) => void;
+  onNavigate: (direction: 'next' | 'prev') => void;
+}
+
+const SpeedGradingRowInput: React.FC<SpeedGradingRowInputProps> = ({
+  idx,
+  studentId,
+  speedInputMode,
+  displayValue,
+  placeholder,
+  onUpdate,
+  onNavigate,
+}) => {
+  const [localValue, setLocalValue] = React.useState<string | null>(null);
+
+  // If the user is actively focused/typing, use the local value so commas, dots, and multiple digits aren't interrupted.
+  const currentValue = localValue !== null ? localValue : displayValue;
+
+  return (
+    <input
+      key={`speed-input-${studentId}`}
+      type="text"
+      inputMode={speedInputMode === 'grade_scale' ? 'text' : 'decimal'}
+      enterKeyHint="next"
+      data-speed-grade-idx={idx}
+      value={currentValue}
+      placeholder={placeholder}
+      onFocus={(e) => {
+        setLocalValue(displayValue);
+        e.target.select();
+      }}
+      onBlur={() => {
+        setLocalValue(null);
+      }}
+      onChange={(e) => {
+        const val = e.target.value;
+        setLocalValue(val);
+        onUpdate(val);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          onNavigate('next');
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          onNavigate('prev');
+        }
+      }}
+      className="w-16 sm:w-24 px-1.5 sm:px-3 py-1.5 rounded-xl border text-center font-mono text-base sm:text-sm font-bold focus:outline-none focus:ring-2 focus:ring-teal-500 min-h-[44px] sm:min-h-0"
+      style={{
+        backgroundColor: 'var(--bg-subtle)',
+        borderColor: 'var(--border-subtle)',
+        color: 'var(--text-primary)',
+      }}
+    />
+  );
+};
+
 export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
   activeDataset,
   activeTerm,
@@ -400,11 +464,15 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
 
                 <div className="flex items-center gap-2 sm:gap-3 shrink-0 ml-auto sm:ml-0">
                   {entry?.status === 'excused' ? (
-                    <span className="px-2 sm:px-2.5 py-1 rounded-lg bg-amber-100 text-amber-800 text-xs font-semibold">
+                    <span
+                      key="status-excused"
+                      className="px-2 sm:px-2.5 py-1 rounded-lg bg-amber-100 text-amber-800 text-xs font-semibold"
+                    >
                       Entschuldigt
                     </span>
                   ) : entry?.percent_value != null ? (
                     <span
+                      key="status-percent"
                       className="text-xs font-mono hidden sm:inline"
                       style={{ color: 'var(--text-secondary)' }}
                     >
@@ -427,6 +495,7 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
                     </span>
                   ) : entry?.direct_grade_value != null ? (
                     <span
+                      key="status-direct"
                       className="text-xs font-mono hidden sm:inline"
                       style={{ color: 'var(--text-secondary)' }}
                     >
@@ -440,42 +509,49 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
                     </span>
                   ) : null}
 
-                  <input
-                    type="text"
-                    inputMode={speedInputMode === 'grade_scale' ? 'text' : 'decimal'}
-                    enterKeyHint="next"
-                    data-speed-grade-idx={idx}
-                    onFocus={(e) => e.target.select()}
-                    value={
+                  <SpeedGradingRowInput
+                    idx={idx}
+                    studentId={stu.id}
+                    speedInputMode={speedInputMode}
+                    displayValue={
                       entry?.status === 'excused'
                         ? 'K'
                         : speedInputMode === 'grade_scale'
-                        ? entry?.direct_grade_value ??
-                          (entry?.percent_value != null
-                            ? percentToGradeThreshold(
+                        ? entry?.direct_grade_value != null
+                          ? String(entry.direct_grade_value)
+                          : entry?.percent_value != null
+                          ? String(
+                              percentToGradeThreshold(
                                 entry.percent_value,
                                 activeDataset.config,
                                 stu.level
                               ).numeric_value
-                            : '')
+                            )
+                          : ''
                         : speedInputMode === 'points'
-                        ? entry?.raw_points ??
-                          (entry?.percent_value != null
-                            ? Math.round(
+                        ? entry?.raw_points != null
+                          ? String(entry.raw_points)
+                          : entry?.percent_value != null
+                          ? String(
+                              Math.round(
                                 ((entry.percent_value / 100) *
                                   (activeAssessment.max_points || 15)) *
                                   10
                               ) / 10
-                            : '')
-                        : entry?.percent_value ??
-                          (entry?.direct_grade_value != null
-                            ? Math.round(
-                                gradeToPercent(
-                                  entry.direct_grade_value,
-                                  activeDataset.config
-                                )
+                            )
+                          : ''
+                        : entry?.percent_value != null
+                        ? String(entry.percent_value)
+                        : entry?.direct_grade_value != null
+                        ? String(
+                            Math.round(
+                              gradeToPercent(
+                                entry.direct_grade_value,
+                                activeDataset.config
                               )
-                            : '')
+                            )
+                          )
+                        : ''
                     }
                     placeholder={
                       speedInputMode === 'grade_scale'
@@ -486,49 +562,36 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
                         ? `0–${activeAssessment.max_points || 15}`
                         : '0–100%'
                     }
-                    onChange={(e) => {
-                      triggerHapticFeedback(6);
+                    onUpdate={(val) =>
                       updateGradeEntry(
                         stu.id,
                         activeAssessment.id,
-                        e.target.value,
+                        val,
                         speedInputMode
+                      )
+                    }
+                    onNavigate={(dir) => {
+                      triggerHapticFeedback('selection');
+                      const targetIdx = dir === 'next' ? idx + 1 : idx - 1;
+                      const nextEl = document.querySelector<HTMLInputElement>(
+                        `[data-speed-grade-idx="${targetIdx}"]`
                       );
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        const nextInput = document.querySelector<HTMLInputElement>(
-                          `[data-speed-grade-idx="${idx + 1}"]`
-                        );
-                        nextInput?.focus();
-                        nextInput?.select();
-                      } else if (e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        const prevInput = document.querySelector<HTMLInputElement>(
-                          `[data-speed-grade-idx="${idx - 1}"]`
-                        );
-                        prevInput?.focus();
-                        prevInput?.select();
-                      }
-                    }}
-                    className="w-16 sm:w-24 px-1.5 sm:px-3 py-1.5 rounded-xl border text-center font-mono text-base sm:text-sm font-bold focus:outline-none focus:ring-2 focus:ring-teal-500 min-h-[44px] sm:min-h-0"
-                    style={{
-                      backgroundColor: 'var(--bg-subtle)',
-                      borderColor: 'var(--border-subtle)',
-                      color: 'var(--text-primary)',
+                      nextEl?.focus();
+                      nextEl?.select();
                     }}
                   />
 
                   <button
-                    onClick={() =>
+                    key={`attest-btn-${stu.id}`}
+                    onClick={() => {
+                      triggerHapticFeedback('selection');
                       updateGradeEntry(
                         stu.id,
                         activeAssessment.id,
                         entry?.status === 'excused' ? '' : 'K',
                         'excused'
-                      )
-                    }
+                      );
+                    }}
                     className={`px-2 sm:px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition min-h-[44px] sm:min-h-0 shrink-0 ${
                       entry?.status === 'excused'
                         ? 'bg-amber-500 text-white border-amber-500'

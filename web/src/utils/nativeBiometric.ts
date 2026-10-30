@@ -1,4 +1,4 @@
-import { isTauri } from './platform';
+import { isAppleTouchDevice, isMacOS, isTauri } from './platform';
 
 export interface NativeBiometricStatus {
   available: boolean;
@@ -9,6 +9,90 @@ export interface NativeBiometricStatus {
 const STORAGE_PREFIX_DEK = 'gradus21_native_bio_dek_';
 const STORAGE_PREFIX_META = 'gradus21_native_bio_meta_';
 const STORAGE_LAST_USER_KEY = 'gradus21_native_bio_last_user';
+const IDB_NAME = 'gradus21_native_bio_idb';
+const IDB_STORE = 'keys';
+
+function openBioKeyDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      return reject(new Error('IndexedDB unavailable'));
+    }
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) {
+        db.createObjectStore(IDB_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error('IndexedDB open error'));
+  });
+}
+
+async function encryptDekWithIdbNonExtractableKey(uid: string, dekB64: string): Promise<string | null> {
+  try {
+    if (typeof indexedDB === 'undefined' || !window.crypto?.subtle) return null;
+    const db = await openBioKeyDb();
+    const key = await window.crypto.subtle.generateKey(
+      { name: 'AES-GCM', length: 256 },
+      false, // non-extractable
+      ['encrypt', 'decrypt']
+    );
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(key, uid);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+    const encoded = new TextEncoder().encode(dekB64);
+    const cipherBuf = await window.crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+    const ivB64 = btoa(String.fromCharCode(...iv));
+    const cipherB64 = btoa(String.fromCharCode(...new Uint8Array(cipherBuf)));
+    return `v2_idb:${ivB64}:${cipherB64}`;
+  } catch {
+    return null;
+  }
+}
+
+async function decryptDekWithIdbNonExtractableKey(uid: string, payload: string): Promise<string> {
+  const parts = payload.slice('v2_idb:'.length).split(':');
+  if (parts.length !== 2) {
+    throw new Error('Ungültiges Format des biometrischen Schlüssels.');
+  }
+  const [ivB64, cipherB64] = parts;
+  const db = await openBioKeyDb();
+  const key = await new Promise<CryptoKey | undefined>((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const req = tx.objectStore(IDB_STORE).get(uid);
+    req.onsuccess = () => resolve(req.result as CryptoKey | undefined);
+    req.onerror = () => reject(req.error);
+  });
+  db.close();
+  if (!key) {
+    throw new Error('Biometrischer Geräteschlüssel nicht mehr vorhanden. Bitte mit Master-Passwort anmelden.');
+  }
+  const iv = Uint8Array.from(atob(ivB64), (c) => c.charCodeAt(0));
+  const cipher = Uint8Array.from(atob(cipherB64), (c) => c.charCodeAt(0));
+  const plainBuf = await window.crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipher);
+  return new TextDecoder().decode(plainBuf);
+}
+
+function deleteBioKeyFromIdb(uid: string): void {
+  try {
+    if (typeof indexedDB === 'undefined') return;
+    openBioKeyDb()
+      .then((db) => {
+        const tx = db.transaction(IDB_STORE, 'readwrite');
+        tx.objectStore(IDB_STORE).delete(uid);
+        tx.oncomplete = () => db.close();
+      })
+      .catch(() => {});
+  } catch {
+    // ignore
+  }
+}
 
 export interface BiometricVaultMeta {
   userId: string;
@@ -154,10 +238,14 @@ export async function enableNativeBiometricLock(
   const authenticate = (biometricModule as any).authenticate;
   const biometricCipher = (biometricModule as any).biometricCipher;
 
+  const cleanUid = userId.trim().toLowerCase();
+  const cleanEmail = email.trim().toLowerCase();
   let storedData: string | null = null;
 
-  // On Android, use biometricCipher (hardware Keystore)
-  if (typeof biometricCipher === 'function') {
+  // On Android (and non-Apple platforms), use biometricCipher (hardware Keystore).
+  // Apple iOS/macOS BiometricPlugin.swift only implements status & authenticate, not biometric_cipher.
+  const isApplePlatform = isAppleTouchDevice() || isMacOS();
+  if (!isApplePlatform && typeof biometricCipher === 'function') {
     try {
       const cipherRes = await biometricCipher('Gradus21 Noten-Tresor mit Fingerabdruck schützen', {
         title: 'Gradus21 Tresorschutz',
@@ -174,21 +262,17 @@ export async function enableNativeBiometricLock(
     }
   }
 
-  // On iOS / macOS (LocalAuthentication Touch ID / Face ID), use authenticate()
+  // On iOS / macOS (LocalAuthentication Touch ID / Face ID), use authenticate() + IndexedDB non-extractable CryptoKey
   if (!storedData && typeof authenticate === 'function') {
     await authenticate('Gradus21 Noten-Tresor mit Biometrie (Touch ID / Face ID) schützen', {
       allowDeviceCredential: false,
     });
-    // On iOS, the app sandbox is hardware-encrypted by Apple Data Protection
-    storedData = `v1_plain:${dekB64}`;
+    storedData = (await encryptDekWithIdbNonExtractableKey(cleanUid, dekB64)) || `v1_plain:${dekB64}`;
   }
 
   if (!storedData) {
     throw new Error('Verschlüsselung im Hardware-Sicherheitschip fehlgeschlagen.');
   }
-
-  const cleanUid = userId.trim().toLowerCase();
-  const cleanEmail = email.trim().toLowerCase();
 
   localStorage.setItem(`${STORAGE_PREFIX_DEK}${cleanUid}`, storedData);
   const meta: BiometricVaultMeta = {
@@ -229,7 +313,23 @@ export async function unlockWithNativeBiometric(
   const authenticate = (biometricModule as any).authenticate;
   const biometricCipher = (biometricModule as any).biometricCipher;
 
-  // iOS / LocalAuthentication fallback
+  // iOS / macOS LocalAuthentication + non-extractable IndexedDB key
+  if (encryptedDek.startsWith('v2_idb:')) {
+    if (typeof authenticate !== 'function') {
+      throw new Error('Biometrische Authentifizierung nicht verfügbar.');
+    }
+    await authenticate('Gradus21 Noten-Tresor mit Face ID oder Touch ID entsperren', {
+      allowDeviceCredential: false,
+    });
+    const dekB64 = await decryptDekWithIdbNonExtractableKey(cleanUid, encryptedDek);
+    return {
+      dekB64,
+      email: meta?.email || '',
+      userId: cleanUid,
+    };
+  }
+
+  // Legacy iOS / LocalAuthentication fallback
   if (encryptedDek.startsWith('v1_plain:')) {
     if (typeof authenticate !== 'function') {
       throw new Error('Biometrische Authentifizierung nicht verfügbar.');
@@ -290,6 +390,7 @@ export function disableNativeBiometricLock(userIdOrEmail: string): void {
 
   localStorage.removeItem(`${STORAGE_PREFIX_DEK}${cleanUid}`);
   localStorage.removeItem(`${STORAGE_PREFIX_META}${cleanUid}`);
+  deleteBioKeyFromIdb(cleanUid);
 
   const lastUser = localStorage.getItem(STORAGE_LAST_USER_KEY);
   if (lastUser && lastUser.toLowerCase() === cleanUid) {

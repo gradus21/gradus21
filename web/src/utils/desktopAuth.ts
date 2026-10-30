@@ -181,17 +181,21 @@ export async function sendDesktopAuthCallback(
   params: DesktopAuthParams,
   session: ActiveVaultSession
 ): Promise<{ success: boolean; message?: string }> {
+  if (!params.transitKey) {
+    return {
+      success: false,
+      message: 'Fehlender Transitschlüssel für die verschlüsselte Übertragung.',
+    };
+  }
   let encryptedPayload: string | undefined = undefined;
-  if (params.transitKey) {
-    try {
-      encryptedPayload = await encryptWithTransitKey(params.transitKey, session);
-    } catch (encErr) {
-      console.warn('Transit encryption failed:', encErr);
-      return {
-        success: false,
-        message: 'Kryptografische Verschlüsselung für Desktop-Übertragung fehlgeschlagen.',
-      };
-    }
+  try {
+    encryptedPayload = await encryptWithTransitKey(params.transitKey, session);
+  } catch (encErr) {
+    console.warn('Transit encryption failed:', encErr);
+    return {
+      success: false,
+      message: 'Kryptografische Verschlüsselung für Desktop-Übertragung fehlgeschlagen.',
+    };
   }
 
   let relaySucceeded = false;
@@ -221,11 +225,10 @@ export async function sendDesktopAuthCallback(
   }
 
   // 2. Paralleler / Fallback Kanal: Lokaler Loopback Socket (funktioniert u.a. bei reiner Localhost-Entwicklung)
-  if (params.port && params.state) {
+  if (params.port && params.state && encryptedPayload) {
     const loopbackUrl = `http://127.0.0.1:${params.port}/callback`;
     const bodyData = {
       state: params.state,
-      session: encryptedPayload ? undefined : session,
       encrypted_payload: encryptedPayload,
     };
 

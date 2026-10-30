@@ -141,23 +141,38 @@ describe('nativeBiometric utilities', () => {
       (window as any).__TAURI_INTERNALS__ = {};
 
       const mockAuthenticate = vi.fn().mockResolvedValue(undefined);
+      const mockBiometricCipher = vi.fn().mockRejectedValue(new Error('Plugin method biometricCipher not implemented on iOS'));
+      const origUserAgent = navigator.userAgent;
+      Object.defineProperty(window.navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15',
+        configurable: true,
+      });
 
-      vi.doMock('@tauri-apps/plugin-biometric', () => ({
-        authenticate: mockAuthenticate,
-        biometricCipher: undefined,
-      }));
+      try {
+        vi.doMock('@tauri-apps/plugin-biometric', () => ({
+          authenticate: mockAuthenticate,
+          biometricCipher: mockBiometricCipher,
+        }));
 
-      const success = await enableNativeBiometricLock(mockUid, mockEmail, mockDek);
-      expect(success).toBe(true);
-      expect(mockAuthenticate).toHaveBeenCalledWith(
-        expect.stringContaining('Biometrie'),
-        expect.objectContaining({ allowDeviceCredential: false })
-      );
+        const success = await enableNativeBiometricLock(mockUid, mockEmail, mockDek);
+        expect(success).toBe(true);
+        expect(mockBiometricCipher).not.toHaveBeenCalled();
+        expect(mockAuthenticate).toHaveBeenCalledWith(
+          expect.stringContaining('Biometrie'),
+          expect.objectContaining({ allowDeviceCredential: false })
+        );
 
-      const unlocked = await unlockWithNativeBiometric(mockUid);
-      expect(unlocked.dekB64).toBe(mockDek);
-      expect(unlocked.email).toBe(mockEmail);
-      expect(unlocked.userId).toBe(mockUid);
+        const unlocked = await unlockWithNativeBiometric(mockUid);
+        expect(mockBiometricCipher).not.toHaveBeenCalled();
+        expect(unlocked.dekB64).toBe(mockDek);
+        expect(unlocked.email).toBe(mockEmail);
+        expect(unlocked.userId).toBe(mockUid);
+      } finally {
+        Object.defineProperty(window.navigator, 'userAgent', {
+          value: origUserAgent,
+          configurable: true,
+        });
+      }
     });
 
     it('disables biometric lock cleanly', () => {

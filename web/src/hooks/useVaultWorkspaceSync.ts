@@ -8,6 +8,7 @@ import { ActiveVaultSession, normalizeKdfParams } from '../components/vault/vaul
 import type { GlobalTemplateRecord } from '../types/templates';
 import { SyncReconciliationStrategy } from '../components/SyncReconciliationModal';
 import { apiUrl } from '../utils/apiConfig';
+import { generateTotpCode } from '../utils/totp';
 import {
   ClassroomSubjectDataset,
   DEFAULT_USER_SYNC_SETTINGS,
@@ -107,20 +108,115 @@ export function removeStoredAuthKey(userId: string): void {
   sessionStorage.removeItem(`bte_notenflow_authkey_${userId}`);
 }
 
+const SESSION_CREDS_AAD = 'session_credentials_v1';
+
+export function encryptSessionCredentials(
+  dekB64: string,
+  userId: string,
+  creds: { token?: string; authKeyB64?: string; totpSecretBase32?: string }
+): string | undefined {
+  if (!dekB64 || !userId || (!creds.token && !creds.authKeyB64 && !creds.totpSecretBase32)) {
+    return undefined;
+  }
+  try {
+    return wasm_encrypt_envelope(
+      dekB64,
+      userId,
+      SESSION_CREDS_AAD,
+      JSON.stringify({
+        token: creds.token || '',
+        authKeyB64: creds.authKeyB64 || undefined,
+        totpSecretBase32: creds.totpSecretBase32 || undefined,
+      })
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+export function restoreSessionCredentials(session: ActiveVaultSession): ActiveVaultSession {
+  if (!session.dekB64 || !session.userId) return session;
+  let token = session.token || getStoredToken(session.userId) || '';
+  let authKeyB64 = session.authKeyB64 || getStoredAuthKey(session.userId) || undefined;
+  let totpSecretBase32 = session.totpSecretBase32 || undefined;
+
+  if (!token || !authKeyB64 || !totpSecretBase32) {
+    try {
+      const userCacheKey = getUserEncryptedCacheKey(session.userId);
+      const legacyUserCacheKey = getLegacyUserEncryptedCacheKey(session.userId);
+      const cachedRaw =
+        localStorage.getItem(userCacheKey) || localStorage.getItem(legacyUserCacheKey);
+      if (cachedRaw) {
+        const parsed = JSON.parse(cachedRaw);
+        if (parsed?.encryptedSessionCredentials) {
+          const decJson = wasm_decrypt_envelope(
+            session.dekB64,
+            session.userId,
+            SESSION_CREDS_AAD,
+            parsed.encryptedSessionCredentials
+          );
+          const dec = JSON.parse(decJson);
+          if (!token && dec?.token) token = dec.token;
+          if (!authKeyB64 && dec?.authKeyB64) authKeyB64 = dec.authKeyB64;
+          if (!totpSecretBase32 && dec?.totpSecretBase32) {
+            totpSecretBase32 = dec.totpSecretBase32;
+          }
+        }
+      }
+    } catch {
+      // ignore if WASM not initialized or envelope absent
+    }
+  }
+
+  if (token) setStoredToken(session.userId, token);
+  if (authKeyB64) setStoredAuthKey(session.userId, authKeyB64);
+
+  return {
+    ...session,
+    token,
+    authKeyB64,
+    totpSecretBase32,
+  };
+}
+
+export function persistEncryptedSessionCredentialsToCache(session: ActiveVaultSession): void {
+  if (!session.dekB64 || !session.userId) return;
+  const encCreds = encryptSessionCredentials(session.dekB64, session.userId, {
+    token: session.token || getStoredToken(session.userId),
+    authKeyB64: session.authKeyB64 || getStoredAuthKey(session.userId),
+    totpSecretBase32: session.totpSecretBase32,
+  });
+  if (!encCreds) return;
+  try {
+    const userCacheKey = getUserEncryptedCacheKey(session.userId);
+    const cachedRaw = localStorage.getItem(userCacheKey);
+    const parsed = cachedRaw ? JSON.parse(cachedRaw) : { userId: session.userId };
+    parsed.encryptedSessionCredentials = encCreds;
+    localStorage.setItem(userCacheKey, JSON.stringify(parsed));
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export async function renewTokenIfNeeded(
   userId: string,
   email?: string,
-  authKey?: string
+  authKey?: string,
+  totpSecretBase32?: string
 ): Promise<string | null> {
   const effectiveAuthKey = authKey || getStoredAuthKey(userId);
   if (!email || !effectiveAuthKey) return null;
   try {
+    const totpCode = totpSecretBase32
+      ? await generateTotpCode(totpSecretBase32).catch(() => null)
+      : null;
     const res = await fetch(apiUrl('/api/auth/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         email,
         auth_key_b64: effectiveAuthKey,
+        totp_code: totpCode,
       }),
     });
     if (res.ok) {
@@ -550,14 +646,18 @@ export function useVaultWorkspaceSync() {
     forceServerFetch = false,
     initialCloudSync = false
   ) => {
-    const { dekB64, userId, token } = session;
+    const enrichedSession = restoreSessionCredentials(session);
+    const { dekB64, userId, token } = enrichedSession;
     if (!dekB64 || !userId) return;
 
     const userCacheKey = getUserEncryptedCacheKey(userId);
     const legacyUserCacheKey = getLegacyUserEncryptedCacheKey(userId);
 
     let isCloudSyncActive = initialCloudSync;
+    let explicitLocalSyncValue: boolean | undefined = undefined;
     const cachedLocalClasses: ClassroomSubjectDataset[] = [];
+    const localDirtyClassIds = new Set<string>();
+    const localUnpushedClassIds = new Set<string>();
 
     if (!forceServerFetch) {
       const cachedRaw =
@@ -580,8 +680,19 @@ export function useVaultWorkspaceSync() {
                 );
                 const ds = JSON.parse(decClass) as ClassroomSubjectDataset;
                 ds.id = ensureValidUuid(ds.id || classId);
-                envelopeVersionsRef.current.set(ds.id, envItem.version || 1);
-                lastSerializedPerClassRef.current.set(ds.id, JSON.stringify(ds));
+                const ver = typeof envItem.version === 'number' ? envItem.version : 1;
+                if (ver > 0) {
+                  envelopeVersionsRef.current.set(ds.id, ver);
+                } else {
+                  envelopeVersionsRef.current.delete(ds.id);
+                  localUnpushedClassIds.add(ds.id);
+                }
+                if (envItem.dirty || ver === 0) {
+                  localDirtyClassIds.add(ds.id);
+                  lastSerializedPerClassRef.current.delete(ds.id);
+                } else {
+                  lastSerializedPerClassRef.current.set(ds.id, JSON.stringify(ds));
+                }
                 restoredList.push(ds);
                 cachedLocalClasses.push(ds);
               } catch (e) {
@@ -600,20 +711,23 @@ export function useVaultWorkspaceSync() {
                   'user_sync_settings_v1',
                   parsed.encryptedSettingsEnvelope
                 );
-                lastSerializedSettingsRef.current = decSettings;
                 const parsedSettings = JSON.parse(decSettings);
-                const isSync = initialCloudSync || Boolean(parsedSettings?.cloudSyncEnabled ?? userSettings.cloudSyncEnabled);
-                setUserSettings(() =>
-                  applyResolvedThemeToSettings({
-                    ...DEFAULT_USER_SYNC_SETTINGS,
-                    ...parsedSettings,
-                    cloudSyncEnabled: isSync,
-                  })
-                );
+                if (typeof parsedSettings?.cloudSyncEnabled === 'boolean') {
+                  explicitLocalSyncValue = parsedSettings.cloudSyncEnabled;
+                }
+                const isSync =
+                  initialCloudSync ||
+                  Boolean(parsedSettings?.cloudSyncEnabled ?? userSettings.cloudSyncEnabled);
+                const resolvedLocalSettings = applyResolvedThemeToSettings({
+                  ...DEFAULT_USER_SYNC_SETTINGS,
+                  ...parsedSettings,
+                  cloudSyncEnabled: isSync,
+                });
+                lastSerializedSettingsRef.current = JSON.stringify(resolvedLocalSettings);
+                setUserSettings(() => resolvedLocalSettings);
                 setLoadedUserId(userId);
                 if (isSync) {
                   isCloudSyncActive = true;
-                  setSyncStatus('synced');
                 } else {
                   setSyncStatus('local_only');
                 }
@@ -621,11 +735,10 @@ export function useVaultWorkspaceSync() {
                 // Keep default settings if corrupted
               }
             }
-            if (!isCloudSyncActive && userSettings.cloudSyncEnabled) {
+            if (!isCloudSyncActive && explicitLocalSyncValue !== false && userSettings.cloudSyncEnabled) {
               isCloudSyncActive = true;
             }
             setLoadedUserId(userId);
-            setSyncStatus(isCloudSyncActive || userSettings.cloudSyncEnabled ? 'synced' : 'local_only');
           } else if (parsed.encryptedDatasetsEnvelope) {
             // Legacy monolithic cache
             const decryptedJson = wasm_decrypt_envelope(
@@ -643,6 +756,9 @@ export function useVaultWorkspaceSync() {
               setDatasets(withUuids);
               setActiveClassId(withUuids[0].id);
               cachedLocalClasses.push(...withUuids);
+              for (const ds of withUuids) {
+                localDirtyClassIds.add(ds.id);
+              }
               // Mark dirty to convert on next debounced save
               lastSerializedPerClassRef.current.clear();
               envelopeVersionsRef.current.clear();
@@ -655,20 +771,23 @@ export function useVaultWorkspaceSync() {
                   'user_sync_settings_v1',
                   parsed.encryptedSettingsEnvelope
                 );
-                lastSerializedSettingsRef.current = decSettings;
                 const parsedSettings = JSON.parse(decSettings);
-                const isSync = initialCloudSync || Boolean(parsedSettings?.cloudSyncEnabled ?? userSettings.cloudSyncEnabled);
-                setUserSettings(() =>
-                  applyResolvedThemeToSettings({
-                    ...DEFAULT_USER_SYNC_SETTINGS,
-                    ...parsedSettings,
-                    cloudSyncEnabled: isSync,
-                  })
-                );
+                if (typeof parsedSettings?.cloudSyncEnabled === 'boolean') {
+                  explicitLocalSyncValue = parsedSettings.cloudSyncEnabled;
+                }
+                const isSync =
+                  initialCloudSync ||
+                  Boolean(parsedSettings?.cloudSyncEnabled ?? userSettings.cloudSyncEnabled);
+                const resolvedLocalSettings = applyResolvedThemeToSettings({
+                  ...DEFAULT_USER_SYNC_SETTINGS,
+                  ...parsedSettings,
+                  cloudSyncEnabled: isSync,
+                });
+                lastSerializedSettingsRef.current = JSON.stringify(resolvedLocalSettings);
+                setUserSettings(() => resolvedLocalSettings);
                 setLoadedUserId(userId);
                 if (isSync) {
                   isCloudSyncActive = true;
-                  setSyncStatus('synced');
                 } else {
                   setSyncStatus('local_only');
                 }
@@ -676,11 +795,10 @@ export function useVaultWorkspaceSync() {
                 // Keep default settings if corrupted
               }
             }
-            if (!isCloudSyncActive && userSettings.cloudSyncEnabled) {
+            if (!isCloudSyncActive && explicitLocalSyncValue !== false && userSettings.cloudSyncEnabled) {
               isCloudSyncActive = true;
             }
             setLoadedUserId(userId);
-            setSyncStatus(isCloudSyncActive || userSettings.cloudSyncEnabled ? 'synced' : 'local_only');
           }
         } catch (e) {
           console.warn('Lokaler E2EE-Cache konnte nicht entschlüsselt werden:', e);
@@ -691,8 +809,24 @@ export function useVaultWorkspaceSync() {
     // Falls kein lokaler Cache existiert oder forceServerFetch aktiv ist oder Cloud-Sync aktiv ist oder Token vorhanden -> Server abfragen
     let effectiveToken = token || (userId ? getStoredToken(userId) : '');
     const hasLocalClasses = cachedLocalClasses.length > 0;
+    const wantsServerSync =
+      forceServerFetch || userSettings.cloudSyncEnabled || isCloudSyncActive || !hasLocalClasses;
 
-    if (effectiveToken && (forceServerFetch || userSettings.cloudSyncEnabled || isCloudSyncActive || !hasLocalClasses)) {
+    if (!effectiveToken && wantsServerSync && enrichedSession.authKeyB64) {
+      const renewed = await renewTokenIfNeeded(
+        userId,
+        enrichedSession.email,
+        enrichedSession.authKeyB64,
+        enrichedSession.totpSecretBase32
+      );
+      if (renewed) {
+        effectiveToken = renewed;
+        setVaultSession((prev) => (prev ? { ...prev, token: renewed } : null));
+        persistEncryptedSessionCredentialsToCache({ ...enrichedSession, token: renewed });
+      }
+    }
+
+    if (effectiveToken && wantsServerSync) {
       try {
         setSyncStatus('syncing');
         let res = await fetch(apiUrl('/api/envelopes/sync'), {
@@ -705,12 +839,14 @@ export function useVaultWorkspaceSync() {
           // Token abgelaufen -> automatischer Re-Auth mit authKey
           const refreshedToken = await renewTokenIfNeeded(
             userId,
-            session.email,
-            session.authKeyB64
+            enrichedSession.email,
+            enrichedSession.authKeyB64,
+            enrichedSession.totpSecretBase32
           );
           if (refreshedToken) {
             effectiveToken = refreshedToken;
             setVaultSession((prev) => (prev ? { ...prev, token: refreshedToken } : null));
+            persistEncryptedSessionCredentialsToCache({ ...enrichedSession, token: refreshedToken });
             res = await fetch(apiUrl('/api/envelopes/sync'), {
               headers: { Authorization: `Bearer ${refreshedToken}` },
             });
@@ -743,26 +879,46 @@ export function useVaultWorkspaceSync() {
                 'user_sync_settings_v1',
                 settingsEnvelope.encrypted_payload
               );
-              lastSerializedSettingsRef.current = decSettings;
               const parsedRemoteSettings = JSON.parse(decSettings);
-              setUserSettings((prev) =>
-                applyResolvedThemeToSettings({
-                  ...DEFAULT_USER_SYNC_SETTINGS,
-                  ...parsedRemoteSettings,
-                  cloudSyncEnabled: parsedRemoteSettings.cloudSyncEnabled ?? prev.cloudSyncEnabled ?? true,
-                })
-              );
-              if (parsedRemoteSettings.cloudSyncEnabled ?? true) {
+              const remoteSyncEnabled = initialCloudSync
+                ? true
+                : explicitLocalSyncValue === false && !forceServerFetch
+                  ? false
+                  : Boolean(
+                      parsedRemoteSettings.cloudSyncEnabled ??
+                        explicitLocalSyncValue ??
+                        (classEnvelopes.length > 0)
+                    );
+              const resolvedRemoteSettings = applyResolvedThemeToSettings({
+                ...DEFAULT_USER_SYNC_SETTINGS,
+                ...parsedRemoteSettings,
+                cloudSyncEnabled: remoteSyncEnabled,
+              });
+              lastSerializedSettingsRef.current = JSON.stringify(resolvedRemoteSettings);
+              setUserSettings(() => resolvedRemoteSettings);
+              if (remoteSyncEnabled) {
                 isCloudSyncActive = true;
               }
             } catch {
               // ignore
             }
+          } else if (classEnvelopes.length > 0 && explicitLocalSyncValue !== false) {
+            isCloudSyncActive = true;
+            setUserSettings((prev) => {
+              const next = applyResolvedThemeToSettings({
+                ...DEFAULT_USER_SYNC_SETTINGS,
+                ...prev,
+                cloudSyncEnabled: true,
+              });
+              lastSerializedSettingsRef.current = JSON.stringify(next);
+              return next;
+            });
           }
 
           if (classEnvelopes.length > 0) {
             // Granular envelopes per class
             const restoredList: ClassroomSubjectDataset[] = [];
+            const localById = new Map(cachedLocalClasses.map((c) => [c.id, c]));
             for (const env of classEnvelopes) {
               try {
                 const decClass = wasm_decrypt_envelope(
@@ -771,11 +927,21 @@ export function useVaultWorkspaceSync() {
                   env.id,
                   env.encrypted_payload
                 );
-                const ds = JSON.parse(decClass) as ClassroomSubjectDataset;
-                ds.id = ensureValidUuid(ds.id || env.id);
-                envelopeVersionsRef.current.set(ds.id, env.version);
-                lastSerializedPerClassRef.current.set(ds.id, JSON.stringify(ds));
-                restoredList.push(ds);
+                const serverDs = JSON.parse(decClass) as ClassroomSubjectDataset;
+                serverDs.id = ensureValidUuid(serverDs.id || env.id);
+                envelopeVersionsRef.current.set(serverDs.id, env.version);
+                lastSerializedPerClassRef.current.set(serverDs.id, JSON.stringify(serverDs));
+
+                const localDs = localById.get(serverDs.id);
+                if (
+                  localDs &&
+                  (localDirtyClassIds.has(serverDs.id) || localUnpushedClassIds.has(serverDs.id))
+                ) {
+                  const { mergedDs } = mergeClassroomDatasets(localDs, serverDs);
+                  restoredList.push(mergedDs);
+                } else {
+                  restoredList.push(serverDs);
+                }
               } catch (e) {
                 console.warn(`Envelope für Klasse ${env.id} konnte nicht entschlüsselt werden:`, e);
               }
@@ -785,6 +951,8 @@ export function useVaultWorkspaceSync() {
                 const serverClassIds = new Set(restoredList.map((c) => c.id));
                 for (const loc of cachedLocalClasses) {
                   if (!serverClassIds.has(loc.id)) {
+                    envelopeVersionsRef.current.delete(loc.id);
+                    lastSerializedPerClassRef.current.delete(loc.id);
                     restoredList.push(loc);
                   }
                 }
@@ -843,18 +1011,24 @@ export function useVaultWorkspaceSync() {
               setDatasets(freshWs);
               setActiveClassId(freshWs[0].id);
               const initialSync = Boolean(initialCloudSync || isCloudSyncActive);
-              setUserSettings((prev) =>
-                applyResolvedThemeToSettings({
+              setUserSettings((prev) => {
+                const next = applyResolvedThemeToSettings({
                   ...DEFAULT_USER_SYNC_SETTINGS,
                   ...prev,
                   cloudSyncEnabled: initialSync || prev.cloudSyncEnabled,
-                })
-              );
+                });
+                lastSerializedSettingsRef.current = JSON.stringify(next);
+                return next;
+              });
             }
           }
 
           setLoadedUserId(userId);
-          setSyncStatus('synced');
+          setSyncStatus(
+            isCloudSyncActive || initialCloudSync || userSettings.cloudSyncEnabled
+              ? 'synced'
+              : 'local_only'
+          );
           return;
         }
       } catch (err) {
@@ -875,23 +1049,26 @@ export function useVaultWorkspaceSync() {
     setDatasets(freshOffline);
     setActiveClassId(freshOffline[0].id);
     const initialSync = Boolean(initialCloudSync || isCloudSyncActive || userSettings.cloudSyncEnabled);
-    setUserSettings((prev) =>
-      applyResolvedThemeToSettings({
+    setUserSettings((prev) => {
+      const next = applyResolvedThemeToSettings({
         ...DEFAULT_USER_SYNC_SETTINGS,
         themePreset: prev.themePreset,
         themeMode: prev.themeMode,
         darkMode: prev.darkMode,
         cloudSyncEnabled: initialSync,
-      })
-    );
+      });
+      lastSerializedSettingsRef.current = JSON.stringify(next);
+      return next;
+    });
     setLoadedUserId(userId);
-    setSyncStatus(initialSync ? 'synced' : 'local_only');
+    setSyncStatus(initialSync ? (effectiveToken ? 'synced' : 'offline_local') : 'local_only');
   };
 
   const handleLockVault = () => {
     localStorage.setItem(VAULT_LOCKED_STORAGE_KEY, 'true');
     localStorage.removeItem(LEGACY_VAULT_LOCKED_STORAGE_KEY);
     if (vaultSession?.userId) {
+      persistEncryptedSessionCredentialsToCache(vaultSession);
       removeStoredDek(vaultSession.userId);
       const userCacheKey = getUserEncryptedCacheKey(vaultSession.userId);
       const legacyUserCacheKey = getLegacyUserEncryptedCacheKey(vaultSession.userId);
@@ -905,6 +1082,7 @@ export function useVaultWorkspaceSync() {
               ...parsed.session,
               dekB64: '',
               token: '',
+              authKeyB64: undefined,
               recoveryKeyFormatted: undefined,
             };
             parsed.isLocked = true;
@@ -943,17 +1121,19 @@ export function useVaultWorkspaceSync() {
   ) => {
     localStorage.removeItem(VAULT_LOCKED_STORAGE_KEY);
     localStorage.removeItem(LEGACY_VAULT_LOCKED_STORAGE_KEY);
-    localStorage.setItem(ACTIVE_USER_ID_STORAGE_KEY, unlockedSession.userId);
-    if (unlockedSession.dekB64) {
-      setStoredDek(unlockedSession.userId, unlockedSession.dekB64);
+    const effectiveSession = restoreSessionCredentials(unlockedSession);
+    localStorage.setItem(ACTIVE_USER_ID_STORAGE_KEY, effectiveSession.userId);
+    if (effectiveSession.dekB64) {
+      setStoredDek(effectiveSession.userId, effectiveSession.dekB64);
     }
-    if (unlockedSession.token) {
-      setStoredToken(unlockedSession.userId, unlockedSession.token);
+    if (effectiveSession.token) {
+      setStoredToken(effectiveSession.userId, effectiveSession.token);
     }
-    if (unlockedSession.authKeyB64) {
-      setStoredAuthKey(unlockedSession.userId, unlockedSession.authKeyB64);
+    if (effectiveSession.authKeyB64) {
+      setStoredAuthKey(effectiveSession.userId, effectiveSession.authKeyB64);
     }
-    setVaultSession(unlockedSession);
+    persistEncryptedSessionCredentialsToCache(effectiveSession);
+    setVaultSession(effectiveSession);
 
     const shouldEnableCloudSync = Boolean(options?.enableCloudSync);
     if (shouldEnableCloudSync) {
@@ -961,8 +1141,8 @@ export function useVaultWorkspaceSync() {
       setSyncStatus('synced');
     }
 
-    if (unlockedSession.dekB64) {
-      await loadIsolatedUserWorkspace(unlockedSession, false, shouldEnableCloudSync);
+    if (effectiveSession.dekB64) {
+      await loadIsolatedUserWorkspace(effectiveSession, false, shouldEnableCloudSync);
     }
 
     if (shouldEnableCloudSync) {
@@ -1058,13 +1238,14 @@ export function useVaultWorkspaceSync() {
                 return;
               }
 
-              const restoredSession: ActiveVaultSession = {
+              const rawRestoredSession: ActiveVaultSession = {
                 ...parsed.session,
                 dekB64: sessionDek,
                 token: sessionToken || parsed.session.token || '',
                 authKeyB64: sessionAuthKey || parsed.session.authKeyB64 || undefined,
                 recoveryKeyFormatted: undefined,
               };
+              const restoredSession = restoreSessionCredentials(rawRestoredSession);
               setVaultSession(restoredSession);
               await loadIsolatedUserWorkspace(restoredSession);
               return;
@@ -1122,7 +1303,10 @@ export function useVaultWorkspaceSync() {
           expected_version: number | null;
         }> = [];
 
-        const cachedClassEnvelopes: Record<string, { encryptedPayload: string; version: number }> = {};
+        const cachedClassEnvelopes: Record<
+          string,
+          { encryptedPayload: string; version: number; dirty?: boolean }
+        > = {};
 
         for (const ds of datasets) {
           const canonicalId = ensureValidUuid(ds.id);
@@ -1151,7 +1335,8 @@ export function useVaultWorkspaceSync() {
             });
             cachedClassEnvelopes[canonicalId] = {
               encryptedPayload: encrypted,
-              version: currentVersion ?? 1,
+              version: currentVersion ?? 0,
+              dirty: true,
             };
           }
         }
@@ -1214,7 +1399,7 @@ export function useVaultWorkspaceSync() {
         const userCacheKey = getUserEncryptedCacheKey(vaultSession.userId);
         const existingCacheRaw = localStorage.getItem(userCacheKey);
         let mergedClassEnvelopes = cachedClassEnvelopes;
-        let preservedSettingsEnvelope = '';
+        let preservedEncryptedSessionCredentials: string | undefined;
         if (existingCacheRaw) {
           try {
             const parsedOld = JSON.parse(existingCacheRaw);
@@ -1222,7 +1407,7 @@ export function useVaultWorkspaceSync() {
               ...(parsedOld.classEnvelopes || {}),
               ...cachedClassEnvelopes,
             };
-            preservedSettingsEnvelope = parsedOld.encryptedSettingsEnvelope || '';
+            preservedEncryptedSessionCredentials = parsedOld.encryptedSessionCredentials;
           } catch {
             // ignore
           }
@@ -1237,6 +1422,10 @@ export function useVaultWorkspaceSync() {
             serializedSettings
           );
 
+        const encryptedSessionCredentials =
+          encryptSessionCredentials(vaultSession.dekB64, vaultSession.userId, vaultSession) ||
+          preservedEncryptedSessionCredentials;
+
         const userCacheBundle = {
           userId: vaultSession.userId,
           session: {
@@ -1244,8 +1433,10 @@ export function useVaultWorkspaceSync() {
             dekB64: '',
             token: '',
             authKeyB64: undefined,
+            totpSecretBase32: undefined,
             recoveryKeyFormatted: undefined,
           },
+          ...(encryptedSessionCredentials ? { encryptedSessionCredentials } : {}),
           kdfParams: vaultSession.kdfParams
             ? normalizeKdfParams(vaultSession.kdfParams)
             : { memory_kib: 19456, iterations: 2, parallelism: 1 },
@@ -1257,11 +1448,14 @@ export function useVaultWorkspaceSync() {
         localStorage.setItem(userCacheKey, JSON.stringify(userCacheBundle));
 
         // Auto-save to connected local backup directory (File System Access API) if configured
+        // [HIGH-4] Strip encryptedSessionCredentials from external backup files
         if (connectedDirHandleRef.current) {
           try {
+            const sanitizedBackupBundle = { ...userCacheBundle };
+            delete (sanitizedBackupBundle as Record<string, unknown>).encryptedSessionCredentials;
             await writeVaultToDirectory(
               connectedDirHandleRef.current,
-              JSON.stringify(userCacheBundle, null, 2),
+              JSON.stringify(sanitizedBackupBundle, null, 2),
               { userId: userCacheBundle.userId }
             );
             setLastLocalBackupTime(
@@ -1284,12 +1478,6 @@ export function useVaultWorkspaceSync() {
           return;
         }
 
-        // If no envelopes are dirty and no token, we are synced
-        if (dirtyEnvelopes.length === 0 && !settingsEnvelopeItem) {
-          setSyncStatus('synced');
-          return;
-        }
-
         let effectiveToken =
           vaultSession.token ||
           (vaultSession.userId ? getStoredToken(vaultSession.userId) : '');
@@ -1300,11 +1488,20 @@ export function useVaultWorkspaceSync() {
             (await renewTokenIfNeeded(
               vaultSession.userId,
               vaultSession.email,
-              vaultSession.authKeyB64
+              vaultSession.authKeyB64,
+              vaultSession.totpSecretBase32
             )) || '';
           if (effectiveToken) {
+            const updatedSession = { ...vaultSession, token: effectiveToken };
             setVaultSession((prev) => (prev ? { ...prev, token: effectiveToken } : null));
+            persistEncryptedSessionCredentialsToCache(updatedSession);
           }
+        }
+
+        // If no envelopes are dirty, reflect true token availability instead of masking offline_local as synced
+        if (dirtyEnvelopes.length === 0 && !settingsEnvelopeItem) {
+          setSyncStatus(effectiveToken ? 'synced' : 'offline_local');
+          return;
         }
 
         if (!effectiveToken) {
@@ -1317,6 +1514,14 @@ export function useVaultWorkspaceSync() {
         if (settingsEnvelopeItem) {
           batchPayload.push(settingsEnvelopeItem);
         }
+
+        const prefPayload = {
+          theme: userSettings.themePreset,
+          mode: userSettings.darkMode ? 'dark' : 'light',
+          defaultScaleId: userSettings.defaultScaleId,
+          defaultWeightingMode: userSettings.defaultWeightingMode,
+          favoriteWeightingPresets: userSettings.favoriteWeightingPresets,
+        };
 
         let [batchRes, prefRes] = await Promise.all([
           fetch(apiUrl('/api/envelopes/batch'), {
@@ -1335,32 +1540,42 @@ export function useVaultWorkspaceSync() {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${effectiveToken}`,
             },
-            body: JSON.stringify({
-              theme: userSettings.themePreset,
-              mode: userSettings.darkMode ? 'dark' : 'light',
-              defaultScaleId: userSettings.defaultScaleId,
-              defaultWeightingMode: userSettings.defaultWeightingMode,
-              favoriteWeightingPresets: userSettings.favoriteWeightingPresets,
-            }),
+            body: JSON.stringify(prefPayload),
           }),
         ]);
 
-        if (batchRes.status === 401) {
+        if (batchRes.status === 401 || prefRes.status === 401) {
           const newToken = await renewTokenIfNeeded(
             vaultSession.userId,
             vaultSession.email,
-            vaultSession.authKeyB64
+            vaultSession.authKeyB64,
+            vaultSession.totpSecretBase32
           );
           if (newToken) {
+            effectiveToken = newToken;
+            const updatedSession = { ...vaultSession, token: newToken };
             setVaultSession((prev) => (prev ? { ...prev, token: newToken } : null));
-            batchRes = await fetch(apiUrl('/api/envelopes/batch'), {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${newToken}`,
-              },
-              body: JSON.stringify({ envelopes: batchPayload }),
-            });
+            persistEncryptedSessionCredentialsToCache(updatedSession);
+            if (batchRes.status === 401) {
+              batchRes = await fetch(apiUrl('/api/envelopes/batch'), {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${newToken}`,
+                },
+                body: JSON.stringify({ envelopes: batchPayload }),
+              });
+            }
+            if (prefRes.status === 401) {
+              prefRes = await fetch(apiUrl('/api/preferences'), {
+                method: 'PUT',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${newToken}`,
+                },
+                body: JSON.stringify(prefPayload),
+              });
+            }
           }
         }
 
@@ -1383,7 +1598,7 @@ export function useVaultWorkspaceSync() {
           return;
         }
 
-        if (batchRes.ok && prefRes.ok) {
+        if (batchRes.ok) {
           const updatedEnvelopes: Array<{ id: string; version: number; entity_type?: string }> =
             await batchRes.json();
           for (const up of updatedEnvelopes) {
@@ -1399,6 +1614,29 @@ export function useVaultWorkspaceSync() {
             lastSerializedSettingsRef.current = serializedSettings;
             const settingsVer = updatedEnvelopes.find((e) => e.entity_type === 'user_settings')?.version || 1;
             envelopeVersionsRef.current.set('00000000-0000-4000-8000-000000000002', settingsVer);
+          }
+
+          // Clear dirty flags and persist authoritative server OCC versions in localStorage cache
+          try {
+            const latestCacheRaw = localStorage.getItem(userCacheKey);
+            if (latestCacheRaw) {
+              const latestCache = JSON.parse(latestCacheRaw);
+              if (latestCache.classEnvelopes) {
+                for (const up of updatedEnvelopes) {
+                  if (latestCache.classEnvelopes[up.id]) {
+                    latestCache.classEnvelopes[up.id].version = up.version;
+                    latestCache.classEnvelopes[up.id].dirty = false;
+                  }
+                }
+                localStorage.setItem(userCacheKey, JSON.stringify(latestCache));
+              }
+            }
+          } catch {
+            // ignore cache update error
+          }
+
+          if (!prefRes.ok) {
+            console.warn('Preferences sync non-OK (envelopes succeeded):', prefRes.status);
           }
           setSyncStatus('synced');
         } else {
@@ -1445,7 +1683,8 @@ export function useVaultWorkspaceSync() {
           (await renewTokenIfNeeded(
             vaultSession.userId,
             vaultSession.email,
-            vaultSession.authKeyB64
+            vaultSession.authKeyB64,
+            vaultSession.totpSecretBase32
           ));
 
         if (!token) {
@@ -1484,11 +1723,15 @@ export function useVaultWorkspaceSync() {
         }
 
         if (hasNewerRemote) {
-          // Check if local has dirty uncommitted changes
+          // Check if local has dirty uncommitted changes or unsynced new classes
           let hasLocalDirty = false;
           for (const ds of datasets) {
             const lastSer = lastSerializedPerClassRef.current.get(ds.id);
-            if (lastSer !== JSON.stringify(ds)) {
+            const knownServerVer = envelopeVersionsRef.current.get(ds.id);
+            const isStarterPlaceholder =
+              ds.id === 'demo-class-initial' ||
+              (ds.id.startsWith('class_starter_') && ds.students.length === 0 && ds.grades.length === 0);
+            if (lastSer !== JSON.stringify(ds) || (!knownServerVer && !isStarterPlaceholder)) {
               hasLocalDirty = true;
               break;
             }
@@ -1497,6 +1740,7 @@ export function useVaultWorkspaceSync() {
           if (!hasLocalDirty) {
             // Local is clean -> seamlessly pull and decrypt new remote datasets!
             const restoredList: ClassroomSubjectDataset[] = [];
+            const remoteIds = new Set<string>();
             for (const env of classEnvelopes) {
               try {
                 const decClass = wasm_decrypt_envelope(
@@ -1507,6 +1751,7 @@ export function useVaultWorkspaceSync() {
                 );
                 const ds = JSON.parse(decClass) as ClassroomSubjectDataset;
                 ds.id = ensureValidUuid(ds.id || env.id);
+                remoteIds.add(ds.id);
                 envelopeVersionsRef.current.set(ds.id, env.version);
                 lastSerializedPerClassRef.current.set(ds.id, JSON.stringify(ds));
                 restoredList.push(ds);
@@ -1672,12 +1917,15 @@ export function useVaultWorkspaceSync() {
       token = (await renewTokenIfNeeded(
         vaultSession.userId,
         vaultSession.email,
-        vaultSession.authKeyB64
+        vaultSession.authKeyB64,
+        vaultSession.totpSecretBase32
       )) || '';
       if (token) {
+        const updatedSession = { ...vaultSession, token };
         setVaultSession((prev) =>
           prev ? { ...prev, token } : null
         );
+        persistEncryptedSessionCredentialsToCache(updatedSession);
       }
     }
 
@@ -1698,11 +1946,14 @@ export function useVaultWorkspaceSync() {
         const refreshed = await renewTokenIfNeeded(
           vaultSession.userId,
           vaultSession.email,
-          vaultSession.authKeyB64
+          vaultSession.authKeyB64,
+          vaultSession.totpSecretBase32
         );
         if (refreshed) {
           token = refreshed;
+          const updatedSession = { ...vaultSession, token: refreshed };
           setVaultSession((prev) => (prev ? { ...prev, token: refreshed } : null));
+          persistEncryptedSessionCredentialsToCache(updatedSession);
           sumRes = await fetch(apiUrl('/api/envelopes/summary'), {
             headers: { Authorization: `Bearer ${refreshed}` },
           });
@@ -1835,10 +2086,13 @@ export function useVaultWorkspaceSync() {
         (await renewTokenIfNeeded(
           vaultSession.userId,
           vaultSession.email,
-          vaultSession.authKeyB64
+          vaultSession.authKeyB64,
+          vaultSession.totpSecretBase32
         )) || '';
       if (token) {
+        const updatedSession = { ...vaultSession, token };
         setVaultSession((prev) => (prev ? { ...prev, token } : null));
+        persistEncryptedSessionCredentialsToCache(updatedSession);
       }
     }
     if (!token || !vaultSession?.dekB64) {
@@ -1857,11 +2111,14 @@ export function useVaultWorkspaceSync() {
         const refreshed = await renewTokenIfNeeded(
           vaultSession.userId,
           vaultSession.email,
-          vaultSession.authKeyB64
+          vaultSession.authKeyB64,
+          vaultSession.totpSecretBase32
         );
         if (refreshed) {
           token = refreshed;
+          const updatedSession = { ...vaultSession, token: refreshed };
           setVaultSession((prev) => (prev ? { ...prev, token: refreshed } : null));
+          persistEncryptedSessionCredentialsToCache(updatedSession);
           res = await fetch(apiUrl('/api/envelopes/sync'), {
             headers: { Authorization: `Bearer ${refreshed}` },
           });
@@ -2074,8 +2331,31 @@ export function useVaultWorkspaceSync() {
         setSyncStatus('local_only');
         setIsEmailVerified(false);
         if (body?.user_deleted) {
-          // Account completely purged from server (GDPR Art. 17)
-          setVaultSession((prev) => (prev ? { ...prev, token: '', isAdmin: false } : null));
+          // Account completely purged from server (GDPR Art. 17) — also scrub session credentials
+          removeStoredToken(vaultSession.userId);
+          removeStoredAuthKey(vaultSession.userId);
+          const userCacheKey = getUserEncryptedCacheKey(vaultSession.userId);
+          const cachedRaw = localStorage.getItem(userCacheKey);
+          if (cachedRaw) {
+            try {
+              const parsed = JSON.parse(cachedRaw);
+              delete parsed.encryptedSessionCredentials;
+              localStorage.setItem(userCacheKey, JSON.stringify(parsed));
+            } catch {
+              // ignore
+            }
+          }
+          setVaultSession((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  token: '',
+                  authKeyB64: undefined,
+                  totpSecretBase32: undefined,
+                  isAdmin: false,
+                }
+              : null
+          );
           alert(
             'Alle Cloud-Daten und dein Benutzerkonto wurden gemäß DSGVO Art. 17 vollständig vom Server gelöscht.\n\nDein Tresor bleibt auf diesem Gerät uneingeschränkt lokal nutzbar.'
           );
@@ -2101,6 +2381,8 @@ export function useVaultWorkspaceSync() {
     }
     try {
       const parsed = JSON.parse(cachedRaw);
+      // [HIGH-4] Never export encryptedSessionCredentials into downloadable .gradus21 backup files
+      delete parsed.encryptedSessionCredentials;
       if (vaultSession.kdfParams) {
         parsed.kdfParams = vaultSession.kdfParams;
         if (parsed.session) {
@@ -2120,6 +2402,8 @@ export function useVaultWorkspaceSync() {
         alert('Die Datei enthält keine gültige Benutzer-ID.');
         return;
       }
+      // [HIGH-4] Strip any session credentials that might exist in an imported backup file
+      delete (parsed as unknown as Record<string, unknown>).encryptedSessionCredentials;
       const targetKey = getUserEncryptedCacheKey(parsed.userId);
       localStorage.setItem(targetKey, JSON.stringify(parsed));
       localStorage.setItem(ACTIVE_USER_ID_STORAGE_KEY, parsed.userId);
@@ -2130,6 +2414,8 @@ export function useVaultWorkspaceSync() {
           ...parsed.session,
           dekB64: '',
           token: '',
+          authKeyB64: undefined,
+          totpSecretBase32: undefined,
           recoveryKeyFormatted: undefined,
         });
       }
@@ -2151,12 +2437,20 @@ export function useVaultWorkspaceSync() {
       if (handle) {
         connectedDirHandleRef.current = handle;
         setConnectedBackupDirName(handle.name);
-        // Sofort ein aktuelles Backup schreiben
+        // Sofort ein aktuelles Backup schreiben (ohne encryptedSessionCredentials)
         if (vaultSession?.userId) {
           const userCacheKey = getUserEncryptedCacheKey(vaultSession.userId);
           const cachedRaw = localStorage.getItem(userCacheKey);
           if (cachedRaw) {
-            await writeVaultToDirectory(handle, cachedRaw, {
+            let sanitizedRaw = cachedRaw;
+            try {
+              const parsed = JSON.parse(cachedRaw);
+              delete parsed.encryptedSessionCredentials;
+              sanitizedRaw = JSON.stringify(parsed, null, 2);
+            } catch {
+              // ignore
+            }
+            await writeVaultToDirectory(handle, sanitizedRaw, {
               userId: vaultSession.userId,
               forceSnapshot: true,
             });
