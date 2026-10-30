@@ -3,12 +3,47 @@
  * Supports:
  * 1. Persistent Browser Storage (navigator.storage.persist)
  * 2. Export / Import encrypted .gradus21 vault file (school network share / USB)
- * 3. Automated Local Directory Backup (File System Access API + IndexedDB)
+ * 3. Automated Local Directory Backup:
+ *    - Native Clients (Linux, Windows, macOS, iOS/iPadOS, Android): Separate Backup Path via Tauri IPC
+ *    - Web Browsers (Chromium): File System Access API + IndexedDB
  */
+
+import { isTauri } from './platform';
 
 const BACKUP_IDB_NAME = 'gradus21_local_backup_v1';
 const BACKUP_STORE_NAME = 'directory_handles';
 const HANDLE_KEY = 'connected_backup_directory';
+export const NATIVE_BACKUP_PATH_STORAGE_KEY = 'gradus21_native_backup_dir_v1';
+
+/**
+ * Reads the configured separate backup directory path for native Tauri clients.
+ */
+export function getNativeBackupPath(): string | null {
+  if (typeof localStorage === 'undefined') return null;
+  const val = localStorage.getItem(NATIVE_BACKUP_PATH_STORAGE_KEY);
+  return val && val.trim() ? val.trim() : null;
+}
+
+/**
+ * Persists a separate backup directory path for native Tauri clients.
+ */
+export function setNativeBackupPath(path: string): void {
+  if (typeof localStorage === 'undefined') return;
+  const trimmed = path.trim();
+  if (trimmed) {
+    localStorage.setItem(NATIVE_BACKUP_PATH_STORAGE_KEY, trimmed);
+  } else {
+    localStorage.removeItem(NATIVE_BACKUP_PATH_STORAGE_KEY);
+  }
+}
+
+/**
+ * Clears the configured separate backup directory path for native Tauri clients.
+ */
+export function clearNativeBackupPath(): void {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.removeItem(NATIVE_BACKUP_PATH_STORAGE_KEY);
+}
 
 /**
  * Requests persistent storage from the browser to prevent eviction
@@ -107,14 +142,75 @@ export async function removeDirectoryHandle(): Promise<void> {
 }
 
 /**
- * Checks if File System Access API is supported
+ * Checks if browser File System Access API (`window.showDirectoryPicker`) is supported
  */
 export function isFileSystemAccessSupported(): boolean {
   return typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 }
 
 /**
- * Prompts the user to pick a backup directory (e.g. school share or USB)
+ * Checks if automated local backup directory is supported (either Native Tauri Client or Chromium File System Access API)
+ */
+export function isAutomatedBackupSupported(): boolean {
+  return isTauri() || isFileSystemAccessSupported();
+}
+
+/**
+ * Returns the platform-specific default backup directory path on native Tauri clients.
+ */
+export async function getDefaultNativeBackupDirectory(): Promise<string> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return await invoke<string>('native_get_default_backup_dir');
+}
+
+/**
+ * Validates and prepares (creates if needed + checks write access) a custom backup directory path on native Tauri clients.
+ */
+export async function validateAndSaveNativeBackupDirectory(rawPath: string): Promise<string> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  const validatedPath = await invoke<string>('native_validate_backup_dir', { path: rawPath });
+  setNativeBackupPath(validatedPath);
+  return validatedPath;
+}
+
+/**
+ * Opens a native OS folder picker dialog on Tauri clients (or uses the default mobile Documents folder).
+ */
+export async function pickNativeBackupDirectory(initialDir?: string | null): Promise<string | null> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  const chosen = await invoke<string | null>('native_pick_backup_dir', {
+    initialDir: initialDir || getNativeBackupPath() || undefined,
+  });
+  if (chosen) {
+    setNativeBackupPath(chosen);
+  }
+  return chosen;
+}
+
+/**
+ * Writes the encrypted vault bundle into the configured native backup directory path via Tauri IPC.
+ */
+export async function writeVaultToNativeDirectory(
+  backupDir: string,
+  vaultJson: string,
+  options?: WriteVaultDirectoryOptions
+): Promise<{ filename: string; timestamp: string; resolvedPath: string }> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return await invoke<{ filename: string; timestamp: string; resolvedPath: string }>(
+    'native_write_vault_backup',
+    {
+      backupDir,
+      vaultJson,
+      userId: options?.userId,
+      forceSnapshot: options?.forceSnapshot ?? false,
+      snapshotIntervalMs: options?.snapshotIntervalMs ?? 15 * 60 * 1000,
+      maxSnapshots: options?.maxSnapshots ?? 20,
+    }
+  );
+}
+
+/**
+ * Prompts the user to pick a backup directory (e.g. school share or USB) via browser File System Access API
  */
 export async function pickBackupDirectory(): Promise<FileSystemDirectoryHandle | null> {
   if (!isFileSystemAccessSupported()) {
@@ -257,16 +353,36 @@ export async function writeVaultToDirectory(
 }
 
 /**
- * Exports the encrypted vault bundle as a file download (for school share or USB)
+ * Exports the encrypted vault bundle as a file download (for school share or USB).
+ * On native Tauri clients, uses native file export / Save dialog for reliable cross-platform saving.
  */
-export function exportVaultToFileDownload(vaultBundle: any): void {
+export async function exportVaultToFileDownload(vaultBundle: any): Promise<void> {
   const jsonStr = JSON.stringify(vaultBundle, null, 2);
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const filename = `gradus21-tresor-backup-${dateStr}.gradus21`;
+
+  if (isTauri()) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const savedPath = await invoke<string | null>('native_export_backup_file', {
+        filename,
+        vaultJson: jsonStr,
+        preferredDir: getNativeBackupPath() || undefined,
+      });
+      if (savedPath) {
+        alert(`Tresor-Backup wurde erfolgreich gespeichert unter:\n${savedPath}`);
+      }
+      return;
+    } catch (err) {
+      console.warn('Nativer Datei-Export fehlgeschlagen, nutze Browser-Fallback:', err);
+    }
+  }
+
   const blob = new Blob([jsonStr], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
-  const dateStr = new Date().toISOString().slice(0, 10);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `gradus21-tresor-backup-${dateStr}.gradus21`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

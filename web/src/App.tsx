@@ -75,6 +75,7 @@ export const App: React.FC = () => {
     handleExportEncryptedBackup,
     handleImportEncryptedBackup,
     handleConnectBackupDirectory,
+    handleSetCustomBackupPath,
     handleDisconnectBackupDirectory,
     isEmailVerificationOpen,
     emailForVerification,
@@ -692,6 +693,7 @@ export const App: React.FC = () => {
           connectedBackupDirName={connectedBackupDirName}
           lastLocalBackupTime={lastLocalBackupTime}
           onConnectBackupDirectory={handleConnectBackupDirectory}
+          onSetCustomBackupPath={handleSetCustomBackupPath}
           onDisconnectBackupDirectory={handleDisconnectBackupDirectory}
           isPersistentStorage={isPersistentStorage}
           session={vaultSession}
@@ -721,6 +723,7 @@ export const App: React.FC = () => {
           connectedBackupDirName={connectedBackupDirName}
           lastLocalBackupTime={lastLocalBackupTime}
           onConnectBackupDirectory={handleConnectBackupDirectory}
+          onSetCustomBackupPath={handleSetCustomBackupPath}
           onDisconnectBackupDirectory={handleDisconnectBackupDirectory}
           isPersistentStorage={isPersistentStorage}
           session={vaultSession}

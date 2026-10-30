@@ -43,11 +43,24 @@ import {
   Check,
   Fingerprint,
 } from 'lucide-react';
-import { isFileSystemAccessSupported } from '../utils/localBackupStorage';
+import {
+  isFileSystemAccessSupported,
+  getDefaultNativeBackupDirectory,
+} from '../utils/localBackupStorage';
 import { useLegalConfig, getDisplayDomain } from '../utils/legalConfig';
 import { checkForAppUpdate, installAppUpdate, UpdateInfo } from '../utils/updater';
 import { APP_VERSION } from '../version';
-import { isTauri, isDesktopTauri, isAppleTouchDevice, isLinux, getStorageLocationInfo } from '../utils/platform';
+import {
+  isTauri,
+  isDesktopTauri,
+  isAppleTouchDevice,
+  isIPad,
+  isAndroid,
+  isLinux,
+  isWindows,
+  isMacOS,
+  getStorageLocationInfo,
+} from '../utils/platform';
 import { ActiveVaultSession } from './vault/vaultTypes';
 import { VaultLockAndAuthModal } from './VaultLockAndAuthModal';
 import {
@@ -89,6 +102,9 @@ interface SettingsModalProps {
   connectedBackupDirName?: string | null;
   lastLocalBackupTime?: string | null;
   onConnectBackupDirectory?: () => void;
+  onSetCustomBackupPath?: (
+    customPath: string
+  ) => Promise<{ ok: boolean; path?: string; error?: string }>;
   onDisconnectBackupDirectory?: () => void;
   isPersistentStorage?: boolean;
   session?: ActiveVaultSession | null;
@@ -131,6 +147,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   connectedBackupDirName,
   lastLocalBackupTime,
   onConnectBackupDirectory,
+  onSetCustomBackupPath,
   onDisconnectBackupDirectory,
   isPersistentStorage,
   session,
@@ -212,7 +229,67 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   }, [initialSection]);
   const [showAvvConfirmation, setShowAvvConfirmation] = useState(false);
   const [copiedPath, setCopiedPath] = useState(false);
+  const [copiedBackupPath, setCopiedBackupPath] = useState(false);
   const storageInfo = getStorageLocationInfo();
+  const [customBackupPathInput, setCustomBackupPathInput] = useState<string>(
+    connectedBackupDirName || ''
+  );
+  const [defaultNativeBackupDir, setDefaultNativeBackupDir] = useState<string>('');
+  const [isSavingBackupPath, setIsSavingBackupPath] = useState(false);
+  const [backupPathFeedback, setBackupPathFeedback] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
+  useEffect(() => {
+    setCustomBackupPathInput(connectedBackupDirName || '');
+  }, [connectedBackupDirName]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let active = true;
+    getDefaultNativeBackupDirectory()
+      .then((dir) => {
+        if (active && dir) {
+          setDefaultNativeBackupDir(dir);
+        }
+      })
+      .catch(() => {
+        // ignore in test or fallback environments
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleApplyCustomBackupPath = async (pathOverride?: string) => {
+    const rawTarget =
+      (pathOverride !== undefined ? pathOverride : customBackupPathInput).trim() ||
+      defaultNativeBackupDir ||
+      storageInfo.defaultBackupPathPlaceholder ||
+      '~/Gradus21-Backups';
+    if (!onSetCustomBackupPath) return;
+    setIsSavingBackupPath(true);
+    setBackupPathFeedback(null);
+    try {
+      const res = await onSetCustomBackupPath(rawTarget);
+      if (res.ok && res.path) {
+        setCustomBackupPathInput(res.path);
+        setBackupPathFeedback({
+          type: 'success',
+          message: `Backup-Pfad aktiv verknüpft: ${res.path}`,
+        });
+        triggerSaved();
+      } else {
+        setBackupPathFeedback({
+          type: 'error',
+          message: res.error || 'Der angegebene Pfad konnte nicht geöffnet oder beschrieben werden.',
+        });
+      }
+    } finally {
+      setIsSavingBackupPath(false);
+    }
+  };
   const [templatePendingDelete, setTemplatePendingDelete] = useState<{ id: string; name: string } | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [savedIndicator, setSavedIndicator] = useState(false);
@@ -1243,7 +1320,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
-              {/* Card 3: Automatischer lokaler Backup-Ordner (File System Access API) */}
+              {/* Card 3: Automatischer lokaler Backup-Ordner (Native Backup-Pfad / File System Access API) */}
               <div
                 className="p-5 rounded-2xl border space-y-4"
                 style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
@@ -1252,7 +1329,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="flex items-center gap-2">
                     <Folder className="w-4 h-4" style={{ color: 'var(--primary-500)' }} />
                     <h4 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
-                      3. Automatischer lokaler Backup-Ordner (File System API)
+                      {isTauri()
+                        ? '3. Automatischer lokaler Backup-Ordner (Separater Backup-Pfad)'
+                        : '3. Automatischer lokaler Backup-Ordner (File System API)'}
                     </h4>
                     {connectedBackupDirName && (
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
@@ -1261,11 +1340,188 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     )}
                   </div>
                   <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                    Verknüpfe einen Zielordner auf deinem PC oder ein gemountetes Schul-Netzlaufwerk. Gradus21 speichert bei Notenänderungen automatisch im Hintergrund eine rotierende Sicherung dorthin – ganz ohne manuelle Download-Klicks.
+                    {isTauri()
+                      ? storageInfo.isMobile
+                        ? `Lege einen separaten Backup-Pfad auf deinem ${storageInfo.platformName}-Gerät fest. Gradus21 speichert bei Notenänderungen automatisch im Hintergrund eine rotierende AES-256-GCM Sicherung (.gradus21) dorthin.`
+                        : 'Lege einen separaten Zielordner auf deinem Rechner fest (z. B. ein eigenes Backup-Verzeichnis, einen Nextcloud-/OwnCloud-Sync-Ordner, ein gemountetes Schul-Netzlaufwerk oder einen USB-Stick). Gradus21 speichert bei Notenänderungen automatisch im Hintergrund eine rotierende AES-256-GCM Sicherung (.gradus21) dorthin.'
+                      : 'Verknüpfe einen Zielordner auf deinem PC oder ein gemountetes Schul-Netzlaufwerk. Gradus21 speichert bei Notenänderungen automatisch im Hintergrund eine rotierende Sicherung dorthin – ganz ohne manuelle Download-Klicks.'}
                   </p>
                 </div>
 
-                {isFileSystemAccessSupported() ? (
+                {isTauri() ? (
+                  <div
+                    className="p-3.5 rounded-xl border space-y-3"
+                    style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
+                  >
+                    {connectedBackupDirName ? (
+                      <div className="space-y-2 pb-2 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 font-bold text-xs" style={{ color: 'var(--text-primary)' }}>
+                            <FileCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <span>Aktiver Backup-Pfad ({storageInfo.platformName}):</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {typeof navigator !== 'undefined' && navigator.clipboard && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(connectedBackupDirName);
+                                  setCopiedBackupPath(true);
+                                  setTimeout(() => setCopiedBackupPath(false), 2000);
+                                }}
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400 hover:underline cursor-pointer"
+                                title="Backup-Pfad in die Zwischenablage kopieren"
+                              >
+                                {copiedBackupPath ? (
+                                  <>
+                                    <Check className="w-3 h-3 text-emerald-600" />
+                                    <span className="text-emerald-600">Kopiert!</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3 h-3" />
+                                    <span>Pfad kopieren</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setBackupPathFeedback(null);
+                                if (onDisconnectBackupDirectory) onDisconnectBackupDirectory();
+                              }}
+                              className="px-2.5 py-1 rounded-lg border border-rose-500/30 text-rose-600 text-[11px] font-semibold hover:bg-rose-500/10 transition"
+                            >
+                              Trennen
+                            </button>
+                          </div>
+                        </div>
+                        <div className="font-mono text-[11px] px-2.5 py-1.5 rounded-lg bg-black/5 dark:bg-white/5 break-all select-all font-semibold text-emerald-800 dark:text-emerald-300">
+                          {connectedBackupDirName}
+                        </div>
+                        <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                          Letzte Sicherung:{' '}
+                          {lastLocalBackupTime
+                            ? `Heute um ${lastLocalBackupTime} Uhr`
+                            : 'Wird automatisch bei der nächsten Änderung geschrieben'}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+                        Noch kein separater Backup-Pfad konfiguriert. Gib unten einen Zielpfad ein oder wähle einen Ordner aus:
+                      </div>
+                    )}
+
+                    {/* Eingabefeld für separaten Backup-Pfad + Ordner-Auswahl */}
+                    <div className="space-y-2">
+                      <label
+                        htmlFor="native-custom-backup-path-input"
+                        className="block text-xs font-semibold"
+                        style={{ color: 'var(--text-secondary)' }}
+                      >
+                        Separaten Backup-Pfad angeben:
+                      </label>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          id="native-custom-backup-path-input"
+                          type="text"
+                          value={customBackupPathInput}
+                          onChange={(e) => {
+                            setCustomBackupPathInput(e.target.value);
+                            if (backupPathFeedback) setBackupPathFeedback(null);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleApplyCustomBackupPath();
+                            }
+                          }}
+                          placeholder={
+                            defaultNativeBackupDir ||
+                            storageInfo.defaultBackupPathPlaceholder ||
+                            '~/Gradus21-Backups'
+                          }
+                          className="flex-1 px-3 py-1.5 rounded-xl border text-xs font-mono bg-transparent"
+                          style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                        />
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            disabled={isSavingBackupPath}
+                            onClick={() => handleApplyCustomBackupPath()}
+                            className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 transition hover:opacity-90 shadow-sm disabled:opacity-50"
+                            style={{ backgroundColor: 'var(--primary-500)' }}
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>{isSavingBackupPath ? 'Prüfe...' : 'Pfad speichern'}</span>
+                          </button>
+                          {isDesktopTauri() && onConnectBackupDirectory && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setBackupPathFeedback(null);
+                                onConnectBackupDirectory();
+                              }}
+                              className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 hover:opacity-80 transition"
+                              style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                              title="System-Ordnerdialog öffnen"
+                            >
+                              <Folder className="w-3.5 h-3.5" />
+                              <span>Ordner wählen...</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            disabled={isSavingBackupPath}
+                            onClick={() => {
+                              const fallback =
+                                defaultNativeBackupDir ||
+                                storageInfo.defaultBackupPathPlaceholder ||
+                                '~/Gradus21-Backups';
+                              setCustomBackupPathInput(fallback);
+                              handleApplyCustomBackupPath(fallback);
+                            }}
+                            className="px-2.5 py-1.5 rounded-xl border text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition"
+                            style={{ borderColor: 'var(--border-subtle)' }}
+                            title="Empfohlenen Standard-Backup-Ordner verwenden"
+                          >
+                            Standard-Pfad
+                          </button>
+                        </div>
+                      </div>
+
+                      {backupPathFeedback && (
+                        <div
+                          className={`p-2.5 rounded-xl border text-[11px] flex items-center gap-2 ${
+                            backupPathFeedback.type === 'success'
+                              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-200'
+                              : 'bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-200'
+                          }`}
+                        >
+                          {backupPathFeedback.type === 'success' ? (
+                            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                          ) : (
+                            <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                          )}
+                          <span className="break-all">{backupPathFeedback.message}</span>
+                        </div>
+                      )}
+
+                      <p className="text-[11px] opacity-75" style={{ color: 'var(--text-secondary)' }}>
+                        {isLinux()
+                          ? 'Unterstützt absolute Pfade (z. B. /mnt/schulnetz/gradus21) sowie Pfade im Home-Verzeichnis (z. B. ~/Nextcloud/Gradus21-Backups). Nicht vorhandene Ordner werden automatisch erstellt.'
+                          : isWindows()
+                          ? 'Unterstützt lokale Laufwerke (z. B. D:\\Gradus21-Backups), %USERPROFILE%-Pfade sowie gemountete Schul-Netzlaufwerke (z. B. Z:\\Backups oder \\\\server\\share).'
+                          : isMacOS()
+                          ? 'Unterstützt Pfade im Benutzerverzeichnis (z. B. ~/Documents/Gradus21-Backups) sowie eingebundene Netzlaufwerke unter /Volumes/...'
+                          : isAppleTouchDevice()
+                          ? 'Sicherungen im Dokumenten-Unterordner (Standard: Gradus21-Backups) sind direkt in der Apple „Dateien“-App unter „Auf meinem iPhone/iPad → Gradus21“ sichtbar.'
+                          : 'Sicherungen werden im angegebenen App-Dokumentenverzeichnis abgelegt und automatisch rotiert (max. 20 Snapshots).'}
+                      </p>
+                    </div>
+                  </div>
+                ) : isFileSystemAccessSupported() ? (
                   <div className="p-3.5 rounded-xl border space-y-3" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}>
                     {connectedBackupDirName ? (
                       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1316,31 +1572,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 ) : (
                   <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-200 text-xs flex items-center gap-2">
                     <AlertCircle className="w-4 h-4 shrink-0" />
-                    <span>Die automatische Ordner-Verknüpfung erfordert einen Chromium-basierten Browser (Google Chrome, Microsoft Edge, Brave). In Firefox oder Safari kannst du Backups manuell als Datei (oben) herunterladen.</span>
+                    <span>Die automatische Ordner-Verknüpfung im Webbrowser erfordert einen Chromium-basierten Browser (Google Chrome, Microsoft Edge, Brave) oder die native Gradus21 Desktop-/Mobile-App. In Firefox oder Safari kannst du Backups manuell als Datei (oben) herunterladen.</span>
                   </div>
                 )}
               </div>
 
-              {/* Card 4: Persistenter Browser-Speicher */}
+              {/* Card 4: Persistenter Speicher (Nativ vs. Browser) */}
               <div
                 className="p-4 rounded-2xl border flex items-center justify-between gap-3 text-xs"
                 style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
               >
                 <div className="flex items-center gap-2.5">
-                  <Shield className="w-4 h-4 text-teal-600" />
+                  <Shield className="w-4 h-4 text-teal-600 shrink-0" />
                   <div>
                     <span className="font-bold block" style={{ color: 'var(--text-primary)' }}>
-                      Dauerhafter Browser-Speicher (Storage Persistence)
+                      {storageInfo.isNative
+                        ? `4. Dauerhafter App-Datenspeicher (${storageInfo.platformName})`
+                        : '4. Dauerhafter Browser-Speicher (Storage Persistence)'}
                     </span>
                     <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-                      {isPersistentStorage
+                      {storageInfo.isNative
+                        ? `Nativer Anwendungsspeicher aktiv: Gespeicherte Klassen und Noten liegen dauerhaft geschützt im lokalen Systemverzeichnis (${storageInfo.locationLabel}) und werden niemals durch Browser-Bereinigungen gelöscht.`
+                        : isPersistentStorage
                         ? 'Vom Browser garantiert: Gespeicherte Klassen und Noten werden auch bei knappem Festplattenspeicher niemals automatisch bereinigt.'
                         : 'Standardspeicher aktiv. Browser behält Daten im localStorage.'}
                     </span>
                   </div>
                 </div>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/10 text-teal-700 dark:text-teal-300">
-                  {isPersistentStorage ? 'Garantiert persistent' : 'Aktiv'}
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/10 text-teal-700 dark:text-teal-300 shrink-0">
+                  {storageInfo.isNative
+                    ? 'Dauerhaft gesichert (Nativ)'
+                    : isPersistentStorage
+                    ? 'Garantiert persistent'
+                    : 'Aktiv'}
                 </span>
               </div>
             </div>
@@ -1368,9 +1632,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <div className="flex items-center gap-2">
                         <h4 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
                           {isTauri()
-                            ? (isAppleTouchDevice()
-                                ? 'Gradus21 iOS App'
-                                : 'Gradus21 Desktop Client')
+                            ? isIPad()
+                              ? 'Gradus21 iPadOS App'
+                              : isAppleTouchDevice()
+                              ? 'Gradus21 iOS App'
+                              : isAndroid()
+                              ? 'Gradus21 Android App'
+                              : `Gradus21 Desktop Client (${storageInfo.platformName})`
                             : 'Gradus21 Web-Client'}
                         </h4>
                         <span className="text-[11px] font-mono px-2 py-0.5 rounded font-bold bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200">
@@ -1379,9 +1647,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                       <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
                         {isTauri()
-                          ? (isAppleTouchDevice()
-                              ? 'Zero-Knowledge E2EE Notenverwaltung (Native iOS/iPadOS App)'
-                              : 'Zero-Knowledge E2EE Notenverwaltung (Native Desktop-Applikation)')
+                          ? storageInfo.isMobile
+                            ? `Zero-Knowledge E2EE Notenverwaltung (Native ${storageInfo.platformName} App)`
+                            : `Zero-Knowledge E2EE Notenverwaltung (Native ${storageInfo.platformName} Desktop-Applikation)`
                           : 'Web-Client / Browser-Version'}
                       </p>
                     </div>

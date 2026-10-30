@@ -194,6 +194,7 @@ export interface StorageLocationInfo {
   path: string;
   details: string;
   canCopyPath: boolean;
+  defaultBackupPathPlaceholder?: string;
 }
 
 /**
@@ -213,6 +214,7 @@ export const getStorageLocationInfo = (): StorageLocationInfo => {
         path: `Gradus21 App-Sandbox (${platformName})`,
         details: 'Im isolierten, verschlüsselten Datenspeicher Ihres Apple-Geräts abgelegt.',
         canCopyPath: false,
+        defaultBackupPathPlaceholder: 'Gradus21-Backups',
       };
     }
 
@@ -226,6 +228,7 @@ export const getStorageLocationInfo = (): StorageLocationInfo => {
         path: 'Gradus21 App-Sandbox (Interner Speicher)',
         details: 'Im isolierten, verschlüsselten Datenspeicher Ihres Android-Geräts abgelegt.',
         canCopyPath: false,
+        defaultBackupPathPlaceholder: 'Gradus21-Backups',
       };
     }
 
@@ -239,6 +242,7 @@ export const getStorageLocationInfo = (): StorageLocationInfo => {
         path: '~/.local/share/de.gradus21.app/',
         details: 'Dauerhafter lokaler Speicher im Benutzerverzeichnis Ihres Linux-Systems.',
         canCopyPath: true,
+        defaultBackupPathPlaceholder: '~/Gradus21-Backups',
       };
     }
 
@@ -252,6 +256,7 @@ export const getStorageLocationInfo = (): StorageLocationInfo => {
         path: '~/Library/Application Support/de.gradus21.app/',
         details: 'Dauerhafter lokaler Speicher im Benutzerverzeichnis Ihres Macs.',
         canCopyPath: true,
+        defaultBackupPathPlaceholder: '~/Documents/Gradus21-Backups',
       };
     }
 
@@ -265,6 +270,7 @@ export const getStorageLocationInfo = (): StorageLocationInfo => {
         path: '%LOCALAPPDATA%\\de.gradus21.app\\',
         details: 'Dauerhafter lokaler Speicher im Windows-Benutzerprofil.',
         canCopyPath: true,
+        defaultBackupPathPlaceholder: '%USERPROFILE%\\Documents\\Gradus21-Backups',
       };
     }
 
@@ -277,6 +283,7 @@ export const getStorageLocationInfo = (): StorageLocationInfo => {
       path: 'de.gradus21.app (Anwendungsdaten)',
       details: 'Dauerhafter lokaler Speicher im Benutzerprofil Ihres Betriebssystems.',
       canCopyPath: true,
+      defaultBackupPathPlaceholder: '~/Gradus21-Backups',
     };
   }
 

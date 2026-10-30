@@ -22,15 +22,21 @@ import {
   resolveIsDarkMode,
 } from '../data/demoClasses';
 import {
+  clearNativeBackupPath,
   exportVaultToFileDownload,
   getDirectoryHandle,
+  getNativeBackupPath,
   isFileSystemAccessSupported,
   pickBackupDirectory,
+  pickNativeBackupDirectory,
   readVaultFromFile,
   removeDirectoryHandle,
   requestStoragePersistence,
+  validateAndSaveNativeBackupDirectory,
   writeVaultToDirectory,
+  writeVaultToNativeDirectory,
 } from '../utils/localBackupStorage';
+import { isTauri } from '../utils/platform';
 
 const DEMO_OWNER_USER_ID = '7f9c2a10-58e4-4c9b-9b1a-123456789abc';
 export const ACTIVE_USER_ID_STORAGE_KEY = 'gradus21_active_user_id_v3';
@@ -480,12 +486,23 @@ export function useVaultWorkspaceSync() {
 
   // Local persistent storage & automated backup directory
   const [isPersistentStorage, setIsPersistentStorage] = useState<boolean>(false);
-  const [connectedBackupDirName, setConnectedBackupDirName] = useState<string | null>(null);
+  const [connectedBackupDirName, setConnectedBackupDirName] = useState<string | null>(() =>
+    isTauri() ? getNativeBackupPath() : null
+  );
   const [lastLocalBackupTime, setLastLocalBackupTime] = useState<string | null>(null);
   const connectedDirHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
+  const connectedNativePathRef = useRef<string | null>(isTauri() ? getNativeBackupPath() : null);
 
   useEffect(() => {
     requestStoragePersistence().then((persisted) => setIsPersistentStorage(persisted));
+    if (isTauri()) {
+      const savedNativePath = getNativeBackupPath();
+      if (savedNativePath) {
+        connectedNativePathRef.current = savedNativePath;
+        setConnectedBackupDirName(savedNativePath);
+        return;
+      }
+    }
     getDirectoryHandle().then((handle) => {
       if (handle) {
         connectedDirHandleRef.current = handle;
@@ -1447,9 +1464,24 @@ export function useVaultWorkspaceSync() {
         };
         localStorage.setItem(userCacheKey, JSON.stringify(userCacheBundle));
 
-        // Auto-save to connected local backup directory (File System Access API) if configured
+        // Auto-save to connected local backup directory (Native Path on Tauri or File System Access API on Web)
         // [HIGH-4] Strip encryptedSessionCredentials from external backup files
-        if (connectedDirHandleRef.current) {
+        if (isTauri() && connectedNativePathRef.current) {
+          try {
+            const sanitizedBackupBundle = { ...userCacheBundle };
+            delete (sanitizedBackupBundle as Record<string, unknown>).encryptedSessionCredentials;
+            await writeVaultToNativeDirectory(
+              connectedNativePathRef.current,
+              JSON.stringify(sanitizedBackupBundle, null, 2),
+              { userId: userCacheBundle.userId }
+            );
+            setLastLocalBackupTime(
+              new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            );
+          } catch (nativeErr) {
+            console.warn('Fehler beim automatischen Schreiben in den nativen Backup-Pfad:', nativeErr);
+          }
+        } else if (connectedDirHandleRef.current) {
           try {
             const sanitizedBackupBundle = { ...userCacheBundle };
             delete (sanitizedBackupBundle as Record<string, unknown>).encryptedSessionCredentials;
@@ -2313,7 +2345,9 @@ export function useVaultWorkspaceSync() {
       return;
     }
     const confirmed = window.confirm(
-      'Möchtest du wirklich alle verschlüsselten Datensätze vom Server löschen?\n\nDeine lokalen Daten im Browser bleiben vollständig erhalten. Gradus21 arbeitet danach zu 100% lokal offline.'
+      isTauri()
+        ? 'Möchtest du wirklich alle verschlüsselten Datensätze vom Server löschen?\n\nDeine lokalen Daten auf diesem Gerät bleiben vollständig erhalten. Gradus21 arbeitet danach zu 100% lokal offline.'
+        : 'Möchtest du wirklich alle verschlüsselten Datensätze vom Server löschen?\n\nDeine lokalen Daten im Browser bleiben vollständig erhalten. Gradus21 arbeitet danach zu 100% lokal offline.'
     );
     if (!confirmed) return;
 
@@ -2423,7 +2457,9 @@ export function useVaultWorkspaceSync() {
       setSyncStatus('local_only');
 
       alert(
-        'Das Tresor-Backup wurde erfolgreich in den Browser importiert! Bitte entsperre den Tresor mit deinem Master-Passwort.'
+        isTauri()
+          ? 'Das Tresor-Backup wurde erfolgreich importiert! Bitte entsperre den Tresor mit deinem Master-Passwort.'
+          : 'Das Tresor-Backup wurde erfolgreich in den Browser importiert! Bitte entsperre den Tresor mit deinem Master-Passwort.'
       );
       handleLockVault();
     } catch (err: any) {
@@ -2431,26 +2467,56 @@ export function useVaultWorkspaceSync() {
     }
   };
 
-  const handleConnectBackupDirectory = async () => {
+  const getSanitizedLocalVaultJson = (): string | null => {
+    if (!vaultSession?.userId) return null;
+    const userCacheKey = getUserEncryptedCacheKey(vaultSession.userId);
+    const cachedRaw = localStorage.getItem(userCacheKey);
+    if (!cachedRaw) return null;
     try {
-      const handle = await pickBackupDirectory();
-      if (handle) {
-        connectedDirHandleRef.current = handle;
-        setConnectedBackupDirName(handle.name);
-        // Sofort ein aktuelles Backup schreiben (ohne encryptedSessionCredentials)
-        if (vaultSession?.userId) {
-          const userCacheKey = getUserEncryptedCacheKey(vaultSession.userId);
-          const cachedRaw = localStorage.getItem(userCacheKey);
-          if (cachedRaw) {
-            let sanitizedRaw = cachedRaw;
-            try {
-              const parsed = JSON.parse(cachedRaw);
-              delete parsed.encryptedSessionCredentials;
-              sanitizedRaw = JSON.stringify(parsed, null, 2);
-            } catch {
-              // ignore
-            }
-            await writeVaultToDirectory(handle, sanitizedRaw, {
+      const parsed = JSON.parse(cachedRaw);
+      delete parsed.encryptedSessionCredentials;
+      return JSON.stringify(parsed, null, 2);
+    } catch {
+      return cachedRaw;
+    }
+  };
+
+  const handleSetCustomBackupPath = async (
+    customPath: string
+  ): Promise<{ ok: boolean; path?: string; error?: string }> => {
+    try {
+      const validatedPath = await validateAndSaveNativeBackupDirectory(customPath);
+      connectedNativePathRef.current = validatedPath;
+      setConnectedBackupDirName(validatedPath);
+
+      const sanitizedRaw = getSanitizedLocalVaultJson();
+      if (sanitizedRaw && vaultSession?.userId) {
+        await writeVaultToNativeDirectory(validatedPath, sanitizedRaw, {
+          userId: vaultSession.userId,
+          forceSnapshot: true,
+        });
+        setLastLocalBackupTime(
+          new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        );
+      }
+      return { ok: true, path: validatedPath };
+    } catch (err: any) {
+      const msg = typeof err === 'string' ? err : err?.message || 'Backup-Pfad konnte nicht verknüpft werden.';
+      console.warn('Benutzerdefinierter Backup-Pfad konnte nicht gesetzt werden:', err);
+      return { ok: false, error: msg };
+    }
+  };
+
+  const handleConnectBackupDirectory = async () => {
+    if (isTauri()) {
+      try {
+        const chosenPath = await pickNativeBackupDirectory(connectedNativePathRef.current);
+        if (chosenPath) {
+          connectedNativePathRef.current = chosenPath;
+          setConnectedBackupDirName(chosenPath);
+          const sanitizedRaw = getSanitizedLocalVaultJson();
+          if (sanitizedRaw && vaultSession?.userId) {
+            await writeVaultToNativeDirectory(chosenPath, sanitizedRaw, {
               userId: vaultSession.userId,
               forceSnapshot: true,
             });
@@ -2459,6 +2525,30 @@ export function useVaultWorkspaceSync() {
             );
           }
         }
+      } catch (err: any) {
+        const msg = typeof err === 'string' ? err : err?.message || String(err);
+        console.warn('Nativer Backup-Ordner-Dialog fehlgeschlagen:', msg);
+        alert(msg);
+      }
+      return;
+    }
+
+    try {
+      const handle = await pickBackupDirectory();
+      if (handle) {
+        connectedDirHandleRef.current = handle;
+        setConnectedBackupDirName(handle.name);
+        // Sofort ein aktuelles Backup schreiben (ohne encryptedSessionCredentials)
+        const sanitizedRaw = getSanitizedLocalVaultJson();
+        if (sanitizedRaw && vaultSession?.userId) {
+          await writeVaultToDirectory(handle, sanitizedRaw, {
+            userId: vaultSession.userId,
+            forceSnapshot: true,
+          });
+          setLastLocalBackupTime(
+            new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          );
+        }
       }
     } catch (err: any) {
       console.warn('Backup-Ordner konnte nicht verknüpft werden:', err);
@@ -2466,6 +2556,8 @@ export function useVaultWorkspaceSync() {
   };
 
   const handleDisconnectBackupDirectory = async () => {
+    clearNativeBackupPath();
+    connectedNativePathRef.current = null;
     await removeDirectoryHandle();
     connectedDirHandleRef.current = null;
     setConnectedBackupDirName(null);
@@ -2552,6 +2644,7 @@ export function useVaultWorkspaceSync() {
     handleExportEncryptedBackup,
     handleImportEncryptedBackup,
     handleConnectBackupDirectory,
+    handleSetCustomBackupPath,
     handleDisconnectBackupDirectory,
     isEmailVerificationOpen,
     emailForVerification,

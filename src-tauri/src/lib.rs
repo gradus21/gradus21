@@ -1,9 +1,69 @@
+mod backup_storage;
 mod browser_auth;
 mod keyring_auth;
 
 #[tauri::command]
 fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
+}
+
+#[tauri::command]
+fn native_get_default_backup_dir(app: tauri::AppHandle) -> Result<String, String> {
+    backup_storage::get_default_backup_dir(&app)
+}
+
+#[tauri::command]
+fn native_validate_backup_dir(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    backup_storage::validate_and_prepare_backup_dir(Some(&app), &path)
+}
+
+#[tauri::command]
+async fn native_pick_backup_dir(
+    app: tauri::AppHandle,
+    initial_dir: Option<String>,
+) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || backup_storage::pick_backup_dir(&app, initial_dir))
+        .await
+        .map_err(|e| format!("Ordner-Dialog abgebrochen: {}", e))?
+}
+
+#[tauri::command]
+async fn native_write_vault_backup(
+    app: tauri::AppHandle,
+    backup_dir: String,
+    vault_json: String,
+    user_id: Option<String>,
+    force_snapshot: Option<bool>,
+    snapshot_interval_ms: Option<u64>,
+    max_snapshots: Option<usize>,
+) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = backup_storage::expand_backup_path(Some(&app), &backup_dir)?;
+        backup_storage::write_vault_backup_to_dir(
+            &dir,
+            &vault_json,
+            user_id.as_deref(),
+            force_snapshot.unwrap_or(false),
+            snapshot_interval_ms.unwrap_or(15 * 60 * 1000),
+            max_snapshots.unwrap_or(20),
+        )
+    })
+    .await
+    .map_err(|e| format!("Backup-Schreibvorgang abgebrochen: {}", e))?
+}
+
+#[tauri::command]
+async fn native_export_backup_file(
+    app: tauri::AppHandle,
+    filename: String,
+    vault_json: String,
+    preferred_dir: Option<String>,
+) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        backup_storage::export_backup_file(&app, &filename, &vault_json, preferred_dir)
+    })
+    .await
+    .map_err(|e| format!("Datei-Export abgebrochen: {}", e))?
 }
 
 #[tauri::command]
@@ -144,6 +204,11 @@ pub fn run() {
     builder
         .invoke_handler(tauri::generate_handler![
             get_app_version,
+            native_get_default_backup_dir,
+            native_validate_backup_dir,
+            native_pick_backup_dir,
+            native_write_vault_backup,
+            native_export_backup_file,
             keyring_is_available,
             keyring_save_secret,
             keyring_get_secret,

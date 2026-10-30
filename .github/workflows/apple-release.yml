@@ -209,6 +209,10 @@ jobs:
             echo "Setting NSFaceIDUsageDescription in $plist"
             /usr/libexec/PlistBuddy -c "Add :NSFaceIDUsageDescription string 'Gradus21 nutzt Face ID, um Ihren Noten-Tresor sicher und schnell zu entsperren.'" "$plist" 2>/dev/null || \
             /usr/libexec/PlistBuddy -c "Set :NSFaceIDUsageDescription 'Gradus21 nutzt Face ID, um Ihren Noten-Tresor sicher und schnell zu entsperren.'" "$plist" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Add :UIFileSharingEnabled bool true" "$plist" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Set :UIFileSharingEnabled true" "$plist" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Add :LSSupportsOpeningDocumentsInPlace bool true" "$plist" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Set :LSSupportsOpeningDocumentsInPlace true" "$plist" 2>/dev/null || true
           done
           # Configure Associated Domains (webcredentials:gradus21.app) for Passkey WebAuthn
           ENT_FILE="src-tauri/gen/apple/gradus21-app_iOS/gradus21-app_iOS.entitlements"

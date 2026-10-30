@@ -80,6 +80,42 @@ describe('SettingsModal Navigation & Account Security Architecture', () => {
     expect(screen.getByText(/verschlüsseltes datei-backup/i)).toBeDefined();
   });
 
+  it('displays native separate backup path configuration on native clients instead of Chromium File System API warning', async () => {
+    (window as any).__TAURI__ = {};
+    try {
+      const onSetCustomBackupPath = vi.fn().mockResolvedValue({
+        ok: true,
+        path: '/mnt/schulnetz/gradus21-backups',
+      });
+
+      render(
+        <SettingsModal
+          settings={dummySettings}
+          onUpdateSettings={vi.fn()}
+          onClose={vi.fn()}
+          session={dummySession}
+          initialSection="storage"
+          onSetCustomBackupPath={onSetCustomBackupPath}
+        />
+      );
+
+      expect(
+        screen.getByText(/3\. Automatischer lokaler Backup-Ordner \(Separater Backup-Pfad\)/i)
+      ).toBeDefined();
+      expect(screen.queryByText(/erfordert einen Chromium-basierten Browser/i)).toBeNull();
+
+      const input = screen.getByLabelText(/Separaten Backup-Pfad angeben:/i);
+      fireEvent.change(input, { target: { value: '/mnt/schulnetz/gradus21-backups' } });
+
+      const saveBtn = screen.getByRole('button', { name: /Pfad speichern/i });
+      fireEvent.click(saveBtn);
+
+      expect(onSetCustomBackupPath).toHaveBeenCalledWith('/mnt/schulnetz/gradus21-backups');
+    } finally {
+      delete (window as any).__TAURI__;
+    }
+  });
+
   it('automatically resolves and applies system dark mode when themeMode is "system"', () => {
     const originalMatchMedia = window.matchMedia;
     window.matchMedia = vi.fn().mockImplementation((query: string) => ({

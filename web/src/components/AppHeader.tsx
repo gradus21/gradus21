@@ -300,7 +300,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 syncStatus === 'synced'
                   ? 'Speicherampel: GRÜN - Verschlüsselt in der Cloud & lokal gesichert (E2EE)'
                   : syncStatus === 'local_only'
-                  ? 'Speicherampel: GELB - Achtung: Noten liegen ausschließlich in diesem Browser. Klicke für Details & Backup.'
+                  ? storageInfo.isNative
+                    ? `Speicherampel: GELB - Noten liegen ausschließlich lokal in der ${storageInfo.platformName}-App. Klicke für Details & Backup.`
+                    : 'Speicherampel: GELB - Achtung: Noten liegen ausschließlich in diesem Browser. Klicke für Details & Backup.'
                   : syncStatus === 'syncing'
                   ? 'Speicherampel: BLAU - Änderungen werden verschlüsselt gesichert...'
                   : 'Speicherampel: ROT - Offline / Lokale Änderungen nicht synchronisiert.'
@@ -413,6 +415,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                       <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
                         {syncStatus === 'synced'
                           ? 'Zero-Knowledge E2EE Server-Sync aktiv'
+                          : storageInfo.isNative
+                          ? `Daten liegen ausschließlich lokal (${storageInfo.platformName})`
                           : 'Daten liegen ausschließlich in diesem Browser'}
                       </p>
                     </div>
