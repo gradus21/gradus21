@@ -19,13 +19,13 @@ export const MobileTabBar: React.FC<MobileTabBarProps> = ({ mode, setMode }) => 
   return (
     <nav
       aria-label="Mobile Navigation"
-      className="md:hidden fixed bottom-0 inset-x-0 z-40 pb-safe border-t shadow-[0_-4px_16px_rgba(0,0,0,0.06)]"
+      className="mobile-tab-bar md:hidden fixed bottom-0 inset-x-0 z-40 pb-safe border-t backdrop-blur-xl shadow-[0_-4px_20px_rgba(0,0,0,0.08)]"
       style={{
-        backgroundColor: 'var(--bg-surface)',
+        backgroundColor: 'color-mix(in srgb, var(--bg-surface) 88%, transparent)',
         borderColor: 'var(--border-subtle)',
       }}
     >
-      <div className="grid grid-cols-4 px-2 py-1 gap-1">
+      <div className="grid grid-cols-4 px-2 py-1.5 gap-1.5 max-w-md mx-auto">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const active = mode === tab.id;
@@ -34,11 +34,13 @@ export const MobileTabBar: React.FC<MobileTabBarProps> = ({ mode, setMode }) => 
               key={tab.id}
               data-testid={tab.testId}
               onClick={() => {
-                triggerHapticFeedback(8);
+                triggerHapticFeedback(10);
                 setMode(tab.id);
               }}
-              className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-xl transition-all duration-150 touch-target min-h-[48px] select-none ${
-                active ? 'font-bold scale-[1.02]' : 'opacity-70 hover:opacity-100 active:scale-95'
+              className={`relative flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all duration-200 touch-target min-h-[50px] select-none ${
+                active
+                  ? 'font-extrabold shadow-xs'
+                  : 'opacity-65 hover:opacity-100 active:scale-95'
               }`}
               style={{
                 backgroundColor: active ? 'var(--primary-soft)' : 'transparent',
@@ -46,11 +48,21 @@ export const MobileTabBar: React.FC<MobileTabBarProps> = ({ mode, setMode }) => 
               }}
               aria-current={active ? 'page' : undefined}
             >
-              <Icon
-                className={`w-5 h-5 shrink-0 transition-transform ${active ? 'scale-110' : ''}`}
-                style={{ color: active ? 'var(--primary-500)' : 'currentColor' }}
-              />
-              <span className="text-[10px] leading-tight tracking-tight mt-1 truncate max-w-full">
+              <div className="relative">
+                <Icon
+                  className={`w-5 h-5 shrink-0 transition-transform duration-200 ${
+                    active ? 'scale-110 stroke-[2.4px]' : 'stroke-[1.8px]'
+                  }`}
+                  style={{ color: active ? 'var(--primary-500)' : 'currentColor' }}
+                />
+                {active && (
+                  <span
+                    className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full"
+                    style={{ backgroundColor: 'var(--primary-500)' }}
+                  />
+                )}
+              </div>
+              <span className="text-[10px] leading-tight tracking-tight mt-1.5 truncate max-w-full">
                 {tab.label}
               </span>
             </button>

@@ -405,12 +405,15 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div
         data-tour="wizard-dialog-card"
-        className="max-w-3xl w-full rounded-2xl border p-4 sm:p-6 shadow-xl space-y-4 sm:space-y-5 max-h-[95vh] sm:max-h-[90vh] overflow-y-auto"
+        className="max-w-3xl w-full rounded-t-[28px] sm:rounded-2xl border-t sm:border p-4 sm:p-6 shadow-2xl space-y-4 sm:space-y-5 max-h-[92dvh] sm:max-h-[90vh] overflow-y-auto pb-safe sm:pb-6 sheet-mobile-enter"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
+        {/* Mobile Sheet Drag Indicator */}
+        <div className="sm:hidden sheet-drag-handle" />
+
         <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border-subtle)' }}>
           <div className="flex items-center gap-2.5">
             <FileSpreadsheet className="w-5 h-5" style={{ color: 'var(--primary-500)' }} />

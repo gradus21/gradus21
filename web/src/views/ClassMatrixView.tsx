@@ -827,7 +827,7 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                                             'excused'
                                           );
                                         }}
-                                        className="w-9 h-9 rounded-lg border flex items-center justify-center text-xs font-bold opacity-60 hover:opacity-100 transition shrink-0"
+                                        className="w-11 h-11 sm:w-9 sm:h-9 rounded-xl border flex items-center justify-center text-xs font-bold opacity-60 hover:opacity-100 active:scale-95 transition shrink-0 touch-target"
                                         style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
                                         title="Als entschuldigt markieren"
                                       >
@@ -1119,7 +1119,7 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                     style={{ borderColor: 'var(--border-subtle)' }}
                   >
                     <td
-                      className="py-2.5 px-2.5 sm:px-4 font-semibold sticky left-0 z-10 whitespace-nowrap shadow-[2px_0_5px_rgba(0,0,0,0.03)] border-r max-w-[125px] sm:max-w-none"
+                      className="py-2.5 px-2.5 sm:px-4 font-semibold sticky left-0 z-10 whitespace-nowrap shadow-[2px_0_5px_rgba(0,0,0,0.03)] border-r max-w-[125px] sm:max-w-none transition-colors group-hover:bg-slate-50 dark:group-hover:bg-slate-800/80"
                       style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
                     >
                       <div className="flex items-center justify-between gap-1.5 sm:gap-2">

@@ -375,9 +375,10 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
       left = targetRect.left + targetRect.width + gap;
     }
 
-    // Keep within viewport bounds
-    left = Math.max(16, Math.min(left, windowW - cardWidth - 16));
-    top = Math.max(16, Math.min(top, windowH - cardEstimatedHeight - 16));
+    // Keep within viewport bounds (reserving space for mobile bottom tab bar on phones)
+    const bottomReserve = windowW < 768 ? 76 : 16;
+    left = Math.max(12, Math.min(left, windowW - cardWidth - 12));
+    top = Math.max(16, Math.min(top, windowH - cardEstimatedHeight - bottomReserve));
 
     popoverStyle = {
       position: 'fixed',

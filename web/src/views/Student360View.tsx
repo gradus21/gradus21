@@ -304,7 +304,7 @@ export const Student360View: React.FC<Student360ViewProps> = ({
                 )
               }
               data-tour="student360-print-btn"
-              className="px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 sm:gap-2 shadow-sm transition active:scale-[0.98]"
+              className="px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 sm:gap-2 shadow-sm transition active:scale-[0.98] min-h-[44px] sm:min-h-0 touch-target"
               style={{ backgroundColor: 'var(--primary-500)' }}
             >
               <Printer className="w-4 h-4 shrink-0" />

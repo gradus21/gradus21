@@ -56,11 +56,11 @@ export const GuideChapterSelectModal: React.FC<GuideChapterSelectModalProps> = (
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-3xl rounded-3xl border shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-scale-up"
+        className="w-full max-w-3xl rounded-t-[28px] sm:rounded-3xl border-t sm:border shadow-2xl overflow-hidden flex flex-col max-h-[92dvh] sm:max-h-[90vh] pb-safe sm:pb-0 sheet-mobile-enter"
         style={{
           backgroundColor: 'var(--bg-surface)',
           borderColor: 'var(--border-subtle)',
@@ -68,6 +68,8 @@ export const GuideChapterSelectModal: React.FC<GuideChapterSelectModalProps> = (
         }}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Mobile Sheet Drag Indicator */}
+        <div className="sm:hidden sheet-drag-handle" />
         {/* MODAL HEADER */}
         <div
           className="p-6 border-b flex items-start justify-between gap-4"

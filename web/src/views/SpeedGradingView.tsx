@@ -79,6 +79,18 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
   currentLevelOffsets,
   setMode,
 }) => {
+  const gradedCount = visibleStudents.filter((stu) => {
+    const entry = activeDataset.grades.find(
+      (g) => g.student_id === stu.id && g.assessment_id === activeAssessment.id
+    );
+    return (
+      entry &&
+      (entry.percent_value != null ||
+        entry.direct_grade_value != null ||
+        entry.status === 'excused')
+    );
+  }).length;
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
       <div
@@ -100,6 +112,9 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
             <h2 className="text-base sm:text-lg font-bold mt-1" style={{ color: 'var(--text-primary)' }}>
               Prüfung bewerten: {activeAssessment.title}
             </h2>
+            <span className="hidden sm:inline-block text-[11px] opacity-75 mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+              Pfeiltasten ↑ / ↓ oder Enter zum nächsten Schüler
+            </span>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
@@ -154,6 +169,31 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
                   : 'Note'}
               </button>
             </div>
+          </div>
+        </div>
+
+        {/* Mobile Quick Progress Strip */}
+        <div
+          className="lg:hidden flex items-center justify-between gap-3 p-2.5 rounded-xl border"
+          style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+        >
+          <div className="flex items-center gap-2">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                gradedCount === visibleStudents.length
+                  ? 'bg-emerald-500'
+                  : 'bg-teal-500 animate-pulse'
+              }`}
+            />
+            <span className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
+              {gradedCount} von {visibleStudents.length} bewertet
+            </span>
+          </div>
+          <div className="flex items-center gap-2 font-mono text-xs font-bold text-teal-600 dark:text-teal-400">
+            <span>Live Ø {calculationReport?.class_display_grade || '—'}</span>
+            <span className="opacity-75 font-normal">
+              ({calculationReport?.class_average_percent ?? '—'}%)
+            </span>
           </div>
         </div>
 

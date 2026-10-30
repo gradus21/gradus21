@@ -167,16 +167,18 @@ export const ExportConfigModal: React.FC<ExportConfigModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-[100] flex items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
     >
       <div
-        className="w-full max-w-3xl h-full sm:h-auto max-h-[100dvh] sm:max-h-[92vh] rounded-none sm:rounded-2xl border-0 sm:border shadow-2xl flex flex-col overflow-hidden relative"
+        className="w-full max-w-3xl max-h-[92dvh] sm:max-h-[92vh] rounded-t-[28px] sm:rounded-2xl border-t sm:border shadow-2xl flex flex-col overflow-hidden relative pb-safe sm:pb-0 sheet-mobile-enter"
         style={{
           backgroundColor: 'var(--bg-surface, #1e293b)',
           borderColor: 'var(--border-subtle, #334155)',
           color: 'var(--text-primary, #f8fafc)',
         }}
       >
+        {/* Mobile Sheet Drag Indicator */}
+        <div className="sm:hidden sheet-drag-handle" />
         {/* Header */}
         <div className="flex items-center justify-between p-3.5 sm:p-5 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
           <div className="flex items-center gap-3">

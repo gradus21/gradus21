@@ -6,7 +6,7 @@ import { ClassSetupAndExcelWizard } from './components/ClassSetupAndExcelWizard'
 import { ClassManagementModal } from './components/ClassManagementModal';
 import { SettingsModal, SettingsSection } from './components/SettingsModal';
 import { VaultLockAndAuthModal } from './components/VaultLockAndAuthModal';
-import { isStandaloneClient } from './utils/platform';
+import { isStandaloneClient, isDesktopTauri, getOperatingSystem, isTabletDevice, isSmartphoneDevice } from './utils/platform';
 
 const LazyAdminModal = !isStandaloneClient()
   ? React.lazy(() => import('./components/admin/AdminModal').then((m) => ({ default: m.AdminModal })))
@@ -29,7 +29,6 @@ import { GuideChapterSelectModal } from './components/guide/GuideChapterSelectMo
 import { WelcomeGuideBanner } from './components/guide/WelcomeGuideBanner';
 import { UpdateNotificationBanner } from './components/UpdateNotificationBanner';
 import { checkForAppUpdate, UpdateInfo } from './utils/updater';
-import { isDesktopTauri } from './utils/platform';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useInteractiveGuide } from './hooks/useInteractiveGuide';
 import { APP_VERSION } from './version';
@@ -292,9 +291,13 @@ export const App: React.FC = () => {
     setIsChapterSelectOpen,
   });
 
-  // Sync Themes & Dark Mode + Dynamic Mobile Status Bar theme-color
+  // Sync Themes, Native OS Attributes & Dark Mode + Dynamic Mobile Status Bar theme-color
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', userSettings.themePreset);
+    document.documentElement.setAttribute('data-os', getOperatingSystem());
+    const formFactor = isTabletDevice() ? 'tablet' : isSmartphoneDevice() ? 'phone' : 'desktop';
+    document.documentElement.setAttribute('data-device', formFactor);
+
     const metaTheme = document.querySelector('meta[name="theme-color"]');
     if (userSettings.darkMode) {
       document.documentElement.classList.add('dark');
@@ -557,8 +560,8 @@ export const App: React.FC = () => {
         )}
       </main>
 
-      {/* APP FOOTER / LEGAL COMPLIANCE LINKS */}
-      <footer className="mt-auto py-3 px-3 sm:px-6 border-t border-slate-200/60 dark:border-slate-800/60 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500 dark:text-slate-400 mb-16 md:mb-0 pb-safe">
+      {/* APP FOOTER / LEGAL COMPLIANCE LINKS (Visible on Desktop & Tablets; on Mobile phones, cleanly accessed via Settings & Protection) */}
+      <footer className="mt-auto py-3 px-3 sm:px-6 border-t border-slate-200/60 dark:border-slate-800/60 hidden md:flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500 dark:text-slate-400">
         <div className="flex items-center gap-2 font-medium">
           <span className="font-bold text-slate-700 dark:text-slate-300">Gradus21 v{APP_VERSION}</span>
           <span>·</span>

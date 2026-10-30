@@ -9,6 +9,9 @@ import {
   isDesktopTauri,
   isMobileTauri,
   getStorageLocationInfo,
+  getOperatingSystem,
+  getModifierKey,
+  getAltKey,
 } from './platform';
 
 describe('platform utilities', () => {
@@ -291,6 +294,46 @@ describe('platform utilities', () => {
       expect(info.isNative).toBe(false);
       expect(info.isMobile).toBe(true);
       expect(info.platformName).toBe('Safari (iOS)');
+    });
+  });
+
+  describe('OS and device ergonomics helpers', () => {
+    it('returns correct modifier keys and operating systems for Mac / Apple devices', () => {
+      Object.defineProperty(navigator, 'platform', {
+        value: 'MacIntel',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'maxTouchPoints', {
+        value: 0,
+        configurable: true,
+      });
+
+      expect(getOperatingSystem()).toBe('macos');
+      expect(getModifierKey()).toBe('⌘');
+      expect(getAltKey()).toBe('⌥');
+    });
+
+    it('returns Ctrl and Alt on Windows systems', () => {
+      Object.defineProperty(navigator, 'platform', {
+        value: 'Win32',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'maxTouchPoints', {
+        value: 0,
+        configurable: true,
+      });
+
+      expect(getOperatingSystem()).toBe('windows');
+      expect(getModifierKey()).toBe('Ctrl');
+      expect(getAltKey()).toBe('Alt');
     });
   });
 });

@@ -130,6 +130,62 @@ export const isMacOS = (): boolean => {
   return /Mac/.test(navigator.platform) && !isAppleTouchDevice();
 };
 
+export type OperatingSystem = 'macos' | 'ios' | 'ipados' | 'windows' | 'android' | 'linux' | 'unknown';
+export type DeviceFormFactor = 'phone' | 'tablet' | 'desktop';
+
+/**
+ * Returns the detected operating system in lowercase identifier form.
+ */
+export const getOperatingSystem = (): OperatingSystem => {
+  if (isIPad()) return 'ipados';
+  if (isIPhone() || (isIOS() && !isIPad())) return 'ios';
+  if (isAndroid()) return 'android';
+  if (isMacOS()) return 'macos';
+  if (isWindows()) return 'windows';
+  if (isLinux()) return 'linux';
+  return 'unknown';
+};
+
+/**
+ * Returns the primary modifier key symbol for shortcuts (e.g. ⌘ for Mac/iOS, Ctrl for Windows/Linux).
+ */
+export const getModifierKey = (): string => {
+  if (isMacOS() || isIOS()) return '⌘';
+  return 'Ctrl';
+};
+
+/**
+ * Returns the Alt/Option modifier key symbol (⌥ for Mac/iOS, Alt for Windows/Linux).
+ */
+export const getAltKey = (): string => {
+  if (isMacOS() || isIOS()) return '⌥';
+  return 'Alt';
+};
+
+/**
+ * Returns whether current device is a tablet (e.g. iPad, Android Tablet).
+ */
+export const isTabletDevice = (): boolean => {
+  if (isIPad()) return true;
+  if (typeof window !== 'undefined' && isAndroid()) {
+    // Android tablets typically have minimum dimension >= 600px and max >= 960px
+    const minDim = Math.min(window.innerWidth || 0, window.innerHeight || 0);
+    return minDim >= 600;
+  }
+  return false;
+};
+
+/**
+ * Returns whether current device is a smartphone (< 768px touch screen).
+ */
+export const isSmartphoneDevice = (): boolean => {
+  if (isIPhone()) return true;
+  if (isTabletDevice()) return false;
+  if (isMobileDevice()) return true;
+  if (typeof window !== 'undefined' && window.innerWidth < 640) return true;
+  return false;
+};
+
 export interface StorageLocationInfo {
   isNative: boolean;
   isMobile: boolean;

@@ -50,11 +50,11 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-xl h-full sm:h-auto max-h-[100dvh] sm:max-h-[90vh] flex flex-col rounded-none sm:rounded-2xl border-0 sm:border shadow-2xl overflow-hidden relative my-auto"
+        className="w-full max-w-xl max-h-[92dvh] sm:max-h-[90vh] flex flex-col rounded-t-[28px] sm:rounded-2xl border-t sm:border shadow-2xl overflow-hidden relative pb-safe sm:pb-0 sheet-mobile-enter"
         style={{
           backgroundColor: 'var(--bg-surface)',
           borderColor: 'var(--border-subtle)',
@@ -62,6 +62,9 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
         }}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Mobile Sheet Drag Indicator */}
+        <div className="sm:hidden sheet-drag-handle" />
+
         {/* Header - Fixed & Always Visible */}
         <div
           className="p-5 sm:p-6 pb-4 border-b flex items-start justify-between gap-3 shrink-0"

@@ -30,7 +30,7 @@ import { FlowRibbonLogo } from './FlowRibbonLogo';
 import { ClassroomSubjectDataset, TermFilterId } from '../data/demoClasses';
 import { ClassCalculationReport, WorkspaceMode } from '../types/workspace';
 import { SettingsSection } from './SettingsModal';
-import { getStorageLocationInfo } from '../utils/platform';
+import { getStorageLocationInfo, getModifierKey, getAltKey } from '../utils/platform';
 
 export interface AppHeaderProps {
   datasets: ClassroomSubjectDataset[];
@@ -106,7 +106,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     <>
       {/* HEADER BAR */}
       <header
-        className="border-b px-3 sm:px-6 py-2 sm:py-3 flex flex-wrap items-center justify-between gap-2.5 sm:gap-4 sticky top-0 z-30 shadow-sm"
+        className="border-b px-3 sm:px-6 py-2 sm:py-3 pt-safe flex flex-wrap items-center justify-between gap-2.5 sm:gap-4 sticky top-0 z-30 shadow-sm"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
         <div className="flex flex-wrap items-center gap-2.5 sm:gap-4 min-w-0">
@@ -702,7 +702,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               </span>
             )}
           </h1>
-          <p className="text-xs line-clamp-1 sm:line-clamp-none" style={{ color: 'var(--text-secondary)' }}>
+          <p className="text-xs hidden sm:block" style={{ color: 'var(--text-secondary)' }}>
             {activeDataset.description}
           </p>
         </div>
@@ -715,10 +715,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         >
           {(
             [
-              { id: 'matrix', label: 'Klassen-Matrix', sub: 'Übersicht & Zeugnis', icon: Columns },
-              { id: 'speed_grading', label: 'Speed-Grading', sub: 'Prüfung & Schlüssel', icon: Zap },
-              { id: 'student_360', label: 'Schüler-360°-Akte', sub: 'Elterngespräch & PDF', icon: UserCheck },
-              { id: 'configurator', label: 'Gewichtungs-Baukasten', sub: 'Individuell & Vorlagen', icon: Sliders },
+              { id: 'matrix', label: 'Klassen-Matrix', sub: 'Übersicht & Zeugnis', icon: Columns, num: '1' },
+              { id: 'speed_grading', label: 'Speed-Grading', sub: 'Prüfung & Schlüssel', icon: Zap, num: '2' },
+              { id: 'student_360', label: 'Schüler-360°-Akte', sub: 'Elterngespräch & PDF', icon: UserCheck, num: '3' },
+              { id: 'configurator', label: 'Gewichtungs-Baukasten', sub: 'Individuell & Vorlagen', icon: Sliders, num: '4' },
             ] as const
           ).map((tab) => {
             const Icon = tab.icon;
@@ -736,17 +736,29 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 key={tab.id}
                 onClick={() => setMode(tab.id)}
                 data-tour={tourId}
-                className={`px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl text-left transition-all flex items-center gap-2 shrink-0 ${
-                  active ? 'shadow-sm' : 'opacity-75 hover:opacity-100'
+                className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl text-left transition-all flex items-center gap-2 shrink-0 ${
+                  active ? 'shadow-sm' : 'opacity-75 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5'
                 }`}
                 style={{
                   backgroundColor: active ? 'var(--primary-500)' : 'transparent',
                   color: active ? '#FFFFFF' : 'var(--text-primary)',
                 }}
+                title={`${tab.label} (${getModifierKey()}+${tab.num})`}
               >
                 <Icon className="w-4 h-4 shrink-0" />
                 <div className="leading-tight">
-                  <div className="text-xs font-bold whitespace-nowrap">{tab.label}</div>
+                  <div className="text-xs font-bold whitespace-nowrap flex items-center gap-1.5">
+                    <span>{tab.label}</span>
+                    <span
+                      className={`text-[9px] font-mono px-1 py-0.2 rounded border hidden lg:inline ${
+                        active
+                          ? 'border-white/30 bg-white/20 text-white'
+                          : 'border-slate-300/60 dark:border-slate-700 text-slate-500 dark:text-slate-400'
+                      }`}
+                    >
+                      {getModifierKey()}+{tab.num}
+                    </span>
+                  </div>
                   <div className={`text-[10px] hidden md:block ${active ? 'text-teal-50/90' : 'opacity-70'}`}>
                     {tab.sub}
                   </div>

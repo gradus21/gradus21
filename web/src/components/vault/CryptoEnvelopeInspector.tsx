@@ -102,11 +102,13 @@ export const CryptoEnvelopeInspector: React.FC<CryptoEnvelopeInspectorProps> = (
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div
-        className="max-w-2xl w-full rounded-2xl border p-6 shadow-xl space-y-5 max-h-[90vh] overflow-y-auto"
+        className="max-w-2xl w-full max-h-[92dvh] sm:max-h-[90vh] rounded-t-[28px] sm:rounded-2xl border-t sm:border p-4 sm:p-6 shadow-2xl space-y-4 sm:space-y-5 overflow-y-auto pb-safe sm:pb-6 sheet-mobile-enter"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
+        {/* Mobile Sheet Drag Indicator */}
+        <div className="sm:hidden sheet-drag-handle" />
         {/* Header */}
         <div
           className="flex items-center justify-between border-b pb-4"

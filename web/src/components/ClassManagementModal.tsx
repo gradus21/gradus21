@@ -352,11 +352,14 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div
-        className="max-w-5xl lg:max-w-6xl w-full h-full sm:h-auto max-h-[100dvh] sm:max-h-[90vh] rounded-none sm:rounded-2xl border-0 sm:border p-4 sm:p-6 shadow-xl space-y-4 sm:space-y-5 flex flex-col pb-safe sm:pb-6"
+        className="max-w-5xl lg:max-w-6xl w-full max-h-[92dvh] sm:max-h-[90vh] rounded-t-[28px] sm:rounded-2xl border-t sm:border p-4 sm:p-6 shadow-2xl space-y-4 sm:space-y-5 flex flex-col pb-safe sm:pb-6 sheet-mobile-enter"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
+        {/* Mobile Sheet Drag Indicator */}
+        <div className="sm:hidden sheet-drag-handle" />
+
         {/* Header */}
         <div
           className="flex items-center justify-between border-b pb-4 shrink-0"

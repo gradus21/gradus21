@@ -58,16 +58,18 @@ export const SyncReconciliationModal: React.FC<SyncReconciliationModalProps> = (
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
     >
       <div
-        className="w-full max-w-xl rounded-2xl shadow-2xl border p-6 flex flex-col relative"
+        className="w-full max-w-xl max-h-[92dvh] sm:max-h-[90vh] rounded-t-[28px] sm:rounded-2xl shadow-2xl border-t sm:border p-6 flex flex-col relative pb-safe sm:pb-6 overflow-y-auto sheet-mobile-enter"
         style={{
           backgroundColor: 'var(--bg-card, #1e293b)',
           borderColor: 'var(--border-subtle, #334155)',
           color: 'var(--text-primary, #f8fafc)',
         }}
       >
+        {/* Mobile Sheet Drag Indicator */}
+        <div className="sm:hidden sheet-drag-handle" />
         <button
           type="button"
           onClick={onCancel}

@@ -90,14 +90,105 @@
   --primary-text: #fdba74;
 }
 
+:root {
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+/* Native OS Typography */
+[data-os='macos'],
+[data-os='ios'],
+[data-os='ipados'] {
+  --app-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+[data-os='windows'] {
+  --app-font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+[data-os='android'] {
+  --app-font-family: "Roboto", "Noto Sans", system-ui, sans-serif;
+}
+
+[data-os='linux'] {
+  --app-font-family: "Inter", "Ubuntu", "Cantarell", system-ui, sans-serif;
+}
+
 body {
   background-color: var(--bg-canvas);
   color: var(--text-primary);
-  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  font-family: var(--app-font-family, 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif);
+  overscroll-behavior-y: none;
+  -webkit-touch-callout: none;
 }
 
 .tabular-nums {
   font-variant-numeric: tabular-nums;
+}
+
+/* Chrome controls: prevent accidental text selection while keeping inputs/content selectable */
+header,
+nav,
+.mobile-tab-bar,
+.sheet-drag-handle,
+.btn-chrome,
+[role="tablist"],
+[data-tour*="header"] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Native-feeling Slim Scrollbars for Desktop (Pointer: fine) */
+@media (pointer: fine) {
+  ::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.4);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 184, 0.7);
+  }
+  .dark ::-webkit-scrollbar-thumb {
+    background: rgba(100, 116, 139, 0.4);
+  }
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: rgba(100, 116, 139, 0.7);
+  }
+}
+
+/* Native Bottom Sheet animation on Mobile */
+@keyframes nativeSheetSlideUp {
+  0% {
+    transform: translateY(100%);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.sheet-mobile-enter {
+  animation: nativeSheetSlideUp 260ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Native Pull Handle / Grabber Pill for Bottom Sheets */
+.sheet-drag-handle {
+  width: 36px;
+  height: 4.5px;
+  border-radius: 9999px;
+  background-color: currentColor;
+  opacity: 0.22;
+  margin: 6px auto 10px auto;
+  flex-shrink: 0;
 }
 
 @layer components {
@@ -203,6 +294,55 @@ textarea {
 .touch-target {
   min-width: 44px;
   min-height: 44px;
+}
+
+/* Native Tactile Range Sliders for Touch & Desktop */
+input[type="range"] {
+  height: 28px;
+  -webkit-appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"]:focus {
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 22px;
+  width: 22px;
+  border-radius: 50%;
+  background: var(--primary-500);
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+  margin-top: -7px;
+  transition: transform 100ms ease, box-shadow 100ms ease;
+}
+input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.18);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 8px;
+  cursor: pointer;
+  background: var(--border-subtle);
+  border-radius: 9999px;
+}
+input[type="range"]::-moz-range-thumb {
+  height: 22px;
+  width: 22px;
+  border-radius: 50%;
+  background: var(--primary-500);
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+}
+input[type="range"]::-moz-range-track {
+  width: 100%;
+  height: 8px;
+  cursor: pointer;
+  background: var(--border-subtle);
+  border-radius: 9999px;
 }
 
 
