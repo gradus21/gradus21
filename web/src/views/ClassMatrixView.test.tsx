@@ -1,9 +1,9 @@
 import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ClassMatrixView } from './ClassMatrixView';
 import { INITIAL_CLASS_DATASETS, DEFAULT_USER_SYNC_SETTINGS } from '../data/demoClasses';
 
-describe('ClassMatrixView Mobile Card Carousel', () => {
+describe('ClassMatrixView Mobile Pupil Card Slider & Haptics', () => {
   const mockDataset = INITIAL_CLASS_DATASETS[0];
   const defaultProps = {
     activeDataset: mockDataset,
@@ -36,41 +36,91 @@ describe('ClassMatrixView Mobile Card Carousel', () => {
     onAddStudent: vi.fn(),
   };
 
-  it('renders mobile mode switcher and defaults to student card carousel', () => {
-    render(<ClassMatrixView {...defaultProps} />);
+  let vibrateMock: ReturnType<typeof vi.fn>;
 
-    expect(screen.getByText('Schüler-Karte (Karussell)')).toBeInTheDocument();
-    expect(screen.getByText('Voll-Tabelle')).toBeInTheDocument();
+  beforeEach(() => {
+    vibrateMock = vi.fn().mockReturnValue(true);
+    Object.defineProperty(navigator, 'vibrate', {
+      value: vibrateMock,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  it('exclusively renders the Pupil Card Slider on small screens without Voll-Tabelle switcher', () => {
+    const { container } = render(<ClassMatrixView {...defaultProps} />);
+
+    // Voll-Tabelle toggle button is completely removed
+    expect(screen.queryByText('Voll-Tabelle')).not.toBeInTheDocument();
+    expect(screen.queryByText('Schüler-Karte (Karussell)')).not.toBeInTheDocument();
+
+    // Pupil Card Slider is always rendered for < md screens
+    const slider = screen.getByTestId('pupil-card-slider');
+    expect(slider).toBeInTheDocument();
+    expect(slider.className).toContain('md:hidden');
+
+    // Desktop matrix table is strictly hidden on small screens (hidden md:block)
+    const desktopTable = container.querySelector('[data-tour="matrix-table"]');
+    expect(desktopTable).not.toBeNull();
+    expect(desktopTable?.className).toContain('hidden md:block');
 
     const firstStudent = mockDataset.students[0];
     expect(screen.getAllByText(firstStudent.name).length).toBeGreaterThan(0);
     expect(screen.getByText('Vorherige:r')).toBeInTheDocument();
-    // Next button shows the name of the next student
+
     const secondStudent = mockDataset.students[1];
     expect(screen.getAllByText(secondStudent.name).length).toBeGreaterThan(0);
   });
 
-  it('navigates to next student when clicking next student button', () => {
+  it('triggers haptic snap feedback and directional animation when skipping to next student', () => {
     render(<ClassMatrixView {...defaultProps} />);
 
     const secondStudent = mockDataset.students[1];
-    // Find button containing next student's name
     const nextBtn = screen.getByTitle(`Nächste:r: ${secondStudent.name}`);
     fireEvent.click(nextBtn);
 
-    // After clicking next, second student's name is in the card header and 3rd student is next
+    // Tactile snap haptic (18ms) fired
+    expect(vibrateMock).toHaveBeenCalledWith(18);
+
+    // Second student is active and third student is queued next
     const thirdStudent = mockDataset.students[2];
     expect(screen.getAllByText(secondStudent.name).length).toBeGreaterThan(0);
     expect(screen.getByTitle(`Nächste:r: ${thirdStudent.name}`)).toBeInTheDocument();
+
+    const card = screen.getByTestId('pupil-slider-card');
+    expect(card.className).toContain('pupil-card-enter-next');
   });
 
-  it('switches to table mode when clicking Voll-Tabelle button', () => {
+  it('fires threshold detent haptic during touch drag and snap haptic on swipe release', () => {
     render(<ClassMatrixView {...defaultProps} />);
 
-    const tableToggleBtn = screen.getByText('Voll-Tabelle');
-    fireEvent.click(tableToggleBtn);
+    const slider = screen.getByTestId('pupil-card-slider');
+    const secondStudent = mockDataset.students[1];
 
-    // In table mode, the swipe hint is shown
-    expect(screen.getByText(/Seitlich wischen für alle Arbeiten/i)).toBeInTheDocument();
+    // Start touch at X=200, Y=100
+    fireEvent.touchStart(slider, {
+      touches: [{ clientX: 200, clientY: 100 }],
+    });
+
+    // Drag left past commit threshold (deltaX = -65)
+    fireEvent.touchMove(slider, {
+      touches: [{ clientX: 135, clientY: 102 }],
+    });
+
+    // Threshold detent haptic (12ms selection) fired and release indicator shown
+    expect(vibrateMock).toHaveBeenCalledWith(12);
+    expect(screen.getByTestId('swipe-release-indicator')).toHaveTextContent(
+      `Loslassen für ${secondStudent.name}`
+    );
+
+    // Release swipe
+    fireEvent.touchEnd(slider, {
+      changedTouches: [{ clientX: 120, clientY: 102 }],
+    });
+
+    // Snap haptic (18ms) fired and advanced to second student
+    expect(vibrateMock).toHaveBeenCalledWith(18);
+    const thirdStudent = mockDataset.students[2];
+    expect(screen.getByTitle(`Nächste:r: ${thirdStudent.name}`)).toBeInTheDocument();
   });
 });

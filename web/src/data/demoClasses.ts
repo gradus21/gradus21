@@ -87,6 +87,8 @@ export interface UserSyncSettings {
   customWeightingTemplates: CustomWeightingTemplate[];
 }
 
+export const THEME_PREFERENCE_STORAGE_KEY = 'gradus21_theme_preference';
+
 export function getEffectiveThemeMode(settings: {
   themeMode?: ThemeMode;
   darkMode?: boolean;
@@ -103,17 +105,27 @@ export function getEffectiveThemeMode(settings: {
 export function resolveIsDarkMode(themeMode?: ThemeMode, fallbackDarkMode?: boolean): boolean {
   const mode = getEffectiveThemeMode({ themeMode, darkMode: fallbackDarkMode });
   if (mode === 'system') {
-    if (typeof window !== 'undefined' && window.matchMedia) {
+    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
       return window.matchMedia('(prefers-color-scheme: dark)').matches;
     }
-    return false;
+    return Boolean(fallbackDarkMode);
   }
   return mode === 'dark';
 }
 
+export function applyResolvedThemeToSettings(settings: UserSyncSettings): UserSyncSettings {
+  const themeMode = getEffectiveThemeMode(settings);
+  const darkMode = resolveIsDarkMode(themeMode, settings.darkMode);
+  return {
+    ...settings,
+    themeMode,
+    darkMode,
+  };
+}
+
 export const DEFAULT_USER_SYNC_SETTINGS: UserSyncSettings = {
   themePreset: 'teal',
-  darkMode: false,
+  darkMode: resolveIsDarkMode('system', false),
   themeMode: 'system',
   defaultScaleId: 'de_classic_1_to_6',
   defaultWeightingMode: 'category_buckets',

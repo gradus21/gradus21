@@ -16,7 +16,7 @@ import { useLegalConfig } from './utils/legalConfig';
 import { StorageNoticeModal } from './components/StorageNoticeModal';
 import { EmailVerificationModal } from './components/EmailVerificationModal';
 import { SyncReconciliationModal } from './components/SyncReconciliationModal';
-import { CellDisplayFormat, TermFilterId, INITIAL_CLASS_DATASETS } from './data/demoClasses';
+import { CellDisplayFormat, TermFilterId, INITIAL_CLASS_DATASETS, resolveIsDarkMode } from './data/demoClasses';
 import { useVaultWorkspaceSync } from './hooks/useVaultWorkspaceSync';
 import { useClassroomCalculations } from './hooks/useClassroomCalculations';
 import { WorkspaceMode } from './types/workspace';
@@ -299,15 +299,16 @@ export const App: React.FC = () => {
     const formFactor = isTabletDevice() ? 'tablet' : isSmartphoneDevice() ? 'phone' : 'desktop';
     document.documentElement.setAttribute('data-device', formFactor);
 
+    const isDark = resolveIsDarkMode(userSettings.themeMode, userSettings.darkMode);
     const metaTheme = document.querySelector('meta[name="theme-color"]');
-    if (userSettings.darkMode) {
+    if (isDark) {
       document.documentElement.classList.add('dark');
       if (metaTheme) metaTheme.setAttribute('content', '#121b20');
     } else {
       document.documentElement.classList.remove('dark');
       if (metaTheme) metaTheme.setAttribute('content', '#0d9488');
     }
-  }, [userSettings.themePreset, userSettings.darkMode]);
+  }, [userSettings.themePreset, userSettings.themeMode, userSettings.darkMode]);
 
   const isCurveEditorVisible =
     userSettings.showCurveEditorInSpeedGrading || showOnDemandCurveEditor;

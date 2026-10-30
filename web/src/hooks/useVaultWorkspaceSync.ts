@@ -13,8 +13,12 @@ import {
   DEFAULT_USER_SYNC_SETTINGS,
   GradeEntry,
   INITIAL_CLASS_DATASETS,
+  THEME_PREFERENCE_STORAGE_KEY,
   UserSyncSettings,
+  applyResolvedThemeToSettings,
   ensureValidUuid,
+  getEffectiveThemeMode,
+  resolveIsDarkMode,
 } from '../data/demoClasses';
 import {
   exportVaultToFileDownload,
@@ -339,7 +343,29 @@ export function useVaultWorkspaceSync() {
   const [activeClassId, setActiveClassId] = useState<string>(INITIAL_CLASS_DATASETS[0].id);
 
   // Synchronized User Settings (persisted across devices via E2EE envelope + /api/preferences)
-  const [userSettings, setUserSettings] = useState<UserSyncSettings>(DEFAULT_USER_SYNC_SETTINGS);
+  const [userSettings, setUserSettings] = useState<UserSyncSettings>(() => {
+    let base: UserSyncSettings = {
+      ...DEFAULT_USER_SYNC_SETTINGS,
+      darkMode: resolveIsDarkMode('system', false),
+    };
+    try {
+      const raw = localStorage.getItem(THEME_PREFERENCE_STORAGE_KEY);
+      if (raw) {
+        const pref = JSON.parse(raw);
+        if (pref && typeof pref === 'object') {
+          base = {
+            ...base,
+            themePreset: pref.themePreset || base.themePreset,
+            themeMode: pref.themeMode || base.themeMode,
+            darkMode: typeof pref.darkMode === 'boolean' ? pref.darkMode : base.darkMode,
+          };
+        }
+      }
+    } catch {
+      // ignore invalid localStorage preference
+    }
+    return applyResolvedThemeToSettings(base);
+  });
 
   const [isVaultLocked, setIsVaultLocked] = useState<boolean>(() => {
     return (
@@ -438,18 +464,85 @@ export function useVaultWorkspaceSync() {
     [datasets, activeClassId]
   );
 
-  // Sync theme attributes from synchronized userSettings + Dynamic Mobile Status Bar theme-color
+  // Sync theme attributes from synchronized userSettings + Dynamic Mobile Status Bar theme-color + System Theme Listener
   useEffect(() => {
+    const effectiveMode = getEffectiveThemeMode(userSettings);
+    const isDark = resolveIsDarkMode(effectiveMode, userSettings.darkMode);
+
     document.documentElement.setAttribute('data-theme', userSettings.themePreset);
     const metaTheme = document.querySelector('meta[name="theme-color"]');
-    if (userSettings.darkMode) {
+    if (isDark) {
       document.documentElement.classList.add('dark');
       if (metaTheme) metaTheme.setAttribute('content', '#121b20');
     } else {
       document.documentElement.classList.remove('dark');
       if (metaTheme) metaTheme.setAttribute('content', '#0d9488');
     }
-  }, [userSettings.themePreset, userSettings.darkMode]);
+
+    try {
+      localStorage.setItem(
+        THEME_PREFERENCE_STORAGE_KEY,
+        JSON.stringify({
+          themePreset: userSettings.themePreset,
+          themeMode: effectiveMode,
+          darkMode: isDark,
+        })
+      );
+    } catch {
+      // ignore storage quota errors
+    }
+
+    if (userSettings.darkMode !== isDark || userSettings.themeMode !== effectiveMode) {
+      setUserSettings((prev) => {
+        const mode = getEffectiveThemeMode(prev);
+        const resolvedDark = resolveIsDarkMode(mode, prev.darkMode);
+        if (prev.darkMode === resolvedDark && prev.themeMode === mode) return prev;
+        return {
+          ...prev,
+          themeMode: mode,
+          darkMode: resolvedDark,
+        };
+      });
+    }
+
+    if (
+      effectiveMode !== 'system' ||
+      typeof window === 'undefined' ||
+      typeof window.matchMedia !== 'function'
+    ) {
+      return;
+    }
+
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleSystemThemeChange = (e: MediaQueryListEvent) => {
+      const nextDark = e.matches;
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (nextDark) {
+        document.documentElement.classList.add('dark');
+        if (meta) meta.setAttribute('content', '#121b20');
+      } else {
+        document.documentElement.classList.remove('dark');
+        if (meta) meta.setAttribute('content', '#0d9488');
+      }
+      setUserSettings((prev) => {
+        if (getEffectiveThemeMode(prev) !== 'system') return prev;
+        if (prev.darkMode === nextDark && prev.themeMode === 'system') return prev;
+        return {
+          ...prev,
+          themeMode: 'system',
+          darkMode: nextDark,
+        };
+      });
+    };
+
+    if (typeof mq.addEventListener === 'function') {
+      mq.addEventListener('change', handleSystemThemeChange);
+      return () => mq.removeEventListener('change', handleSystemThemeChange);
+    } else if (typeof mq.addListener === 'function') {
+      mq.addListener(handleSystemThemeChange);
+      return () => mq.removeListener(handleSystemThemeChange);
+    }
+  }, [userSettings.themePreset, userSettings.themeMode, userSettings.darkMode]);
 
   // Lädt und entschlüsselt den Arbeitsbereich ausschließlich für die übergebene User-ID (strikte Mandantentrennung!)
   const loadIsolatedUserWorkspace = async (
@@ -510,11 +603,13 @@ export function useVaultWorkspaceSync() {
                 lastSerializedSettingsRef.current = decSettings;
                 const parsedSettings = JSON.parse(decSettings);
                 const isSync = initialCloudSync || Boolean(parsedSettings?.cloudSyncEnabled ?? userSettings.cloudSyncEnabled);
-                setUserSettings((prev) => ({
-                  ...DEFAULT_USER_SYNC_SETTINGS,
-                  ...parsedSettings,
-                  cloudSyncEnabled: isSync,
-                }));
+                setUserSettings(() =>
+                  applyResolvedThemeToSettings({
+                    ...DEFAULT_USER_SYNC_SETTINGS,
+                    ...parsedSettings,
+                    cloudSyncEnabled: isSync,
+                  })
+                );
                 setLoadedUserId(userId);
                 if (isSync) {
                   isCloudSyncActive = true;
@@ -563,11 +658,13 @@ export function useVaultWorkspaceSync() {
                 lastSerializedSettingsRef.current = decSettings;
                 const parsedSettings = JSON.parse(decSettings);
                 const isSync = initialCloudSync || Boolean(parsedSettings?.cloudSyncEnabled ?? userSettings.cloudSyncEnabled);
-                setUserSettings((prev) => ({
-                  ...DEFAULT_USER_SYNC_SETTINGS,
-                  ...parsedSettings,
-                  cloudSyncEnabled: isSync,
-                }));
+                setUserSettings(() =>
+                  applyResolvedThemeToSettings({
+                    ...DEFAULT_USER_SYNC_SETTINGS,
+                    ...parsedSettings,
+                    cloudSyncEnabled: isSync,
+                  })
+                );
                 setLoadedUserId(userId);
                 if (isSync) {
                   isCloudSyncActive = true;
@@ -648,11 +745,13 @@ export function useVaultWorkspaceSync() {
               );
               lastSerializedSettingsRef.current = decSettings;
               const parsedRemoteSettings = JSON.parse(decSettings);
-              setUserSettings((prev) => ({
-                ...DEFAULT_USER_SYNC_SETTINGS,
-                ...parsedRemoteSettings,
-                cloudSyncEnabled: parsedRemoteSettings.cloudSyncEnabled ?? prev.cloudSyncEnabled ?? true,
-              }));
+              setUserSettings((prev) =>
+                applyResolvedThemeToSettings({
+                  ...DEFAULT_USER_SYNC_SETTINGS,
+                  ...parsedRemoteSettings,
+                  cloudSyncEnabled: parsedRemoteSettings.cloudSyncEnabled ?? prev.cloudSyncEnabled ?? true,
+                })
+              );
               if (parsedRemoteSettings.cloudSyncEnabled ?? true) {
                 isCloudSyncActive = true;
               }
@@ -744,11 +843,13 @@ export function useVaultWorkspaceSync() {
               setDatasets(freshWs);
               setActiveClassId(freshWs[0].id);
               const initialSync = Boolean(initialCloudSync || isCloudSyncActive);
-              setUserSettings((prev) => ({
-                ...DEFAULT_USER_SYNC_SETTINGS,
-                ...prev,
-                cloudSyncEnabled: initialSync || prev.cloudSyncEnabled,
-              }));
+              setUserSettings((prev) =>
+                applyResolvedThemeToSettings({
+                  ...DEFAULT_USER_SYNC_SETTINGS,
+                  ...prev,
+                  cloudSyncEnabled: initialSync || prev.cloudSyncEnabled,
+                })
+              );
             }
           }
 
@@ -774,10 +875,15 @@ export function useVaultWorkspaceSync() {
     setDatasets(freshOffline);
     setActiveClassId(freshOffline[0].id);
     const initialSync = Boolean(initialCloudSync || isCloudSyncActive || userSettings.cloudSyncEnabled);
-    setUserSettings({
-      ...DEFAULT_USER_SYNC_SETTINGS,
-      cloudSyncEnabled: initialSync,
-    });
+    setUserSettings((prev) =>
+      applyResolvedThemeToSettings({
+        ...DEFAULT_USER_SYNC_SETTINGS,
+        themePreset: prev.themePreset,
+        themeMode: prev.themeMode,
+        darkMode: prev.darkMode,
+        cloudSyncEnabled: initialSync,
+      })
+    );
     setLoadedUserId(userId);
     setSyncStatus(initialSync ? 'synced' : 'local_only');
   };

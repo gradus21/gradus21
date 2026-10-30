@@ -248,21 +248,37 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
   const [systemIsDark, setSystemIsDark] = useState<boolean>(() => {
-    if (typeof window !== 'undefined' && window.matchMedia) {
+    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
       return window.matchMedia('(prefers-color-scheme: dark)').matches;
     }
     return false;
   });
 
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return;
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = (e: MediaQueryListEvent) => setSystemIsDark(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
-
   const currentMode = getEffectiveThemeMode(settings);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const syncSystemMode = (matches: boolean) => {
+      setSystemIsDark(matches);
+      if (getEffectiveThemeMode(settings) === 'system' && settings.darkMode !== matches) {
+        onUpdateSettings((s) =>
+          getEffectiveThemeMode(s) === 'system' && s.darkMode !== matches
+            ? { ...s, themeMode: 'system', darkMode: matches }
+            : s
+        );
+      }
+    };
+    syncSystemMode(mq.matches);
+    const handler = (e: MediaQueryListEvent) => syncSystemMode(e.matches);
+    if (typeof mq.addEventListener === 'function') {
+      mq.addEventListener('change', handler);
+      return () => mq.removeEventListener('change', handler);
+    } else if (typeof mq.addListener === 'function') {
+      mq.addListener(handler);
+      return () => mq.removeListener(handler);
+    }
+  }, [settings, onUpdateSettings]);
   const [serverUrl, setServerUrlState] = useState(() => getServerUrl());
 
   const triggerSaved = () => {
