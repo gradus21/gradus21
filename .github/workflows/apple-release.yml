@@ -201,7 +201,7 @@ jobs:
             echo "Syncing icons to $iconset"
             cp src-tauri/icons/ios/* "$iconset/" 2>/dev/null || true
           done
-          # Embed ITSAppUsesNonExemptEncryption = false and NSFaceIDUsageDescription in Info.plist & project.yml
+          # Embed ITSAppUsesNonExemptEncryption = false and NSFaceIDUsageDescription in Info.plist
           for plist in $(find src-tauri/gen/apple -name "Info.plist"); do
             echo "Setting ITSAppUsesNonExemptEncryption=false in $plist"
             /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$plist" 2>/dev/null || \
@@ -210,16 +210,6 @@ jobs:
             /usr/libexec/PlistBuddy -c "Add :NSFaceIDUsageDescription string 'Gradus21 nutzt Face ID, um Ihren Noten-Tresor sicher und schnell zu entsperren.'" "$plist" 2>/dev/null || \
             /usr/libexec/PlistBuddy -c "Set :NSFaceIDUsageDescription 'Gradus21 nutzt Face ID, um Ihren Noten-Tresor sicher und schnell zu entsperren.'" "$plist" 2>/dev/null || true
           done
-          if [ -f "src-tauri/gen/apple/project.yml" ]; then
-            python3 -c '
-import pathlib, re
-p = pathlib.Path("src-tauri/gen/apple/project.yml")
-txt = p.read_text()
-if "NSFaceIDUsageDescription" not in txt:
-    txt = re.sub(r"(properties:\s*\n)", r"\1        NSFaceIDUsageDescription: \"Gradus21 nutzt Face ID, um Ihren Noten-Tresor sicher und schnell zu entsperren.\"\n        ITSAppUsesNonExemptEncryption: false\n", txt)
-    p.write_text(txt)
-' || true
-          fi
           # Configure Associated Domains (webcredentials:gradus21.app) for Passkey WebAuthn
           ENT_FILE="src-tauri/gen/apple/gradus21-app_iOS/gradus21-app_iOS.entitlements"
           mkdir -p "$(dirname "$ENT_FILE")"

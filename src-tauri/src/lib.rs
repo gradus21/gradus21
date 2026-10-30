@@ -81,17 +81,46 @@ fn focus_main_window(app: tauri::AppHandle) {
 fn trigger_native_haptic(style: Option<String>) {
     #[cfg(target_os = "ios")]
     {
-        #[link(name = "AudioToolbox", kind = "framework")]
+        use std::ffi::{c_char, c_void};
+        use std::sync::OnceLock;
+
         extern "C" {
-            fn AudioServicesPlaySystemSound(in_system_sound_id: u32);
+            fn dlopen(filename: *const c_char, flags: i32) -> *mut c_void;
+            fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
         }
-        let sound_id = match style.as_deref() {
-            Some("light") | Some("selection") => 1519, // Actuate `Peek` (light Taptic tap)
-            Some("boundary") | Some("error") => 1521,  // Actuate `Nope` (triple micro-pulse)
-            _ => 1520,                                 // Actuate `Pop` (crisp card snap)
-        };
-        unsafe {
-            AudioServicesPlaySystemSound(sound_id);
+
+        type PlaySystemSoundFn = unsafe extern "C" fn(u32);
+        static PLAY_SOUND: OnceLock<Option<PlaySystemSoundFn>> = OnceLock::new();
+
+        let func = PLAY_SOUND.get_or_init(|| unsafe {
+            let handle = dlopen(
+                b"/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox\0".as_ptr()
+                    as *const c_char,
+                0x1, // RTLD_LAZY
+            );
+            if handle.is_null() {
+                return None;
+            }
+            let sym = dlsym(
+                handle,
+                b"AudioServicesPlaySystemSound\0".as_ptr() as *const c_char,
+            );
+            if sym.is_null() {
+                None
+            } else {
+                Some(std::mem::transmute::<*mut c_void, PlaySystemSoundFn>(sym))
+            }
+        });
+
+        if let Some(play) = func {
+            let sound_id = match style.as_deref() {
+                Some("light") | Some("selection") => 1519, // Actuate `Peek` (light Taptic tap)
+                Some("boundary") | Some("error") => 1521,  // Actuate `Nope` (triple micro-pulse)
+                _ => 1520,                                 // Actuate `Pop` (crisp card snap)
+            };
+            unsafe {
+                play(sound_id);
+            }
         }
     }
     #[cfg(not(target_os = "ios"))]
