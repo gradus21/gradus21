@@ -24,7 +24,7 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use chrono::Utc;
 use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPoolOptions;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowHeaders, AllowMethods, CorsLayer};
 use uuid::Uuid;
 
 #[tokio::main]
@@ -197,6 +197,8 @@ async fn main() {
                 "tauri://localhost",
                 "https://tauri.localhost",
                 "http://tauri.localhost",
+                "http://localhost",
+                "https://localhost",
             ] {
                 if let Ok(hv) = tauri_origin.parse::<HeaderValue>() {
                     if !origins.contains(&hv) {
@@ -206,10 +208,12 @@ async fn main() {
             }
             CorsLayer::new()
                 .allow_origin(origins)
-                .allow_methods(Any)
-                .allow_headers(Any)
+                .allow_methods(AllowMethods::mirror_request())
+                .allow_headers(AllowHeaders::mirror_request())
         } else {
-            CorsLayer::new().allow_methods(Any).allow_headers(Any)
+            CorsLayer::new()
+                .allow_methods(AllowMethods::mirror_request())
+                .allow_headers(AllowHeaders::mirror_request())
         }
     } else {
         // Fallback to configured WEBAUTHN_RP_ORIGIN and WEBAUTHN_ALLOWED_ORIGINS (no wildcard Any fallback)
@@ -233,6 +237,8 @@ async fn main() {
             "http://localhost:3080",
             "http://127.0.0.1:5173",
             "http://127.0.0.1:3080",
+            "http://localhost",
+            "https://localhost",
             "tauri://localhost",
             "https://tauri.localhost",
             "http://tauri.localhost",
@@ -245,8 +251,8 @@ async fn main() {
         }
         CorsLayer::new()
             .allow_origin(origins)
-            .allow_methods(Any)
-            .allow_headers(Any)
+            .allow_methods(AllowMethods::mirror_request())
+            .allow_headers(AllowHeaders::mirror_request())
     };
 
     let app = routes::create_app_router(state, cors);

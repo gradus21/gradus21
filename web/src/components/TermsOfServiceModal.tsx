@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   FileText,
   CheckCircle2,
@@ -14,6 +14,7 @@ import {
   RefreshCw,
   AlertTriangle,
   Info,
+  ArrowDown,
 } from 'lucide-react';
 import { useLegalConfig, getDisplayDomain } from '../utils/legalConfig';
 
@@ -31,6 +32,34 @@ export const TermsOfServiceModal: React.FC<TermsOfServiceModalProps> = ({
   onClose,
 }) => {
   const legalConfig = useLegalConfig();
+  const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  const checkScrollPosition = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const isScrollable = el.scrollHeight > el.clientHeight + 2;
+    if (!isScrollable) {
+      if (el.clientHeight > 0) {
+        setHasScrolledToBottom(true);
+      }
+      return;
+    }
+    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 24;
+    if (isAtBottom) {
+      setHasScrolledToBottom(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) {
+      setHasScrolledToBottom(false);
+      const timer = setTimeout(() => {
+        checkScrollPosition();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, checkScrollPosition]);
 
   if (!isOpen) return null;
 
@@ -95,7 +124,12 @@ export const TermsOfServiceModal: React.FC<TermsOfServiceModalProps> = ({
         </div>
 
         {/* MODAL CONTENT BODY (SCROLLABLE) */}
-        <div className="flex-1 overflow-y-auto p-5 sm:p-7 space-y-6 text-xs sm:text-sm leading-relaxed">
+        <div
+          ref={scrollContainerRef}
+          onScroll={checkScrollPosition}
+          data-testid="terms-scroll-container"
+          className="flex-1 overflow-y-auto p-5 sm:p-7 space-y-6 text-xs sm:text-sm leading-relaxed"
+        >
           {/* Wichtige Kurzübersicht / Die 3 goldenen Sicherheitsregeln */}
           <div className="p-4 sm:p-5 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-950 dark:text-amber-100 space-y-2.5">
             <div className="flex items-center gap-2 font-bold text-xs sm:text-sm text-amber-900 dark:text-amber-200">
@@ -297,8 +331,15 @@ export const TermsOfServiceModal: React.FC<TermsOfServiceModalProps> = ({
           className="px-6 py-4 border-t bg-slate-50/70 dark:bg-slate-900/70 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shrink-0"
           style={{ borderColor: 'var(--border-subtle, #e2e8f0)' }}
         >
-          <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-            Durch Klicken auf „Annehmen“ erklärst du dich mit den Bedingungen einverstanden.
+          <div className="text-xs flex items-center gap-2" style={{ color: 'var(--text-secondary)' }}>
+            {hasScrolledToBottom ? (
+              <span>Durch Klicken auf „Annehmen“ erklärst du dich mit den Bedingungen einverstanden.</span>
+            ) : (
+              <div className="text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1.5 text-left">
+                <ArrowDown className="w-4 h-4 shrink-0 animate-bounce" />
+                <span>Bitte scrolle bis ganz nach unten, um die Nutzungsbedingungen zu bestätigen.</span>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-end gap-2.5">
@@ -318,7 +359,15 @@ export const TermsOfServiceModal: React.FC<TermsOfServiceModalProps> = ({
             <button
               type="button"
               onClick={onAccept}
-              className="px-5 py-2.5 rounded-xl text-xs font-bold text-white shadow-sm hover:opacity-95 transition flex items-center justify-center gap-1.5"
+              disabled={!hasScrolledToBottom}
+              title={
+                hasScrolledToBottom
+                  ? 'Nutzungsbedingungen annehmen'
+                  : 'Bitte scrolle zuerst bis ans Ende der Nutzungsbedingungen'
+              }
+              className={`px-5 py-2.5 rounded-xl text-xs font-bold text-white shadow-sm transition flex items-center justify-center gap-1.5 ${
+                hasScrolledToBottom ? 'hover:opacity-95' : 'opacity-50 cursor-not-allowed'
+              }`}
               style={{ backgroundColor: 'var(--primary-500, #0d9488)' }}
             >
               <CheckCircle2 className="w-4 h-4" />

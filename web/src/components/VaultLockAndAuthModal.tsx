@@ -78,6 +78,7 @@ import { EmailVerificationModal } from './EmailVerificationModal';
 import { TermsOfServiceModal } from './TermsOfServiceModal';
 import { apiUrl, getServerUrl, setServerUrl } from '../utils/apiConfig';
 import { generateTotpSecret, buildTotpUri, verifyTotpCode } from '../utils/totp';
+import { ensureValidUuid } from '../data/demoClasses';
 import {
   getDesktopAuthParams,
   sendDesktopAuthCallback,
@@ -1589,13 +1590,17 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         setRegQrDataUrl(null);
       }
 
-      const localUserId = `local_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`;
+      const localUserId =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : ensureValidUuid(`local_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`);
       const newSession: ActiveVaultSession = {
         token: '',
         userId: localUserId,
         email: trimmedEmail,
         isAdmin: false,
         kdfSaltB64: bundle.kdf_salt_b64,
+        kdfParams: normalizeKdfParams(bundle.kdf_params),
         authKeyB64: bundle.auth_key_b64,
         dekB64: bundle.dek_b64,
         encryptedDek: bundle.encrypted_dek,
@@ -1714,7 +1719,10 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           data = await res.json();
         } catch {
           // Server unreachable / offline -> proceed as local offline vault with client-side TOTP
-          const localUserId = `local_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`;
+          const localUserId =
+            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+              ? crypto.randomUUID()
+              : ensureValidUuid(`local_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`);
           const { secretBase32 } = generateTotpSecret();
           const offlineTotpUri = buildTotpUri(trimmedEmail, secretBase32);
           data = {
@@ -1735,6 +1743,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           email: data.email,
           isAdmin: data.is_admin ?? false,
           kdfSaltB64: bundle.kdf_salt_b64,
+          kdfParams: normalizeKdfParams(bundle.kdf_params),
           authKeyB64: bundle.auth_key_b64,
           dekB64: bundle.dek_b64,
           encryptedDek: bundle.encrypted_dek,
@@ -2198,6 +2207,10 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           '',
         recoveryKeyFormatted: session?.recoveryKeyFormatted,
         totpEnabled: loginData?.totp_enabled ?? localCached?.totpEnabled ?? false,
+        totpSecretBase32:
+          loginData?.totp_secret_base32 ||
+          session?.totpSecretBase32 ||
+          localCached?.totpSecretBase32,
         passkeyCredentialId: loginData?.passkey_credential_id,
         passkeyLabel: loginData?.passkey_label,
         serverSyncedCount: session?.serverSyncedCount || 0,

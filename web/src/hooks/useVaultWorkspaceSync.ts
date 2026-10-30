@@ -1903,6 +1903,162 @@ export function useVaultWorkspaceSync() {
     }
   };
 
+  const migrateLocalUserIdIfNeeded = (
+    oldUserId: string,
+    newUserId: string,
+    updatedSession: ActiveVaultSession
+  ) => {
+    if (!oldUserId || !newUserId || oldUserId === newUserId) {
+      return;
+    }
+    if (updatedSession.dekB64) {
+      setStoredDek(newUserId, updatedSession.dekB64);
+    }
+    if (updatedSession.token) {
+      setStoredToken(newUserId, updatedSession.token);
+    }
+    if (updatedSession.authKeyB64) {
+      setStoredAuthKey(newUserId, updatedSession.authKeyB64);
+    }
+    removeStoredDek(oldUserId);
+    removeStoredToken(oldUserId);
+    removeStoredAuthKey(oldUserId);
+
+    localStorage.setItem(ACTIVE_USER_ID_STORAGE_KEY, newUserId);
+    const oldCacheKey = getUserEncryptedCacheKey(oldUserId);
+    const newCacheKey = getUserEncryptedCacheKey(newUserId);
+    const oldCachedRaw = localStorage.getItem(oldCacheKey);
+    if (oldCachedRaw && !localStorage.getItem(newCacheKey)) {
+      try {
+        const parsed = JSON.parse(oldCachedRaw);
+        if (parsed.session) {
+          parsed.session = {
+            ...parsed.session,
+            userId: newUserId,
+          };
+        }
+        localStorage.setItem(newCacheKey, JSON.stringify(parsed));
+      } catch {
+        // ignore
+      }
+    }
+    localStorage.removeItem(oldCacheKey);
+    setLoadedUserId(newUserId);
+    lastSerializedPerClassRef.current.clear();
+    lastSerializedSettingsRef.current = '';
+  };
+
+  const linkLocalVaultWithServer = async (
+    currentSession: ActiveVaultSession
+  ): Promise<{
+    token: string;
+    session: ActiveVaultSession;
+    requiresEmailVerification?: boolean;
+  }> => {
+    const authKey =
+      currentSession.authKeyB64 ||
+      (currentSession.userId ? getStoredAuthKey(currentSession.userId) : '');
+    if (!authKey || !currentSession.email) {
+      return { token: '', session: currentSession };
+    }
+
+    const canonicalUserId = ensureValidUuid(currentSession.userId);
+
+    try {
+      const regRes = await fetch(apiUrl('/api/auth/register'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: currentSession.email,
+          auth_key_b64: authKey,
+          kdf_salt_b64: currentSession.kdfSaltB64,
+          kdf_params: currentSession.kdfParams
+            ? normalizeKdfParams(currentSession.kdfParams)
+            : { memory_kib: 19456, iterations: 2, parallelism: 1 },
+          encrypted_dek: currentSession.encryptedDek,
+          recovery_encrypted_dek: currentSession.recoveryEncryptedDek,
+          recovery_auth_key_b64: null,
+          user_id: canonicalUserId,
+          totp_secret_base32: currentSession.totpSecretBase32 || null,
+          totp_enabled: Boolean(currentSession.totpEnabled && currentSession.totpSecretBase32),
+        }),
+      });
+
+      if (regRes.status === 403) {
+        const errText = await regRes.text().catch(() => '');
+        if (errText.includes('E-Mail-Verifikation') || errText.includes('verification')) {
+          localStorage.removeItem(`gradus21_email_verified_${currentSession.email}`);
+          setIsEmailVerified(false);
+          return { token: '', session: currentSession, requiresEmailVerification: true };
+        }
+      }
+
+      if (regRes.ok) {
+        const regData = await regRes.json();
+        const serverUserId = regData.user_id || canonicalUserId;
+        const nextSession: ActiveVaultSession = {
+          ...currentSession,
+          userId: serverUserId,
+          token: regData.token,
+          authKeyB64: authKey,
+          isAdmin: regData.is_admin ?? currentSession.isAdmin,
+          totpEnabled: regData.totp_enabled ?? currentSession.totpEnabled,
+          totpSecretBase32: currentSession.totpSecretBase32 || regData.totp_secret_base32,
+          totpSetupUri: currentSession.totpSetupUri || regData.totp_setup_uri,
+        };
+        migrateLocalUserIdIfNeeded(currentSession.userId, serverUserId, nextSession);
+        setStoredToken(serverUserId, regData.token);
+        setStoredAuthKey(serverUserId, authKey);
+        setVaultSession(nextSession);
+        persistEncryptedSessionCredentialsToCache(nextSession);
+        return { token: regData.token, session: nextSession };
+      }
+
+      // If already registered on server (e.g. 409 Conflict), attempt login
+      let totpCode: string | undefined;
+      if (currentSession.totpSecretBase32) {
+        try {
+          totpCode = await generateTotpCode(currentSession.totpSecretBase32);
+        } catch {
+          // ignore
+        }
+      }
+
+      const logRes = await fetch(apiUrl('/api/auth/login'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: currentSession.email,
+          auth_key_b64: authKey,
+          ...(totpCode ? { totp_code: totpCode } : {}),
+        }),
+      });
+
+      if (logRes.ok) {
+        const logData = await logRes.json();
+        const serverUserId = logData.user_id || canonicalUserId;
+        const nextSession: ActiveVaultSession = {
+          ...currentSession,
+          userId: serverUserId,
+          token: logData.token,
+          authKeyB64: authKey,
+          isAdmin: logData.is_admin ?? currentSession.isAdmin,
+          totpEnabled: logData.totp_enabled ?? currentSession.totpEnabled,
+        };
+        migrateLocalUserIdIfNeeded(currentSession.userId, serverUserId, nextSession);
+        setStoredToken(serverUserId, logData.token);
+        setStoredAuthKey(serverUserId, authKey);
+        setVaultSession(nextSession);
+        persistEncryptedSessionCredentialsToCache(nextSession);
+        return { token: logData.token, session: nextSession };
+      }
+    } catch (err) {
+      console.error('Konnte Sitzung nicht mit Server verknüpfen:', err);
+    }
+
+    return { token: '', session: currentSession };
+  };
+
   const handleToggleCloudSync = async (enabled: boolean) => {
     if (!enabled) {
       setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: false }));
@@ -1934,30 +2090,46 @@ export function useVaultWorkspaceSync() {
     setIsEmailVerificationOpen(false);
   };
 
-  const proceedToCloudSyncActivation = async (authToken?: string) => {
+  const proceedToCloudSyncActivation = async (
+    authToken?: string,
+    sessionOverride?: ActiveVaultSession
+  ) => {
+    let activeSession = sessionOverride || vaultSession;
     let token =
       authToken ||
-      vaultSession?.token ||
-      (vaultSession?.userId ? getStoredToken(vaultSession.userId) : '');
+      activeSession?.token ||
+      (activeSession?.userId ? getStoredToken(activeSession.userId) : '');
 
-    // Auto-login if we have authKey but no active token (e.g. after page reload or unlocking offline)
+    // Auto-login or server registration if we have authKey but no active token
     if (
       !token &&
-      vaultSession?.email &&
-      (vaultSession?.authKeyB64 || (vaultSession?.userId && getStoredAuthKey(vaultSession.userId)))
+      activeSession?.email &&
+      (activeSession?.authKeyB64 ||
+        (activeSession?.userId && getStoredAuthKey(activeSession.userId)))
     ) {
-      token = (await renewTokenIfNeeded(
-        vaultSession.userId,
-        vaultSession.email,
-        vaultSession.authKeyB64,
-        vaultSession.totpSecretBase32
-      )) || '';
+      token =
+        (await renewTokenIfNeeded(
+          activeSession.userId,
+          activeSession.email,
+          activeSession.authKeyB64,
+          activeSession.totpSecretBase32
+        )) || '';
       if (token) {
-        const updatedSession = { ...vaultSession, token };
-        setVaultSession((prev) =>
-          prev ? { ...prev, token } : null
-        );
+        const updatedSession = { ...activeSession, token };
+        activeSession = updatedSession;
+        setVaultSession((prev) => (prev ? { ...prev, token } : null));
         persistEncryptedSessionCredentialsToCache(updatedSession);
+      } else {
+        const linked = await linkLocalVaultWithServer(activeSession);
+        if (linked.requiresEmailVerification) {
+          setEmailForVerification(activeSession.email);
+          setIsEmailVerificationOpen(true);
+          return;
+        }
+        if (linked.token) {
+          token = linked.token;
+          activeSession = linked.session;
+        }
       }
     }
 
@@ -1974,16 +2146,17 @@ export function useVaultWorkspaceSync() {
       let sumRes = await fetch(apiUrl('/api/envelopes/summary'), {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (sumRes.status === 401 && vaultSession?.userId) {
+      if (sumRes.status === 401 && activeSession?.userId) {
         const refreshed = await renewTokenIfNeeded(
-          vaultSession.userId,
-          vaultSession.email,
-          vaultSession.authKeyB64,
-          vaultSession.totpSecretBase32
+          activeSession.userId,
+          activeSession.email,
+          activeSession.authKeyB64,
+          activeSession.totpSecretBase32
         );
         if (refreshed) {
           token = refreshed;
-          const updatedSession = { ...vaultSession, token: refreshed };
+          const updatedSession = { ...activeSession, token: refreshed };
+          activeSession = updatedSession;
           setVaultSession((prev) => (prev ? { ...prev, token: refreshed } : null));
           persistEncryptedSessionCredentialsToCache(updatedSession);
           sumRes = await fetch(apiUrl('/api/envelopes/summary'), {
@@ -2038,67 +2211,15 @@ export function useVaultWorkspaceSync() {
     let token =
       vaultSession?.token ||
       (vaultSession?.userId ? getStoredToken(vaultSession.userId) : '');
-    const authKey =
-      vaultSession?.authKeyB64 ||
-      (vaultSession?.userId ? getStoredAuthKey(vaultSession.userId) : '');
+    let activeSession = vaultSession || undefined;
 
-    // If offline vault or purged account, register or log in on server using existing userId
-    if (!token && vaultSession && authKey) {
-      try {
-        const regRes = await fetch(apiUrl('/api/auth/register'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: vaultSession.email,
-            auth_key_b64: authKey,
-            kdf_salt_b64: vaultSession.kdfSaltB64,
-            kdf_params: JSON.stringify(
-              vaultSession.kdfParams
-                ? normalizeKdfParams(vaultSession.kdfParams)
-                : { memory_kib: 19456, iterations: 2, parallelism: 1 }
-            ),
-            encrypted_dek: vaultSession.encryptedDek,
-            recovery_encrypted_dek: vaultSession.recoveryEncryptedDek,
-            recovery_auth_key_b64: null,
-            user_id: vaultSession.userId,
-          }),
-        });
-        if (regRes.ok) {
-          const regData = await regRes.json();
-          token = regData.token;
-          if (token && vaultSession.userId) {
-            setStoredToken(vaultSession.userId, token);
-          }
-          setVaultSession((prev) =>
-            prev ? { ...prev, token: regData.token, isAdmin: regData.is_admin } : null
-          );
-        } else {
-          // If already registered, attempt login
-          const logRes = await fetch(apiUrl('/api/auth/login'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: vaultSession.email,
-              auth_key_b64: authKey,
-            }),
-          });
-          if (logRes.ok) {
-            const logData = await logRes.json();
-            token = logData.token;
-            if (token && vaultSession.userId) {
-              setStoredToken(vaultSession.userId, token);
-            }
-            setVaultSession((prev) =>
-              prev ? { ...prev, token: logData.token, isAdmin: logData.is_admin } : null
-            );
-          }
-        }
-      } catch (err) {
-        console.error('Konnte Sitzung nicht mit Server verknüpfen:', err);
-      }
+    if (!token && vaultSession) {
+      const linked = await linkLocalVaultWithServer(vaultSession);
+      token = linked.token;
+      activeSession = linked.session;
     }
 
-    await proceedToCloudSyncActivation(token);
+    await proceedToCloudSyncActivation(token, activeSession);
   };
 
   const handleCancelReconciliation = () => {
@@ -2365,27 +2486,22 @@ export function useVaultWorkspaceSync() {
         setSyncStatus('local_only');
         setIsEmailVerified(false);
         if (body?.user_deleted) {
-          // Account completely purged from server (GDPR Art. 17) — also scrub session credentials
-          removeStoredToken(vaultSession.userId);
-          removeStoredAuthKey(vaultSession.userId);
-          const userCacheKey = getUserEncryptedCacheKey(vaultSession.userId);
-          const cachedRaw = localStorage.getItem(userCacheKey);
-          if (cachedRaw) {
-            try {
-              const parsed = JSON.parse(cachedRaw);
-              delete parsed.encryptedSessionCredentials;
-              localStorage.setItem(userCacheKey, JSON.stringify(parsed));
-            } catch {
-              // ignore
-            }
+          // Account completely purged from server (GDPR Art. 17) — scrub server token while keeping local offline vault keys
+          if (vaultSession.email) {
+            localStorage.removeItem(`gradus21_email_verified_${vaultSession.email}`);
           }
+          removeStoredToken(vaultSession.userId);
+          const updatedSession: ActiveVaultSession = {
+            ...vaultSession,
+            token: '',
+            isAdmin: false,
+          };
+          persistEncryptedSessionCredentialsToCache(updatedSession);
           setVaultSession((prev) =>
             prev
               ? {
                   ...prev,
                   token: '',
-                  authKeyB64: undefined,
-                  totpSecretBase32: undefined,
                   isAdmin: false,
                 }
               : null

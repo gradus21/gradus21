@@ -363,7 +363,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             {/* SPEICHERAMPEL POPOVER / FLYOUT */}
             {isStoragePopoverOpen && (
               <div
-                className="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl border shadow-2xl p-4 z-50 text-xs space-y-3.5 animate-in fade-in zoom-in-95 duration-150"
+                className="fixed left-3 right-3 top-[6.75rem] max-w-md mx-auto sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96 sm:max-w-none max-h-[80dvh] overflow-y-auto rounded-2xl border shadow-2xl p-4 z-50 text-xs space-y-3.5 animate-in fade-in zoom-in-95 duration-150"
                 style={{
                   backgroundColor: 'var(--bg-surface)',
                   borderColor: 'var(--border-subtle)',

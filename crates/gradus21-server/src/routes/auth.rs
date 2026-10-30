@@ -22,18 +22,79 @@ use crate::state::{
 };
 use crate::totp;
 
+fn deserialize_kdf_params<'de, D>(deserializer: D) -> Result<KdfParams, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum KdfParamsOrString {
+        Struct(KdfParams),
+        String(String),
+    }
+
+    match KdfParamsOrString::deserialize(deserializer)? {
+        KdfParamsOrString::Struct(params) => Ok(params),
+        KdfParamsOrString::String(s) => serde_json::from_str(&s).map_err(serde::de::Error::custom),
+    }
+}
+
+fn deserialize_optional_uuid<'de, D>(deserializer: D) -> Result<Option<Uuid>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt = Option::<String>::deserialize(deserializer)?;
+    let Some(raw) = opt else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if let Ok(uuid) = Uuid::parse_str(trimmed) {
+        return Ok(Some(uuid));
+    }
+    // Deterministic fallback matching frontend ensureValidUuid for legacy "local_..." IDs
+    let mut h1: u32 = 0xdeadbeef;
+    let mut h2: u32 = 0x41c6ce57;
+    let mut h3: u32 = 0x7fed211b;
+    let mut h4: u32 = 0x9e3779b9;
+    for ch in trimmed.encode_utf16() {
+        let c = ch as u32;
+        h1 = (h1 ^ c).wrapping_mul(2654435761);
+        h2 = (h2 ^ c).wrapping_mul(1597334677);
+        h3 = (h3 ^ c).wrapping_mul(2246822519);
+        h4 = (h4 ^ c).wrapping_mul(3266489917);
+    }
+    let hex = format!("{:08x}{:08x}{:08x}{:08x}", h1, h2, h3, h4);
+    let uuid_str = format!(
+        "{}-{}-4{}-a{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[13..16],
+        &hex[17..20],
+        &hex[20..32]
+    );
+    Ok(Uuid::parse_str(&uuid_str).ok())
+}
+
 #[derive(Deserialize)]
 pub struct RegisterRequest {
     pub email: String,
     pub auth_key_b64: String,
     pub kdf_salt_b64: String,
+    #[serde(deserialize_with = "deserialize_kdf_params")]
     pub kdf_params: KdfParams,
     pub encrypted_dek: String,
     pub recovery_encrypted_dek: String,
     #[serde(default)]
     pub recovery_auth_key_b64: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_uuid")]
     pub user_id: Option<Uuid>,
+    #[serde(default)]
+    pub totp_secret_base32: Option<String>,
+    #[serde(default)]
+    pub totp_enabled: Option<bool>,
 }
 
 #[derive(Serialize, Debug)]
@@ -193,7 +254,13 @@ pub async fn register_user(
     };
 
     let user_id = req.user_id.unwrap_or_else(Uuid::new_v4);
-    let totp_secret_b32 = totp::generate_totp_secret_base32();
+    let totp_secret_b32 = req
+        .totp_secret_base32
+        .as_deref()
+        .map(|s| s.trim().to_uppercase())
+        .filter(|s| s.len() >= 16)
+        .unwrap_or_else(totp::generate_totp_secret_base32);
+    let totp_enabled = req.totp_enabled.unwrap_or(false) && req.totp_secret_base32.is_some();
     let totp_uri = totp::build_otpauth_uri(&email, &totp_secret_b32);
 
     let totp_encrypted = encrypt_entity_envelope(
@@ -244,7 +311,7 @@ pub async fn register_user(
             recovery_encrypted_dek: req.recovery_encrypted_dek.clone(),
             recovery_auth_key_hash,
             totp_secret_server_encrypted: Some(totp_encrypted),
-            totp_enabled: false,
+            totp_enabled,
             passkey_credential_id: None,
             passkey_label: None,
             passkey_encrypted_dek: None,
@@ -281,7 +348,7 @@ pub async fn register_user(
         kdf_params: req.kdf_params,
         encrypted_dek: req.encrypted_dek,
         recovery_encrypted_dek: req.recovery_encrypted_dek,
-        totp_enabled: false,
+        totp_enabled,
         totp_setup_uri: Some(totp_uri),
         totp_secret_base32: Some(totp_secret_b32),
         passkey_credential_id: None,

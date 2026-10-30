@@ -86,6 +86,8 @@ async fn test_register_login_and_cryptographic_recovery_verification() {
             recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
             recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
             user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
         }),
     )
     .await
@@ -203,6 +205,8 @@ async fn test_2fa_setup_locks_after_enabling_and_tenant_isolation() {
             recovery_encrypted_dek: bundle.recovery_encrypted_dek,
             recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64),
             user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
         }),
     )
     .await
@@ -354,6 +358,8 @@ async fn test_passkey_prf_registration_and_login_flow() {
             recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
             recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
             user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
         }),
     )
     .await
@@ -464,6 +470,8 @@ async fn test_admin_permissions_user_management_and_templates() {
             recovery_encrypted_dek: bundle1.recovery_encrypted_dek.clone(),
             recovery_auth_key_b64: None,
             user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
         }),
     )
     .await
@@ -482,6 +490,8 @@ async fn test_admin_permissions_user_management_and_templates() {
             recovery_encrypted_dek: bundle2.recovery_encrypted_dek.clone(),
             recovery_auth_key_b64: None,
             user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
         }),
     )
     .await
@@ -604,6 +614,8 @@ async fn test_full_registration_onboarding_recovery_totp_and_passkey_flow() {
             recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
             recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
             user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
         }),
     )
     .await
@@ -839,6 +851,8 @@ async fn test_multi_passkey_management() {
             recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
             recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
             user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
         }),
     )
     .await
@@ -1032,6 +1046,8 @@ async fn test_granular_class_envelopes_occ_and_deletion() {
             recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
             recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
             user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
         }),
     )
     .await
@@ -1184,6 +1200,8 @@ async fn test_delete_all_user_envelopes_removes_only_own_data() {
             recovery_encrypted_dek: bundle1.recovery_encrypted_dek.clone(),
             recovery_auth_key_b64: Some(bundle1.recovery_auth_key_b64.clone()),
             user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
         }),
     )
     .await
@@ -1201,6 +1219,8 @@ async fn test_delete_all_user_envelopes_removes_only_own_data() {
             recovery_encrypted_dek: bundle2.recovery_encrypted_dek.clone(),
             recovery_auth_key_b64: Some(bundle2.recovery_auth_key_b64.clone()),
             user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
         }),
     )
     .await
@@ -1305,6 +1325,8 @@ async fn test_admin_cloud_purge_preserves_admin_account() {
             recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
             recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
             user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
         }),
     )
     .await
@@ -1430,6 +1452,8 @@ async fn test_envelopes_summary_endpoint() {
             recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
             recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
             user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
         }),
     )
     .await
@@ -1552,6 +1576,8 @@ async fn test_email_verification_requirement_in_test_and_production_environments
             recovery_encrypted_dek: bundle1.recovery_encrypted_dek.clone(),
             recovery_auth_key_b64: Some(bundle1.recovery_auth_key_b64.clone()),
             user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
         }),
     )
     .await;
@@ -1571,6 +1597,8 @@ async fn test_email_verification_requirement_in_test_and_production_environments
             recovery_encrypted_dek: bundle2.recovery_encrypted_dek.clone(),
             recovery_auth_key_b64: Some(bundle2.recovery_auth_key_b64.clone()),
             user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
         }),
     )
     .await;
@@ -1614,6 +1642,8 @@ async fn test_email_verification_requirement_in_test_and_production_environments
             recovery_encrypted_dek: bundle2.recovery_encrypted_dek.clone(),
             recovery_auth_key_b64: Some(bundle2.recovery_auth_key_b64.clone()),
             user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
         }),
     )
     .await;
@@ -1664,6 +1694,8 @@ async fn test_email_verification_requirement_in_test_and_production_environments
             recovery_encrypted_dek: bundle3.recovery_encrypted_dek.clone(),
             recovery_auth_key_b64: Some(bundle3.recovery_auth_key_b64.clone()),
             user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
         }),
     )
     .await;
@@ -1723,6 +1755,8 @@ async fn test_singleton_settings_envelope_tenant_isolation_in_batch_sync() {
             recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
             recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
             user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
         }),
     )
     .await
@@ -1809,6 +1843,8 @@ async fn test_deactivated_user_cannot_access_api_or_recover() {
             recovery_encrypted_dek: bundle_admin.recovery_encrypted_dek.clone(),
             recovery_auth_key_b64: Some(bundle_admin.recovery_auth_key_b64.clone()),
             user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
         }),
     )
     .await
@@ -1826,6 +1862,8 @@ async fn test_deactivated_user_cannot_access_api_or_recover() {
             recovery_encrypted_dek: bundle_teacher.recovery_encrypted_dek.clone(),
             recovery_auth_key_b64: Some(bundle_teacher.recovery_auth_key_b64.clone()),
             user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
         }),
     )
     .await
@@ -1975,6 +2013,8 @@ async fn test_smtp_configuration_and_test_recipient_handling() {
             recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
             recovery_auth_key_b64: None,
             user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
         }),
     )
     .await
@@ -2038,6 +2078,40 @@ async fn test_smtp_configuration_and_test_recipient_handling() {
     assert_eq!(invite_res.0["success"], true);
     assert_eq!(invite_res.0["mail_sent"], false);
     assert!(invite_res.0["mail_error"].as_str().is_some());
+
+    let _ = fs::remove_file(&state.disk_store_path);
+}
+
+#[tokio::test]
+async fn test_local_only_vault_cloud_linking_deserialization() {
+    let state = create_test_state();
+    let bundle = generate_vault_bundle("LocalVaultPass123!").expect("bundle");
+    let custom_totp = totp::generate_totp_secret_base32();
+
+    // Simulate legacy/local client sending stringified kdf_params, "local_..." user_id, and existing offline TOTP secret
+    let raw_json = serde_json::json!({
+        "email": "android@gradus21.com",
+        "auth_key_b64": bundle.auth_key_b64,
+        "kdf_salt_b64": bundle.kdf_salt_b64,
+        "kdf_params": serde_json::to_string(&bundle.kdf_params).unwrap(),
+        "encrypted_dek": bundle.encrypted_dek,
+        "recovery_encrypted_dek": bundle.recovery_encrypted_dek,
+        "recovery_auth_key_b64": null,
+        "user_id": "local_m9abc123_xyz789",
+        "totp_secret_base32": custom_totp,
+        "totp_enabled": true
+    });
+
+    let req: RegisterRequest = serde_json::from_value(raw_json).expect("deserialize legacy local vault register payload");
+    assert!(req.user_id.is_some());
+
+    let Json(auth_resp) = register_user(State(state.clone()), Json(req))
+        .await
+        .expect("register linked local vault");
+
+    assert_eq!(auth_resp.email, "android@gradus21.com");
+    assert!(auth_resp.totp_enabled);
+    assert_eq!(auth_resp.totp_secret_base32.as_deref(), Some(custom_totp.as_str()));
 
     let _ = fs::remove_file(&state.disk_store_path);
 }
