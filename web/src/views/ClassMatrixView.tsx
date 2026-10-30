@@ -28,13 +28,11 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  CreditCard,
   Download,
   FileSpreadsheet,
   Printer,
   Settings,
   Sliders,
-  Table as TableIcon,
   UserPlus,
 } from 'lucide-react';
 
@@ -139,25 +137,22 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
   const isReportCardColumnVisible =
     Boolean(userSettings?.showReportCardColumn || showOnDemandReportCardCol);
 
-  // Mobile Carousel & View Mode State
-  const [mobileView, setMobileView] = useState<'card' | 'table'>('card');
+  // Mobile Pupil Card Slider State & Tactile Gesture Physics
+  const SWIPE_COMMIT_THRESHOLD_PX = 40;
   const [currentStudentIdx, setCurrentStudentIdx] = useState<number>(0);
+  const [dragOffsetX, setDragOffsetX] = useState<number>(0);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [swipeReadyDirection, setSwipeReadyDirection] = useState<
+    'next' | 'prev' | 'boundary-start' | 'boundary-end' | null
+  >(null);
+  const [slideAnimation, setSlideAnimation] = useState<
+    'next' | 'prev' | 'bounce-start' | 'bounce-end' | null
+  >(null);
+
   const touchStartXRef = React.useRef<number | null>(null);
   const touchStartYRef = React.useRef<number | null>(null);
-
-  // Auto-switch between Carousel (Portrait) and Full Table (Landscape on smartphones)
-  React.useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return;
-    const mq = window.matchMedia('(orientation: landscape) and (max-height: 600px)');
-    const handleOrientationChange = (e: MediaQueryListEvent | MediaQueryList) => {
-      setMobileView(e.matches ? 'table' : 'card');
-    };
-    if (mq.matches) {
-      setMobileView('table');
-    }
-    mq.addEventListener?.('change', handleOrientationChange);
-    return () => mq.removeEventListener?.('change', handleOrientationChange);
-  }, []);
+  const touchAxisLockRef = React.useRef<'horizontal' | 'vertical' | null>(null);
+  const thresholdHapticFiredRef = React.useRef<boolean>(false);
 
   const safeStudentIdx = Math.max(
     0,
@@ -165,13 +160,21 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
   );
   const currentStudent = visibleStudents[safeStudentIdx];
   const prevStudent = safeStudentIdx > 0 ? visibleStudents[safeStudentIdx - 1] : null;
-  const nextStudent = safeStudentIdx < visibleStudents.length - 1 ? visibleStudents[safeStudentIdx + 1] : null;
+  const nextStudent =
+    safeStudentIdx < visibleStudents.length - 1
+      ? visibleStudents[safeStudentIdx + 1]
+      : null;
 
   const goToStudent = (index: number) => {
+    if (visibleStudents.length === 0) return;
     const bounded = Math.max(0, Math.min(index, visibleStudents.length - 1));
     if (bounded !== safeStudentIdx) {
-      triggerHapticFeedback(10);
+      setSlideAnimation(bounded > safeStudentIdx ? 'next' : 'prev');
+      triggerHapticFeedback('snap');
       setCurrentStudentIdx(bounded);
+    } else {
+      setSlideAnimation(index <= 0 ? 'bounce-start' : 'bounce-end');
+      triggerHapticFeedback('boundary');
     }
   };
 
@@ -182,20 +185,92 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
     ? TIER_BADGE_STYLES[currentStudentSummary.semantic_tier]
     : undefined;
 
+  const resetTouchTracking = () => {
+    touchStartXRef.current = null;
+    touchStartYRef.current = null;
+    touchAxisLockRef.current = null;
+    thresholdHapticFiredRef.current = false;
+    setDragOffsetX(0);
+    setIsDragging(false);
+    setSwipeReadyDirection(null);
+  };
+
   const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return;
     touchStartXRef.current = e.touches[0].clientX;
     touchStartYRef.current = e.touches[0].clientY;
+    touchAxisLockRef.current = null;
+    thresholdHapticFiredRef.current = false;
+    setSlideAnimation(null);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (touchStartXRef.current === null || touchStartYRef.current === null) return;
+    const deltaX = e.touches[0].clientX - touchStartXRef.current;
+    const deltaY = e.touches[0].clientY - touchStartYRef.current;
+
+    if (touchAxisLockRef.current === null) {
+      if (Math.abs(deltaX) < 8 && Math.abs(deltaY) < 8) return;
+      touchAxisLockRef.current =
+        Math.abs(deltaX) > Math.abs(deltaY) * 1.2 ? 'horizontal' : 'vertical';
+    }
+
+    if (touchAxisLockRef.current !== 'horizontal') return;
+
+    setIsDragging(true);
+
+    const isAtStartBoundary = deltaX > 0 && safeStudentIdx === 0;
+    const isAtEndBoundary =
+      deltaX < 0 && safeStudentIdx >= visibleStudents.length - 1;
+
+    if (isAtStartBoundary || isAtEndBoundary) {
+      // Rubber-band resistance at first / last pupil
+      const rubberOffset = Math.max(-36, Math.min(36, deltaX * 0.22));
+      setDragOffsetX(rubberOffset);
+      if (
+        Math.abs(deltaX) >= SWIPE_COMMIT_THRESHOLD_PX &&
+        !thresholdHapticFiredRef.current
+      ) {
+        thresholdHapticFiredRef.current = true;
+        triggerHapticFeedback('boundary');
+        setSwipeReadyDirection(
+          isAtStartBoundary ? 'boundary-start' : 'boundary-end'
+        );
+      }
+      return;
+    }
+
+    // Smooth 1:1 tactile follow with gentle damping
+    const dampedOffset = Math.max(-120, Math.min(120, deltaX * 0.55));
+    setDragOffsetX(dampedOffset);
+
+    if (Math.abs(deltaX) >= SWIPE_COMMIT_THRESHOLD_PX) {
+      if (!thresholdHapticFiredRef.current) {
+        thresholdHapticFiredRef.current = true;
+        // Tactile detent tick when crossing the swipe commit threshold
+        triggerHapticFeedback('selection');
+      }
+      setSwipeReadyDirection(deltaX < 0 ? 'next' : 'prev');
+    } else if (Math.abs(deltaX) < SWIPE_COMMIT_THRESHOLD_PX - 6) {
+      thresholdHapticFiredRef.current = false;
+      setSwipeReadyDirection(null);
+    }
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartXRef.current === null || touchStartYRef.current === null) return;
+    if (touchStartXRef.current === null || touchStartYRef.current === null) {
+      resetTouchTracking();
+      return;
+    }
     const deltaX = e.changedTouches[0].clientX - touchStartXRef.current;
     const deltaY = e.changedTouches[0].clientY - touchStartYRef.current;
-    touchStartXRef.current = null;
-    touchStartYRef.current = null;
+    resetTouchTracking();
 
-    // Trigger swipe only when horizontal motion clearly dominates vertical scroll
-    if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.4) {
+    // Trigger swipe when horizontal motion clearly dominates vertical scroll
+    if (
+      Math.abs(deltaX) >= SWIPE_COMMIT_THRESHOLD_PX &&
+      Math.abs(deltaX) > Math.abs(deltaY) * 1.25
+    ) {
       if (deltaX < 0) {
         goToStudent(safeStudentIdx + 1);
       } else {
@@ -212,69 +287,49 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
     setShowNewStudentForm(false);
   };
 
+  const cardAnimationClass = isDragging
+    ? ''
+    : slideAnimation === 'next'
+    ? 'pupil-card-enter-next'
+    : slideAnimation === 'prev'
+    ? 'pupil-card-enter-prev'
+    : slideAnimation === 'bounce-start'
+    ? 'pupil-card-bounce-start'
+    : slideAnimation === 'bounce-end'
+    ? 'pupil-card-bounce-end'
+    : '';
+
   return (
     <div className="space-y-3 sm:space-y-4">
-      {/* Mobile Mode Switcher: Schüler-Karte (Karussell) vs. Voll-Tabelle */}
-      <div
-        className="md:hidden flex items-center justify-between gap-1 p-1 rounded-xl border shadow-xs"
-        style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
-      >
-        <button
-          type="button"
-          onClick={() => setMobileView('card')}
-          className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-            mobileView === 'card' ? 'shadow-xs font-extrabold' : 'opacity-70'
-          }`}
-          style={{
-            backgroundColor: mobileView === 'card' ? 'var(--bg-surface)' : 'transparent',
-            color: mobileView === 'card' ? 'var(--primary-500)' : 'var(--text-secondary)',
-          }}
-        >
-          <CreditCard className="w-3.5 h-3.5" />
-          <span>Schüler-Karte (Karussell)</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setMobileView('table')}
-          className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-            mobileView === 'table' ? 'shadow-xs font-extrabold' : 'opacity-70'
-          }`}
-          style={{
-            backgroundColor: mobileView === 'table' ? 'var(--bg-surface)' : 'transparent',
-            color: mobileView === 'table' ? 'var(--primary-500)' : 'var(--text-secondary)',
-          }}
-        >
-          <TableIcon className="w-3.5 h-3.5" />
-          <span>Voll-Tabelle</span>
-        </button>
-      </div>
       <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3">
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-          <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
-            Darstellung:
-          </span>
-          {(
-            [
-              { id: 'combined', label: 'Kombi' },
-              { id: 'percent_only', label: 'Prozent' },
-              { id: 'grade_only', label: 'Nur Note' },
-            ] as const
-          ).map((fmt) => (
-            <button
-              key={fmt.id}
-              onClick={() => setCellFormat(fmt.id)}
-              className="px-2.5 sm:px-3 py-1 rounded-lg text-xs font-semibold border transition"
-              style={{
-                backgroundColor:
-                  cellFormat === fmt.id ? 'var(--primary-soft)' : 'var(--bg-surface)',
-                color:
-                  cellFormat === fmt.id ? 'var(--primary-text)' : 'var(--text-secondary)',
-                borderColor: 'var(--border-subtle)',
-              }}
-            >
-              {fmt.label}
-            </button>
-          ))}
+          <div className="hidden md:flex items-center gap-1.5 sm:gap-2">
+            <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
+              Darstellung:
+            </span>
+            {(
+              [
+                { id: 'combined', label: 'Kombi' },
+                { id: 'percent_only', label: 'Prozent' },
+                { id: 'grade_only', label: 'Nur Note' },
+              ] as const
+            ).map((fmt) => (
+              <button
+                key={fmt.id}
+                onClick={() => setCellFormat(fmt.id)}
+                className="px-2.5 sm:px-3 py-1 rounded-lg text-xs font-semibold border transition"
+                style={{
+                  backgroundColor:
+                    cellFormat === fmt.id ? 'var(--primary-soft)' : 'var(--bg-surface)',
+                  color:
+                    cellFormat === fmt.id ? 'var(--primary-text)' : 'var(--text-secondary)',
+                  borderColor: 'var(--border-subtle)',
+                }}
+              >
+                {fmt.label}
+              </button>
+            ))}
+          </div>
 
           {/* On-demand toggle for Zeugnisnote if hidden by default in settings */}
           {!userSettings.showReportCardColumn && (
@@ -495,66 +550,447 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
         </form>
       )}
 
-      {/* MOBILE STUDENT CARD CAROUSEL (Active on smartphones when in card mode) */}
-      {mobileView === 'card' && (
-        <div
-          data-tour="matrix-mobile-carousel"
-          className="md:hidden space-y-3"
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
-        >
-          {!currentStudent ? (
+      {/* MOBILE PUPIL CARD SLIDER (Always active on small displays < md) */}
+      <div
+        data-tour="matrix-mobile-carousel"
+        data-testid="pupil-card-slider"
+        className="md:hidden space-y-3 overflow-x-hidden"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={resetTouchTracking}
+      >
+        {!currentStudent ? (
+          <div
+            className="p-8 text-center text-xs opacity-60 rounded-2xl border"
+            style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
+          >
+            Keine Schüler:innen in dieser Ansicht vorhanden.
+          </div>
+        ) : (
+          <>
+            {/* Carousel Navigation Header */}
             <div
-              className="p-8 text-center text-xs opacity-60 rounded-2xl border"
+              className="flex items-center justify-between gap-2 p-2 rounded-2xl border shadow-xs"
               style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
             >
-              Keine Schüler:innen in dieser Ansicht vorhanden.
+              <button
+                type="button"
+                onClick={() => goToStudent(safeStudentIdx - 1)}
+                disabled={safeStudentIdx === 0}
+                className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 disabled:opacity-30 transition active:scale-95 touch-target ${
+                  swipeReadyDirection === 'prev' ? 'ring-2 ring-teal-500 scale-105' : ''
+                }`}
+                style={{
+                  backgroundColor:
+                    swipeReadyDirection === 'prev' ? 'var(--primary-soft)' : 'var(--bg-subtle)',
+                  borderColor: 'var(--border-subtle)',
+                  color:
+                    swipeReadyDirection === 'prev' ? 'var(--primary-text)' : 'var(--text-primary)',
+                }}
+                aria-label="Vorherige:r Schüler:in"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+
+              <div className="flex-1 text-center min-w-0">
+                <div className="relative">
+                  <select
+                    value={safeStudentIdx}
+                    onChange={(e) => goToStudent(Number(e.target.value))}
+                    className="w-full text-xs font-bold py-2 pl-3 pr-7 rounded-xl border text-center appearance-none truncate"
+                    style={{
+                      backgroundColor: 'var(--bg-subtle)',
+                      borderColor: 'var(--border-subtle)',
+                      color: 'var(--text-primary)',
+                    }}
+                    aria-label="Schüler:in auswählen"
+                  >
+                    {visibleStudents.map((s, idx) => {
+                      const sum = summaryByStudentId.get(s.id);
+                      return (
+                        <option key={s.id} value={idx}>
+                          {idx + 1}/{visibleStudents.length}: {s.name} (Ø {sum?.overall_display_grade || '—'})
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => goToStudent(safeStudentIdx + 1)}
+                disabled={safeStudentIdx === visibleStudents.length - 1}
+                className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 disabled:opacity-30 transition active:scale-95 touch-target ${
+                  swipeReadyDirection === 'next' ? 'ring-2 ring-teal-500 scale-105' : ''
+                }`}
+                style={{
+                  backgroundColor:
+                    swipeReadyDirection === 'next' ? 'var(--primary-soft)' : 'var(--bg-subtle)',
+                  borderColor: 'var(--border-subtle)',
+                  color:
+                    swipeReadyDirection === 'next' ? 'var(--primary-text)' : 'var(--text-primary)',
+                }}
+                aria-label="Nächste:r Schüler:in"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
             </div>
-          ) : (
-            <>
-              {/* Carousel Navigation Header */}
+
+            {/* Tactile Swipe Release Indicator Pill */}
+            {swipeReadyDirection && (
               <div
-                className="flex items-center justify-between gap-2 p-2 rounded-2xl border shadow-xs"
-                style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
+                data-testid="swipe-release-indicator"
+                className="flex items-center justify-center py-1 px-3 rounded-xl text-[11px] font-bold border transition-all"
+                style={{
+                  backgroundColor:
+                    swipeReadyDirection === 'next' || swipeReadyDirection === 'prev'
+                      ? 'var(--primary-soft)'
+                      : 'var(--bg-subtle)',
+                  color:
+                    swipeReadyDirection === 'next' || swipeReadyDirection === 'prev'
+                      ? 'var(--primary-text)'
+                      : 'var(--text-secondary)',
+                  borderColor: 'var(--border-subtle)',
+                }}
+              >
+                {swipeReadyDirection === 'next' && nextStudent
+                  ? `Loslassen für ${nextStudent.name} ➔`
+                  : swipeReadyDirection === 'prev' && prevStudent
+                  ? `⬅ Loslassen für ${prevStudent.name}`
+                  : swipeReadyDirection === 'boundary-start'
+                  ? 'Erste:r Schüler:in erreicht'
+                  : 'Letzte:r Schüler:in erreicht'}
+              </div>
+            )}
+
+            {/* The Active Student Card */}
+            <div
+              data-testid="pupil-slider-card"
+              onAnimationEnd={() => setSlideAnimation(null)}
+              className={`rounded-2xl border p-4 shadow-sm space-y-4 ${cardAnimationClass} ${
+                isDragging ? '' : 'transition-transform duration-200 ease-out'
+              }`}
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderColor:
+                  swipeReadyDirection === 'next' || swipeReadyDirection === 'prev'
+                    ? 'var(--primary-500)'
+                    : 'var(--border-subtle)',
+                transform: isDragging
+                  ? `translate3d(${dragOffsetX}px, 0, 0) rotate(${(dragOffsetX * 0.022).toFixed(2)}deg) scale(${
+                      swipeReadyDirection === 'next' || swipeReadyDirection === 'prev' ? 0.985 : 1
+                    })`
+                  : undefined,
+                willChange: isDragging ? 'transform' : undefined,
+              }}
+            >
+              {/* Header: Student Profile & Live Overall Grade */}
+              <div
+                className="flex items-start justify-between gap-3 border-b pb-3"
+                style={{ borderColor: 'var(--border-subtle)' }}
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-xs font-mono opacity-50">#{safeStudentIdx + 1}</span>
+                    <h3
+                      className="font-extrabold text-base truncate"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      {currentStudent.name}
+                    </h3>
+                    {currentStudent.level && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          triggerHapticFeedback('selection');
+                          cycleStudentLevel(currentStudent.id);
+                        }}
+                        className="px-2 py-0.5 rounded text-[10px] font-bold font-mono transition active:scale-95"
+                        style={{
+                          backgroundColor: LEVEL_BADGE_STYLES[currentStudent.level]?.bg,
+                          color: LEVEL_BADGE_STYLES[currentStudent.level]?.text,
+                        }}
+                        title="Klick: Niveau wechseln (G ➔ M ➔ E)"
+                      >
+                        {currentStudent.level}
+                      </button>
+                    )}
+                    {currentStudent.is_not_graded && (
+                      <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">
+                        o.B.
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectStudent(currentStudent.id);
+                      setMode('student_360');
+                    }}
+                    className="text-[11px] font-semibold text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1 mt-1"
+                  >
+                    <span>360°-Akte öffnen</span>
+                    <span>➔</span>
+                  </button>
+                </div>
+
+                {/* Overall Grade Badge */}
+                <div className="text-right shrink-0">
+                  <div
+                    className="px-3 py-1.5 rounded-xl font-mono font-extrabold text-sm border shadow-xs"
+                    style={{
+                      backgroundColor: currentTierStyle?.bg || 'var(--bg-subtle)',
+                      color: currentTierStyle?.text || 'var(--text-primary)',
+                      borderColor: 'var(--border-subtle)',
+                    }}
+                  >
+                    Ø {currentStudentSummary?.overall_display_grade || '—'}
+                  </div>
+                  <div className="text-[10px] font-mono opacity-70 mt-0.5">
+                    {currentStudentSummary?.overall_percent != null
+                      ? `${currentStudentSummary.overall_percent}%`
+                      : 'Keine Noten'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Optional Zeugnisnote Row */}
+              {isReportCardColumnVisible && (
+                <div
+                  className="p-2.5 rounded-xl border flex items-center justify-between gap-3 text-xs"
+                  style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+                >
+                  <div>
+                    <span className="font-bold block" style={{ color: 'var(--text-primary)' }}>
+                      Zeugnisnote ({activeTerm.toUpperCase()}):
+                    </span>
+                    <span className="text-[10px] opacity-70" style={{ color: 'var(--text-secondary)' }}>
+                      Pädagogisch festgesetzte Endnote
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    value={
+                      (activeTerm === 'hj1'
+                        ? activeDataset.reportCardOverrides?.[currentStudent.id]?.hj1
+                        : activeTerm === 'hj2'
+                        ? activeDataset.reportCardOverrides?.[currentStudent.id]?.hj2
+                        : activeDataset.reportCardOverrides?.[currentStudent.id]?.all) || ''
+                    }
+                    placeholder={currentStudentSummary?.overall_display_grade || '—'}
+                    onChange={(e) => updateReportCardOverride(currentStudent.id, e.target.value)}
+                    className="w-16 px-2 py-1 rounded-lg border text-center font-mono font-bold text-sm bg-transparent"
+                    style={{ borderColor: 'var(--border-subtle)', color: 'var(--primary-500)' }}
+                  />
+                </div>
+              )}
+
+              {/* Vertical Assessments Grouped by Category */}
+              <div className="space-y-3">
+                {activeDataset.categories.map((cat) => {
+                  const catAssessments = termAssessments.filter((a) => a.category_id === cat.id);
+                  if (catAssessments.length === 0) return null;
+                  const catResult = currentStudentSummary?.category_results.find((cr) => cr.category_id === cat.id);
+                  const normPct = Math.round((cat.weight / totalCatWeight) * 100);
+
+                  return (
+                    <div
+                      key={cat.id}
+                      className="rounded-xl border overflow-hidden"
+                      style={{ borderColor: 'var(--border-subtle)' }}
+                    >
+                      {/* Category Header */}
+                      <div
+                        className="px-3 py-2 flex items-center justify-between text-xs font-bold border-b"
+                        style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span style={{ color: 'var(--text-primary)' }}>{cat.name}</span>
+                          <span
+                            className="px-1.5 py-0.5 rounded text-[10px] font-mono"
+                            style={{ backgroundColor: 'var(--primary-soft)', color: 'var(--primary-text)' }}
+                          >
+                            {normPct}%
+                          </span>
+                        </div>
+                        <span className="font-mono text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                          Ø {catResult?.display_grade || '—'} ({catResult?.average_percent != null ? `${catResult.average_percent}%` : '—'})
+                        </span>
+                      </div>
+
+                      {/* Assessment Items */}
+                      <div className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
+                        {catAssessments.map((assess) => {
+                          const entry = activeDataset.grades.find(
+                            (g) => g.student_id === currentStudent.id && g.assessment_id === assess.id
+                          );
+
+                          return (
+                            <div
+                              key={assess.id}
+                              className="px-3 py-2.5 flex items-center justify-between gap-2 text-xs"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+                                  {assess.title}
+                                </div>
+                                <div className="flex items-center gap-1 text-[10px] opacity-70" style={{ color: 'var(--text-secondary)' }}>
+                                  <span>
+                                    {assess.input_mode === 'points'
+                                      ? `max. ${assess.max_points || 15} Pkt`
+                                      : assess.input_mode === 'grade_scale'
+                                      ? 'Note (1–6)'
+                                      : '% Prozent'}
+                                  </span>
+                                  {entry?.percent_value != null && (
+                                    <>
+                                      <span>·</span>
+                                      <strong className="text-teal-600 dark:text-teal-400">
+                                        Note {entry.direct_grade_value ?? percentToGradeThreshold(entry.percent_value, activeDataset.config, currentStudent.level).display_label}
+                                      </strong>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {entry?.status === 'excused' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => updateGradeEntry(currentStudent.id, assess.id, '', 'percent')}
+                                    className="px-2.5 py-1.5 rounded-lg bg-amber-100 text-amber-800 text-[11px] font-bold"
+                                  >
+                                    Attest
+                                  </button>
+                                ) : (
+                                  <>
+                                    <input
+                                      type="text"
+                                      inputMode={assess.input_mode === 'grade_scale' ? 'text' : 'decimal'}
+                                      enterKeyHint="next"
+                                      data-card-grade-input="true"
+                                      value={
+                                        assess.input_mode === 'grade_scale'
+                                          ? entry?.direct_grade_value != null
+                                            ? String(entry.direct_grade_value)
+                                            : entry?.percent_value != null
+                                            ? String(percentToGradeThreshold(entry.percent_value, activeDataset.config, currentStudent.level).numeric_value)
+                                            : ''
+                                          : assess.input_mode === 'points'
+                                          ? entry?.raw_points != null
+                                            ? String(entry.raw_points)
+                                            : entry?.percent_value != null
+                                            ? String(Math.round(((entry.percent_value / 100) * (assess.max_points || 15)) * 10) / 10)
+                                            : ''
+                                          : entry?.percent_value != null
+                                          ? String(entry.percent_value)
+                                          : entry?.direct_grade_value != null
+                                          ? String(Math.round(gradeToPercent(entry.direct_grade_value, activeDataset.config)))
+                                          : ''
+                                      }
+                                      placeholder="—"
+                                      onFocus={(e) => e.target.select()}
+                                      onChange={(e) => {
+                                        triggerHapticFeedback('selection');
+                                        updateGradeEntry(
+                                          currentStudent.id,
+                                          assess.id,
+                                          e.target.value,
+                                          assess.input_mode || 'percent'
+                                        );
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault();
+                                          const inputs = Array.from(
+                                            document.querySelectorAll<HTMLInputElement>('input[data-card-grade-input]')
+                                          );
+                                          const currIdx = inputs.indexOf(e.currentTarget);
+                                          if (currIdx !== -1 && currIdx < inputs.length - 1) {
+                                            triggerHapticFeedback('selection');
+                                            inputs[currIdx + 1].focus();
+                                            inputs[currIdx + 1].select();
+                                          } else if (currIdx === inputs.length - 1 && safeStudentIdx < visibleStudents.length - 1) {
+                                            goToStudent(safeStudentIdx + 1);
+                                          }
+                                        }
+                                      }}
+                                      className="w-16 text-center font-mono text-sm py-1.5 px-1.5 rounded-lg border font-bold focus:outline-none focus:ring-2 focus:ring-teal-500 tabular-nums min-h-[40px]"
+                                      style={{
+                                        borderColor: 'var(--border-subtle)',
+                                        backgroundColor: 'var(--bg-subtle)',
+                                        color: 'var(--text-primary)',
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        triggerHapticFeedback('selection');
+                                        updateGradeEntry(
+                                          currentStudent.id,
+                                          assess.id,
+                                          entry?.status === 'excused' ? '' : 'K',
+                                          'excused'
+                                        );
+                                      }}
+                                      className="w-11 h-11 sm:w-9 sm:h-9 rounded-xl border flex items-center justify-center text-xs font-bold opacity-60 hover:opacity-100 active:scale-95 transition shrink-0 touch-target"
+                                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
+                                      title="Als entschuldigt markieren"
+                                    >
+                                      K
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Card Carousel Navigation Footer with Target Student Names */}
+              <div
+                className="flex items-center justify-between gap-2 pt-3 border-t text-xs font-semibold"
+                style={{ borderColor: 'var(--border-subtle)' }}
               >
                 <button
                   type="button"
                   onClick={() => goToStudent(safeStudentIdx - 1)}
                   disabled={safeStudentIdx === 0}
-                  className="w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 disabled:opacity-30 transition active:scale-95 touch-target"
+                  className={`flex-1 py-2 px-2.5 rounded-xl border flex items-center justify-center gap-1.5 disabled:opacity-30 transition active:scale-95 min-h-[44px] min-w-0 ${
+                    swipeReadyDirection === 'prev' ? 'ring-2 ring-teal-500' : ''
+                  }`}
                   style={{
-                    backgroundColor: 'var(--bg-subtle)',
+                    backgroundColor:
+                      swipeReadyDirection === 'prev' ? 'var(--primary-soft)' : 'var(--bg-subtle)',
                     borderColor: 'var(--border-subtle)',
-                    color: 'var(--text-primary)',
+                    color:
+                      swipeReadyDirection === 'prev' ? 'var(--primary-text)' : 'var(--text-primary)',
                   }}
-                  aria-label="Vorherige:r Schüler:in"
+                  title={prevStudent ? `Vorherige:r: ${prevStudent.name}` : undefined}
                 >
-                  <ChevronLeft className="w-5 h-5" />
+                  <ChevronLeft className="w-4 h-4 shrink-0" />
+                  <span className="truncate max-w-[95px]">{prevStudent ? prevStudent.name : 'Vorherige:r'}</span>
                 </button>
 
-                <div className="flex-1 text-center min-w-0">
-                  <div className="relative">
-                    <select
-                      value={safeStudentIdx}
-                      onChange={(e) => goToStudent(Number(e.target.value))}
-                      className="w-full text-xs font-bold py-2 pl-3 pr-7 rounded-xl border text-center appearance-none truncate"
+                {/* Visual Progress Bar */}
+                <div className="flex flex-col items-center px-1 shrink-0">
+                  <span className="text-[11px] font-mono font-bold opacity-75">
+                    {safeStudentIdx + 1} / {visibleStudents.length}
+                  </span>
+                  <div className="w-12 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 mt-1 overflow-hidden">
+                    <div
+                      className="h-full bg-teal-500 rounded-full transition-all duration-200"
                       style={{
-                        backgroundColor: 'var(--bg-subtle)',
-                        borderColor: 'var(--border-subtle)',
-                        color: 'var(--text-primary)',
+                        width: `${((safeStudentIdx + 1) / Math.max(1, visibleStudents.length)) * 100}%`,
                       }}
-                      aria-label="Schüler:in auswählen"
-                    >
-                      {visibleStudents.map((s, idx) => {
-                        const sum = summaryByStudentId.get(s.id);
-                        return (
-                          <option key={s.id} value={idx}>
-                            {idx + 1}/{visibleStudents.length}: {s.name} (Ø {sum?.overall_display_grade || '—'})
-                          </option>
-                        );
-                      })}
-                    </select>
-                    <ChevronDown className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
+                    />
                   </div>
                 </div>
 
@@ -562,359 +998,31 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                   type="button"
                   onClick={() => goToStudent(safeStudentIdx + 1)}
                   disabled={safeStudentIdx === visibleStudents.length - 1}
-                  className="w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 disabled:opacity-30 transition active:scale-95 touch-target"
+                  className={`flex-1 py-2 px-2.5 rounded-xl border flex items-center justify-center gap-1.5 disabled:opacity-30 transition active:scale-95 min-h-[44px] min-w-0 ${
+                    swipeReadyDirection === 'next' ? 'ring-2 ring-teal-500' : ''
+                  }`}
                   style={{
-                    backgroundColor: 'var(--bg-subtle)',
+                    backgroundColor:
+                      swipeReadyDirection === 'next' ? 'var(--primary-soft)' : 'var(--bg-subtle)',
                     borderColor: 'var(--border-subtle)',
-                    color: 'var(--text-primary)',
+                    color:
+                      swipeReadyDirection === 'next' ? 'var(--primary-text)' : 'var(--text-primary)',
                   }}
-                  aria-label="Nächste:r Schüler:in"
+                  title={nextStudent ? `Nächste:r: ${nextStudent.name}` : undefined}
                 >
-                  <ChevronRight className="w-5 h-5" />
+                  <span className="truncate max-w-[95px]">{nextStudent ? nextStudent.name : 'Nächste:r'}</span>
+                  <ChevronRight className="w-4 h-4 shrink-0" />
                 </button>
               </div>
+            </div>
+          </>
+        )}
+      </div>
 
-              {/* The Active Student Card */}
-              <div
-                className="rounded-2xl border p-4 shadow-sm space-y-4"
-                style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
-              >
-                {/* Header: Student Profile & Live Overall Grade */}
-                <div
-                  className="flex items-start justify-between gap-3 border-b pb-3"
-                  style={{ borderColor: 'var(--border-subtle)' }}
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-xs font-mono opacity-50">#{safeStudentIdx + 1}</span>
-                      <h3
-                        className="font-extrabold text-base truncate"
-                        style={{ color: 'var(--text-primary)' }}
-                      >
-                        {currentStudent.name}
-                      </h3>
-                      {currentStudent.level && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            triggerHapticFeedback(12);
-                            cycleStudentLevel(currentStudent.id);
-                          }}
-                          className="px-2 py-0.5 rounded text-[10px] font-bold font-mono transition active:scale-95"
-                          style={{
-                            backgroundColor: LEVEL_BADGE_STYLES[currentStudent.level]?.bg,
-                            color: LEVEL_BADGE_STYLES[currentStudent.level]?.text,
-                          }}
-                          title="Klick: Niveau wechseln (G ➔ M ➔ E)"
-                        >
-                          {currentStudent.level}
-                        </button>
-                      )}
-                      {currentStudent.is_not_graded && (
-                        <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">
-                          o.B.
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onSelectStudent(currentStudent.id);
-                        setMode('student_360');
-                      }}
-                      className="text-[11px] font-semibold text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1 mt-1"
-                    >
-                      <span>360°-Akte öffnen</span>
-                      <span>➔</span>
-                    </button>
-                  </div>
-
-                  {/* Overall Grade Badge */}
-                  <div className="text-right shrink-0">
-                    <div
-                      className="px-3 py-1.5 rounded-xl font-mono font-extrabold text-sm border shadow-xs"
-                      style={{
-                        backgroundColor: currentTierStyle?.bg || 'var(--bg-subtle)',
-                        color: currentTierStyle?.text || 'var(--text-primary)',
-                        borderColor: 'var(--border-subtle)',
-                      }}
-                    >
-                      Ø {currentStudentSummary?.overall_display_grade || '—'}
-                    </div>
-                    <div className="text-[10px] font-mono opacity-70 mt-0.5">
-                      {currentStudentSummary?.overall_percent != null
-                        ? `${currentStudentSummary.overall_percent}%`
-                        : 'Keine Noten'}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Optional Zeugnisnote Row */}
-                {isReportCardColumnVisible && (
-                  <div
-                    className="p-2.5 rounded-xl border flex items-center justify-between gap-3 text-xs"
-                    style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
-                  >
-                    <div>
-                      <span className="font-bold block" style={{ color: 'var(--text-primary)' }}>
-                        Zeugnisnote ({activeTerm.toUpperCase()}):
-                      </span>
-                      <span className="text-[10px] opacity-70" style={{ color: 'var(--text-secondary)' }}>
-                        Pädagogisch festgesetzte Endnote
-                      </span>
-                    </div>
-                    <input
-                      type="text"
-                      value={
-                        (activeTerm === 'hj1'
-                          ? activeDataset.reportCardOverrides?.[currentStudent.id]?.hj1
-                          : activeTerm === 'hj2'
-                          ? activeDataset.reportCardOverrides?.[currentStudent.id]?.hj2
-                          : activeDataset.reportCardOverrides?.[currentStudent.id]?.all) || ''
-                      }
-                      placeholder={currentStudentSummary?.overall_display_grade || '—'}
-                      onChange={(e) => updateReportCardOverride(currentStudent.id, e.target.value)}
-                      className="w-16 px-2 py-1 rounded-lg border text-center font-mono font-bold text-sm bg-transparent"
-                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--primary-500)' }}
-                    />
-                  </div>
-                )}
-
-                {/* Vertical Assessments Grouped by Category */}
-                <div className="space-y-3">
-                  {activeDataset.categories.map((cat) => {
-                    const catAssessments = termAssessments.filter((a) => a.category_id === cat.id);
-                    if (catAssessments.length === 0) return null;
-                    const catResult = currentStudentSummary?.category_results.find((cr) => cr.category_id === cat.id);
-                    const normPct = Math.round((cat.weight / totalCatWeight) * 100);
-
-                    return (
-                      <div
-                        key={cat.id}
-                        className="rounded-xl border overflow-hidden"
-                        style={{ borderColor: 'var(--border-subtle)' }}
-                      >
-                        {/* Category Header */}
-                        <div
-                          className="px-3 py-2 flex items-center justify-between text-xs font-bold border-b"
-                          style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <span style={{ color: 'var(--text-primary)' }}>{cat.name}</span>
-                            <span
-                              className="px-1.5 py-0.5 rounded text-[10px] font-mono"
-                              style={{ backgroundColor: 'var(--primary-soft)', color: 'var(--primary-text)' }}
-                            >
-                              {normPct}%
-                            </span>
-                          </div>
-                          <span className="font-mono text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-                            Ø {catResult?.display_grade || '—'} ({catResult?.average_percent != null ? `${catResult.average_percent}%` : '—'})
-                          </span>
-                        </div>
-
-                        {/* Assessment Items */}
-                        <div className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
-                          {catAssessments.map((assess) => {
-                            const entry = activeDataset.grades.find(
-                              (g) => g.student_id === currentStudent.id && g.assessment_id === assess.id
-                            );
-
-                            return (
-                              <div
-                                key={assess.id}
-                                className="px-3 py-2.5 flex items-center justify-between gap-2 text-xs"
-                              >
-                                <div className="min-w-0 flex-1">
-                                  <div className="font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
-                                    {assess.title}
-                                  </div>
-                                  <div className="flex items-center gap-1 text-[10px] opacity-70" style={{ color: 'var(--text-secondary)' }}>
-                                    <span>
-                                      {assess.input_mode === 'points'
-                                        ? `max. ${assess.max_points || 15} Pkt`
-                                        : assess.input_mode === 'grade_scale'
-                                        ? 'Note (1–6)'
-                                        : '% Prozent'}
-                                    </span>
-                                    {entry?.percent_value != null && (
-                                      <>
-                                        <span>·</span>
-                                        <strong className="text-teal-600 dark:text-teal-400">
-                                          Note {entry.direct_grade_value ?? percentToGradeThreshold(entry.percent_value, activeDataset.config, currentStudent.level).display_label}
-                                        </strong>
-                                      </>
-                                    )}
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                  {entry?.status === 'excused' ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => updateGradeEntry(currentStudent.id, assess.id, '', 'percent')}
-                                      className="px-2.5 py-1.5 rounded-lg bg-amber-100 text-amber-800 text-[11px] font-bold"
-                                    >
-                                      Attest
-                                    </button>
-                                  ) : (
-                                    <>
-                                      <input
-                                        type="text"
-                                        inputMode={assess.input_mode === 'grade_scale' ? 'text' : 'decimal'}
-                                        enterKeyHint="next"
-                                        data-card-grade-input="true"
-                                        value={
-                                          assess.input_mode === 'grade_scale'
-                                            ? entry?.direct_grade_value != null
-                                              ? String(entry.direct_grade_value)
-                                              : entry?.percent_value != null
-                                              ? String(percentToGradeThreshold(entry.percent_value, activeDataset.config, currentStudent.level).numeric_value)
-                                              : ''
-                                            : assess.input_mode === 'points'
-                                            ? entry?.raw_points != null
-                                              ? String(entry.raw_points)
-                                              : entry?.percent_value != null
-                                              ? String(Math.round(((entry.percent_value / 100) * (assess.max_points || 15)) * 10) / 10)
-                                              : ''
-                                            : entry?.percent_value != null
-                                            ? String(entry.percent_value)
-                                            : entry?.direct_grade_value != null
-                                            ? String(Math.round(gradeToPercent(entry.direct_grade_value, activeDataset.config)))
-                                            : ''
-                                        }
-                                        placeholder="—"
-                                        onFocus={(e) => e.target.select()}
-                                        onChange={(e) => {
-                                          triggerHapticFeedback(6);
-                                          updateGradeEntry(
-                                            currentStudent.id,
-                                            assess.id,
-                                            e.target.value,
-                                            assess.input_mode || 'percent'
-                                          );
-                                        }}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter') {
-                                            e.preventDefault();
-                                            const inputs = Array.from(
-                                              document.querySelectorAll<HTMLInputElement>('input[data-card-grade-input]')
-                                            );
-                                            const currIdx = inputs.indexOf(e.currentTarget);
-                                            if (currIdx !== -1 && currIdx < inputs.length - 1) {
-                                              inputs[currIdx + 1].focus();
-                                              inputs[currIdx + 1].select();
-                                            } else if (currIdx === inputs.length - 1 && safeStudentIdx < visibleStudents.length - 1) {
-                                              goToStudent(safeStudentIdx + 1);
-                                            }
-                                          }
-                                        }}
-                                        className="w-16 text-center font-mono text-sm py-1.5 px-1.5 rounded-lg border font-bold focus:outline-none focus:ring-2 focus:ring-teal-500 tabular-nums min-h-[40px]"
-                                        style={{
-                                          borderColor: 'var(--border-subtle)',
-                                          backgroundColor: 'var(--bg-subtle)',
-                                          color: 'var(--text-primary)',
-                                        }}
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          triggerHapticFeedback(8);
-                                          updateGradeEntry(
-                                            currentStudent.id,
-                                            assess.id,
-                                            entry?.status === 'excused' ? '' : 'K',
-                                            'excused'
-                                          );
-                                        }}
-                                        className="w-11 h-11 sm:w-9 sm:h-9 rounded-xl border flex items-center justify-center text-xs font-bold opacity-60 hover:opacity-100 active:scale-95 transition shrink-0 touch-target"
-                                        style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
-                                        title="Als entschuldigt markieren"
-                                      >
-                                        K
-                                      </button>
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Card Carousel Navigation Footer with Target Student Names */}
-                <div
-                  className="flex items-center justify-between gap-2 pt-3 border-t text-xs font-semibold"
-                  style={{ borderColor: 'var(--border-subtle)' }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => goToStudent(safeStudentIdx - 1)}
-                    disabled={safeStudentIdx === 0}
-                    className="flex-1 py-2 px-2.5 rounded-xl border flex items-center justify-center gap-1.5 disabled:opacity-30 transition active:scale-95 min-h-[44px] min-w-0"
-                    style={{
-                      backgroundColor: 'var(--bg-subtle)',
-                      borderColor: 'var(--border-subtle)',
-                      color: 'var(--text-primary)',
-                    }}
-                    title={prevStudent ? `Vorherige:r: ${prevStudent.name}` : undefined}
-                  >
-                    <ChevronLeft className="w-4 h-4 shrink-0" />
-                    <span className="truncate max-w-[95px]">{prevStudent ? prevStudent.name : 'Vorherige:r'}</span>
-                  </button>
-
-                  {/* Visual Progress Bar */}
-                  <div className="flex flex-col items-center px-1 shrink-0">
-                    <span className="text-[11px] font-mono font-bold opacity-75">
-                      {safeStudentIdx + 1} / {visibleStudents.length}
-                    </span>
-                    <div className="w-12 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 mt-1 overflow-hidden">
-                      <div
-                        className="h-full bg-teal-500 rounded-full transition-all duration-200"
-                        style={{
-                          width: `${((safeStudentIdx + 1) / Math.max(1, visibleStudents.length)) * 100}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => goToStudent(safeStudentIdx + 1)}
-                    disabled={safeStudentIdx === visibleStudents.length - 1}
-                    className="flex-1 py-2 px-2.5 rounded-xl border flex items-center justify-center gap-1.5 disabled:opacity-30 transition active:scale-95 min-h-[44px] min-w-0"
-                    style={{
-                      backgroundColor: 'var(--bg-subtle)',
-                      borderColor: 'var(--border-subtle)',
-                      color: 'var(--text-primary)',
-                    }}
-                    title={nextStudent ? `Nächste:r: ${nextStudent.name}` : undefined}
-                  >
-                    <span className="truncate max-w-[95px]">{nextStudent ? nextStudent.name : 'Nächste:r'}</span>
-                    <ChevronRight className="w-4 h-4 shrink-0" />
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Mobile Swipe Hint (visible on mobile only in table mode) */}
-      {mobileView === 'table' && (
-        <div className="sm:hidden text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between px-1">
-          <span>{visibleStudents.length} Schüler:innen</span>
-          <span>← Seitlich wischen für alle Arbeiten →</span>
-        </div>
-      )}
-
-      {/* Structured Matrix Card (Always visible on desktop; on mobile only when mobileView === 'table') */}
+      {/* Desktop & Large Tablet Matrix Table (Hidden on small displays < md) */}
       <div
         data-tour="matrix-table"
-        className={`${mobileView === 'card' ? 'hidden md:block' : 'block'} rounded-2xl border shadow-sm overflow-hidden`}
+        className="hidden md:block rounded-2xl border shadow-sm overflow-hidden"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
         <div className="overflow-x-auto overflow-y-auto max-h-[calc(100dvh-240px)] sm:max-h-[calc(100vh-270px)]">

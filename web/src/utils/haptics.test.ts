@@ -52,7 +52,7 @@ describe('triggerHapticFeedback cross-platform haptics', () => {
       'label[data-haptic-bridge="ios-switch"]'
     );
     expect(switchLabel).not.toBeNull();
-    const input = switchLabel?.querySelector('input[type="checkbox"]');
+    const input = switchLabel?.querySelector<HTMLInputElement>('input[type="checkbox"]');
     expect(input).not.toBeNull();
     expect(input?.hasAttribute('switch')).toBe(true);
     // Clicking the label toggles the hidden switch input

@@ -15,7 +15,7 @@ describe('SettingsModal Navigation & Account Security Architecture', () => {
     themeMode: 'system' as const,
     darkMode: false,
     autoCalculate: true,
-  };
+  } as unknown as any;
 
   const dummySession = {
     userId: 'user-123',
@@ -25,7 +25,9 @@ describe('SettingsModal Navigation & Account Security Architecture', () => {
     encryptedDek: 'encDek==',
     dekB64: 'dekB64==',
     totpEnabled: false,
-  };
+    recoveryEncryptedDek: 'rec==',
+    serverSyncedCount: 0,
+  } as unknown as any;
 
   it('renders both "Konto & Schutz" and "Speicher & Backups" tabs', () => {
     render(

@@ -201,7 +201,15 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
       return;
     }
 
-    const el = document.querySelector(`[data-tour="${currentStep.targetId}"]`);
+    let el = document.querySelector(`[data-tour="${currentStep.targetId}"]`);
+    if (
+      el &&
+      currentStep.targetId === 'matrix-table' &&
+      el.getBoundingClientRect().width === 0
+    ) {
+      const mobileCarousel = document.querySelector('[data-tour="matrix-mobile-carousel"]');
+      if (mobileCarousel) el = mobileCarousel;
+    }
     if (el) {
       const rect = el.getBoundingClientRect();
       setTargetRect({
