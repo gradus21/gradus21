@@ -70,6 +70,13 @@ jobs:
             echo "Syncing Android icons to $res"
             cp -r src-tauri/icons/android/* "$res/" 2>/dev/null || true
           done
+          # Ensure VIBRATE permission is present in AndroidManifest.xml for haptic feedback in WebView
+          for manifest in $(find src-tauri/gen/android -name "AndroidManifest.xml"); do
+            if ! grep -q "android.permission.VIBRATE" "$manifest"; then
+              echo "Injecting android.permission.VIBRATE into $manifest"
+              sed -i 's|<uses-permission android:name="android.permission.INTERNET" />|<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.VIBRATE" />|' "$manifest"
+            fi
+          done
 
       - name: Build release APK & AAB
         run: |

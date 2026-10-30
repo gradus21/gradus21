@@ -39,7 +39,7 @@ export interface AppHeaderProps {
   onOpenClassWizard: () => void;
   onOpenClassManager: () => void;
   onOpenSettings: (section?: SettingsSection) => void;
-  onOpenVaultInspector: () => void;
+  onOpenVaultInspector?: () => void;
   onOpenAdmin: () => void;
   onOpenInteractiveGuide: () => void;
   showGuideButtonInHeader?: boolean;
@@ -546,7 +546,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           <button
             onClick={() => onOpenSettings()}
             data-tour="header-settings-btn"
-            className="w-9 h-9 sm:w-10 sm:h-10 xl:w-auto xl:h-auto p-0 xl:px-3 xl:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition active:scale-95 shrink-0"
+            className="w-9 h-9 sm:w-10 sm:h-10 lg:w-auto lg:h-auto p-0 lg:px-3 lg:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition active:scale-95 shrink-0"
             style={{
               backgroundColor: 'var(--bg-subtle)',
               color: 'var(--text-primary)',
@@ -555,24 +555,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             title="Einstellungen"
             aria-label="Einstellungen"
           >
-            <Settings className="w-4 h-4 xl:w-3.5 xl:h-3.5" style={{ color: 'var(--primary-500)' }} />
-            <span className="hidden xl:inline">Einstellungen</span>
-          </button>
-
-          <button
-            onClick={onOpenVaultInspector}
-            data-tour="header-vault-btn"
-            className="w-9 h-9 sm:w-10 sm:h-10 lg:w-auto lg:h-auto p-0 lg:px-3 lg:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition active:scale-95 shrink-0"
-            style={{
-              backgroundColor: 'var(--primary-soft)',
-              color: 'var(--primary-text)',
-              borderColor: 'var(--border-subtle)',
-            }}
-            title="Konto & Schutz"
-            aria-label="Konto & Schutz"
-          >
-            <KeyRound className="w-4 h-4 lg:w-3.5 lg:h-3.5" />
-            <span className="hidden lg:inline">Konto & Schutz</span>
+            <Settings className="w-4 h-4 lg:w-3.5 lg:h-3.5" style={{ color: 'var(--primary-500)' }} />
+            <span className="hidden lg:inline">Einstellungen</span>
           </button>
 
           {isAdmin && (

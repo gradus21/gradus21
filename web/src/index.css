@@ -345,5 +345,78 @@ input[type="range"]::-moz-range-track {
   border-radius: 9999px;
 }
 
+/* Tactile Pupil Card Slider Physics (Emil Kowalski Motion Principles) */
+@keyframes pupilCardEnterNext {
+  0% {
+    opacity: 0.72;
+    transform: translate3d(24px, 0, 0) scale(0.985);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes pupilCardEnterPrev {
+  0% {
+    opacity: 0.72;
+    transform: translate3d(-24px, 0, 0) scale(0.985);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes pupilCardBounceStart {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  40% {
+    transform: translate3d(10px, 0, 0) scale(0.992);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes pupilCardBounceEnd {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  40% {
+    transform: translate3d(-10px, 0, 0) scale(0.992);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.pupil-card-enter-next {
+  animation: pupilCardEnterNext 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.pupil-card-enter-prev {
+  animation: pupilCardEnterPrev 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.pupil-card-bounce-start {
+  animation: pupilCardBounceStart 240ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.pupil-card-bounce-end {
+  animation: pupilCardBounceEnd 240ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pupil-card-enter-next,
+  .pupil-card-enter-prev,
+  .pupil-card-bounce-start,
+  .pupil-card-bounce-end {
+    animation: none !important;
+  }
+}
+
+
 
 

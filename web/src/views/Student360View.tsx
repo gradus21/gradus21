@@ -8,10 +8,25 @@ import {
 import {
   LEVEL_BADGE_STYLES,
   StudentCalculatedSummary,
+  WorkspaceMode,
 } from '../types/workspace';
 import { printStudentParentReport } from '../components/ExportAndPrintHelpers';
 import { wasm_simulate_needed_score_v2 } from '../wasm-pkg/gradus21_core';
-import { Printer, Sparkles, UserCheck, ShieldCheck, Check, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
+import {
+  Printer,
+  Sparkles,
+  UserCheck,
+  ShieldCheck,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  ArrowLeft,
+  UserPlus,
+  FileSpreadsheet,
+  Eye,
+  Plus,
+} from 'lucide-react';
 import { triggerHapticFeedback } from '../utils/haptics';
 
 export interface Student360ViewProps {
@@ -19,7 +34,7 @@ export interface Student360ViewProps {
   allDatasets?: ClassroomSubjectDataset[];
   activeTerm: TermFilterId;
   visibleStudents: StudentProfile[];
-  activeStudent: StudentProfile;
+  activeStudent?: StudentProfile;
   selectedStudentId: string;
   setSelectedStudentId: (id: string) => void;
   summaryByStudentId: Map<string, StudentCalculatedSummary>;
@@ -34,6 +49,15 @@ export interface Student360ViewProps {
     propagateToAllClasses: boolean
   ) => void;
   wasmReady: boolean;
+  setMode?: (mode: WorkspaceMode) => void;
+  onOpenClassManager?: (
+    initialTab?: 'students' | 'assessments' | 'meta',
+    highlightAssessmentId?: string
+  ) => void;
+  onAddStudent?: (name: string, level: 'G' | 'M' | 'E') => void;
+  onLoadDemoDataset?: () => void;
+  showArchivedInMatrix?: boolean;
+  setShowArchivedInMatrix?: (show: boolean) => void;
 }
 
 export const Student360View: React.FC<Student360ViewProps> = ({
@@ -52,6 +76,12 @@ export const Student360View: React.FC<Student360ViewProps> = ({
   updateReportCardOverride,
   onUpdateStudentProfile,
   wasmReady,
+  setMode,
+  onOpenClassManager,
+  onAddStudent,
+  onLoadDemoDataset,
+  showArchivedInMatrix,
+  setShowArchivedInMatrix,
 }) => {
   const [simCategoryId, setSimCategoryId] = useState<string>(
     activeDataset.categories[0]?.id || 'cat_lnw'
@@ -61,6 +91,10 @@ export const Student360View: React.FC<Student360ViewProps> = ({
   // Cross-class sync state
   const [syncAcrossClasses, setSyncAcrossClasses] = useState<boolean>(true);
   const [profileSavedFeedback, setProfileSavedFeedback] = useState<boolean>(false);
+
+  // Inline Quick-Add State for Empty State
+  const [quickAddName, setQuickAddName] = useState<string>('');
+  const [quickAddLevel, setQuickAddLevel] = useState<'G' | 'M' | 'E'>('M');
 
   // Find other classes that have this student (match by id, studentId, or normalized name)
   const otherClassesWithStudent = useMemo(() => {
@@ -129,6 +163,300 @@ export const Student360View: React.FC<Student360ViewProps> = ({
     simTargetPercent,
     activeTerm,
   ]);
+
+  if (!activeStudent || visibleStudents.length === 0) {
+    const hasArchivedStudents = activeDataset.students.length > 0;
+
+    const handleQuickAddSubmit = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!quickAddName.trim() || !onAddStudent) return;
+      onAddStudent(quickAddName.trim(), quickAddLevel);
+      setQuickAddName('');
+    };
+
+    return (
+      <div
+        data-tour="student360-container"
+        data-testid="student360-empty-state"
+        className="max-w-4xl mx-auto py-6 sm:py-10 px-4 space-y-6"
+      >
+        {/* Top safe navigation bar */}
+        <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => setMode?.('matrix')}
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold border transition active:scale-95 touch-target shadow-xs"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            <ArrowLeft className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <span>Zurück zur Klassen-Matrix</span>
+          </button>
+
+          <span
+            className="text-xs font-bold px-3 py-1 rounded-full border hidden sm:inline-block"
+            style={{
+              backgroundColor: 'var(--bg-subtle)',
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--text-secondary)',
+            }}
+          >
+            {activeDataset.className} · {activeTerm.toUpperCase()}
+          </span>
+        </div>
+
+        {/* Main Hero Card */}
+        <div
+          className="rounded-3xl border p-6 sm:p-10 shadow-sm text-center relative overflow-hidden"
+          style={{
+            backgroundColor: 'var(--bg-surface)',
+            borderColor: 'var(--border-subtle)',
+          }}
+        >
+          {/* Subtle decorative glow */}
+          <div
+            className="absolute -top-24 left-1/2 -translate-x-1/2 w-96 h-96 rounded-full blur-3xl pointer-events-none opacity-20"
+            style={{ backgroundColor: 'var(--primary-500)' }}
+          />
+
+          <div className="relative z-10 max-w-xl mx-auto space-y-4">
+            <div
+              className="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center shadow-xs"
+              style={{
+                backgroundColor: 'var(--primary-soft)',
+                color: 'var(--primary-text)',
+              }}
+            >
+              <UserCheck className="w-8 h-8" />
+            </div>
+
+            <div className="space-y-2">
+              <span
+                className="text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full inline-block"
+                style={{
+                  backgroundColor: 'var(--primary-soft)',
+                  color: 'var(--primary-text)',
+                }}
+              >
+                360°-Schüler:innen-Akte
+              </span>
+
+              <h2
+                className="text-2xl sm:text-3xl font-extrabold tracking-tight"
+                style={{ color: 'var(--text-primary)' }}
+              >
+                {hasArchivedStudents
+                  ? 'Alle Schüler:innen dieser Klasse sind archiviert'
+                  : 'Noch keine Schüler:innen in dieser Klasse'}
+              </h2>
+
+              <p
+                className="text-xs sm:text-sm text-balance leading-relaxed"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                {hasArchivedStudents
+                  ? `In „${activeDataset.className}“ befinden sich ${activeDataset.students.length} archivierte Schüler:innen, die derzeit ausgeblendet sind. Blende archivierte Schüler:innen ein oder lege neue Schüler:innen an.`
+                  : `In „${activeDataset.className}“ sind noch keine Schüler:innen angelegt. Die 360°-Akte bündelt Leistungsverläufe, Kompetenzprofile, Förderhinweise und den Was-wäre-wenn Simulator für Elterngespräche.`}
+              </p>
+            </div>
+
+            {/* Quick Add Student Form */}
+            {onAddStudent && (
+              <div
+                className="mt-6 p-4 rounded-2xl border text-left shadow-xs space-y-3"
+                style={{
+                  backgroundColor: 'var(--bg-subtle)',
+                  borderColor: 'var(--border-subtle)',
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <UserPlus className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  <span className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
+                    Erste:n Schüler:in direkt anlegen:
+                  </span>
+                </div>
+
+                <form onSubmit={handleQuickAddSubmit} className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={quickAddName}
+                    onChange={(e) => setQuickAddName(e.target.value)}
+                    placeholder="Vor- und Nachname (z. B. Mia Sommer)"
+                    className="flex-1 px-3.5 py-2.5 rounded-xl border text-xs font-medium shadow-2xs min-h-[44px]"
+                    style={{
+                      borderColor: 'var(--border-subtle)',
+                      color: 'var(--text-primary)',
+                      backgroundColor: 'var(--bg-surface)',
+                    }}
+                    autoFocus
+                  />
+
+                  {activeDataset.config.enable_student_levels && (
+                    <select
+                      value={quickAddLevel}
+                      onChange={(e) => setQuickAddLevel(e.target.value as 'G' | 'M' | 'E')}
+                      className="px-3 py-2.5 rounded-xl border text-xs font-bold shadow-2xs min-h-[44px]"
+                      style={{
+                        borderColor: 'var(--border-subtle)',
+                        color: 'var(--text-primary)',
+                        backgroundColor: 'var(--bg-surface)',
+                      }}
+                      title="Niveaustufe"
+                    >
+                      <option value="G">Niveau G</option>
+                      <option value="M">Niveau M</option>
+                      <option value="E">Niveau E</option>
+                    </select>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={!quickAddName.trim()}
+                    className="px-4 py-2.5 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2 transition active:scale-95 disabled:opacity-40 min-h-[44px] shadow-sm shrink-0"
+                    style={{ backgroundColor: 'var(--primary-500)' }}
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Hinzufügen</span>
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {/* Quick Actions Buttons */}
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+              {hasArchivedStudents && setShowArchivedInMatrix && (
+                <button
+                  type="button"
+                  onClick={() => setShowArchivedInMatrix(true)}
+                  className="px-4 py-2.5 rounded-xl border font-bold text-xs flex items-center gap-2 transition active:scale-95 touch-target shadow-xs"
+                  style={{
+                    backgroundColor: 'var(--bg-surface)',
+                    borderColor: 'var(--border-subtle)',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  <Eye className="w-4 h-4" />
+                  <span>Archivierte Schüler:innen einblenden</span>
+                </button>
+              )}
+
+              {onOpenClassManager && (
+                <button
+                  type="button"
+                  onClick={() => onOpenClassManager('students')}
+                  className="px-4 py-2.5 rounded-xl border font-bold text-xs flex items-center gap-2 transition active:scale-95 touch-target shadow-xs"
+                  style={{
+                    backgroundColor: 'var(--bg-surface)',
+                    borderColor: 'var(--border-subtle)',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  <span>Klassenverwaltung & Excel-Import</span>
+                </button>
+              )}
+
+              {onLoadDemoDataset && (
+                <button
+                  type="button"
+                  onClick={onLoadDemoDataset}
+                  className="px-4 py-2.5 rounded-xl border font-bold text-xs flex items-center gap-2 transition active:scale-95 touch-target shadow-xs"
+                  style={{
+                    backgroundColor: 'var(--bg-surface)',
+                    borderColor: 'var(--border-subtle)',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  <Sparkles className="w-4 h-4 text-amber-500" />
+                  <span>Beispielklasse laden</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setMode?.('matrix')}
+                className="px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition active:scale-95 touch-target shadow-xs"
+                style={{
+                  backgroundColor: 'var(--bg-subtle)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-subtle)',
+                }}
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Zurück zur Noten-Matrix</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Feature Preview Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div
+            className="rounded-2xl border p-4 shadow-xs space-y-1.5"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-subtle)',
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <span className="p-1.5 rounded-lg bg-teal-500/10 text-teal-600 dark:text-teal-400">
+                <Printer className="w-4 h-4" />
+              </span>
+              <h4 className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
+                Elterngesprächs-Bogen
+              </h4>
+            </div>
+            <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              Druckfertiger, datenschutzkonformer Einzelbogen mit Noten, Kompetenz-Übersicht und pädagogischen Bemerkungen.
+            </p>
+          </div>
+
+          <div
+            className="rounded-2xl border p-4 shadow-xs space-y-1.5"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-subtle)',
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <span className="p-1.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                <Sparkles className="w-4 h-4" />
+              </span>
+              <h4 className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
+                Zielnoten-Simulator
+              </h4>
+            </div>
+            <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              Berechnet per Rust-WASM in Echtzeit, welche Leistung in kommenden Prüfungen für die Wunsch-Zeugnisnote nötig ist.
+            </p>
+          </div>
+
+          <div
+            className="rounded-2xl border p-4 shadow-xs space-y-1.5"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-subtle)',
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <span className="p-1.5 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                <UserCheck className="w-4 h-4" />
+              </span>
+              <h4 className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
+                360°-Leistungsradar
+              </h4>
+            </div>
+            <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              Gegenüberstellung von schriftlichen, mündlichen und fachspezifischen Leistungen im direkten Vergleich.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div data-tour="student360-container" data-privacy-sensitive="true" className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6">

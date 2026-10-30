@@ -77,6 +77,29 @@ fn focus_main_window(app: tauri::AppHandle) {
     }
 }
 
+#[tauri::command]
+fn trigger_native_haptic(style: Option<String>) {
+    #[cfg(target_os = "ios")]
+    {
+        #[link(name = "AudioToolbox", kind = "framework")]
+        extern "C" {
+            fn AudioServicesPlaySystemSound(in_system_sound_id: u32);
+        }
+        let sound_id = match style.as_deref() {
+            Some("light") | Some("selection") => 1519, // Actuate `Peek` (light Taptic tap)
+            Some("boundary") | Some("error") => 1521,  // Actuate `Nope` (triple micro-pulse)
+            _ => 1520,                                 // Actuate `Pop` (crisp card snap)
+        };
+        unsafe {
+            AudioServicesPlaySystemSound(sound_id);
+        }
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = style;
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[allow(unused_mut)]
@@ -97,7 +120,8 @@ pub fn run() {
             keyring_get_secret,
             keyring_delete_secret,
             start_desktop_browser_auth,
-            focus_main_window
+            focus_main_window,
+            trigger_native_haptic
         ])
         .run(tauri::generate_context!())
         .expect("error while running Gradus21 application");

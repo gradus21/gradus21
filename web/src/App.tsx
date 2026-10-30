@@ -20,6 +20,7 @@ import { CellDisplayFormat, TermFilterId, INITIAL_CLASS_DATASETS } from './data/
 import { useVaultWorkspaceSync } from './hooks/useVaultWorkspaceSync';
 import { useClassroomCalculations } from './hooks/useClassroomCalculations';
 import { WorkspaceMode } from './types/workspace';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { ClassMatrixView } from './views/ClassMatrixView';
 import { SpeedGradingView } from './views/SpeedGradingView';
 import { Student360View } from './views/Student360View';
@@ -238,7 +239,7 @@ export const App: React.FC = () => {
     setShowClassWizard: (open) => setActiveModal(open ? { type: 'classWizard' } : null),
     setPrivacyBlur,
     setShowSettingsModal: (open) => setActiveModal(open ? { type: 'settings' } : null),
-    setShowVaultInspector: (open) => setActiveModal(open ? { type: 'vaultInspector' } : null),
+    setShowVaultInspector: (open) => setActiveModal(open ? { type: 'settings', section: 'account_security' } : null),
     setShowOnDemandSimulator,
     setShowOnDemandCurveEditor,
     onLoadDemoDataset: handleLoadDemoDataset,
@@ -360,7 +361,7 @@ export const App: React.FC = () => {
         onOpenClassWizard={() => setActiveModal({ type: 'classWizard' })}
         onOpenClassManager={() => setActiveModal({ type: 'classManager' })}
         onOpenSettings={handleOpenSettings}
-        onOpenVaultInspector={() => setActiveModal({ type: 'vaultInspector' })}
+        onOpenVaultInspector={() => handleOpenSettings('account_security')}
         onOpenAdmin={() => setActiveModal({ type: 'admin' })}
         onOpenInteractiveGuide={() => setIsChapterSelectOpen(true)}
         showGuideButtonInHeader={Boolean(userSettings.showGuideButtonInHeader)}
@@ -443,121 +444,136 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {mode === 'matrix' && (
-          <ClassMatrixView
-            activeDataset={activeDataset}
-            activeTerm={activeTerm}
-            calculationReport={calculationReport}
-            summaryByStudentId={summaryByStudentId}
-            userSettings={userSettings}
-            cellFormat={cellFormat}
-            setCellFormat={setCellFormat}
-            showArchivedInMatrix={showArchivedInMatrix}
-            setShowArchivedInMatrix={setShowArchivedInMatrix}
-            showOnDemandReportCardCol={showOnDemandReportCardCol}
-            setShowOnDemandReportCardCol={setShowOnDemandReportCardCol}
-            onOpenClassManager={(initialTab, highlightAssessmentId) =>
-              setActiveModal({ type: 'classManager', initialTab, highlightAssessmentId })
-            }
-            onOpenClassWizard={() => setActiveModal({ type: 'classWizard' })}
-            onSelectStudent={(studentId) => {
-              setSelectedStudentId(studentId);
-              setMode('student_360');
-            }}
-            onSelectAssessment={(assessmentId) => {
-              setSelectedAssessmentId(assessmentId);
-              const assess = activeDataset.assessments.find((a) => a.id === assessmentId);
-              if (assess?.input_mode) {
-                setSpeedInputMode(assess.input_mode);
+        <ErrorBoundary onReset={() => setMode('matrix')}>
+          {mode === 'matrix' && (
+            <ClassMatrixView
+              activeDataset={activeDataset}
+              activeTerm={activeTerm}
+              calculationReport={calculationReport}
+              summaryByStudentId={summaryByStudentId}
+              userSettings={userSettings}
+              cellFormat={cellFormat}
+              setCellFormat={setCellFormat}
+              showArchivedInMatrix={showArchivedInMatrix}
+              setShowArchivedInMatrix={setShowArchivedInMatrix}
+              showOnDemandReportCardCol={showOnDemandReportCardCol}
+              setShowOnDemandReportCardCol={setShowOnDemandReportCardCol}
+              onOpenClassManager={(initialTab, highlightAssessmentId) =>
+                setActiveModal({ type: 'classManager', initialTab, highlightAssessmentId })
               }
-              setMode('speed_grading');
-            }}
-            setMode={setMode}
-            updateGradeEntry={updateGradeEntry}
-            updateReportCardOverride={updateReportCardOverride}
-            cycleStudentLevel={cycleStudentLevel}
-            toggleStudentNotGraded={toggleStudentNotGraded}
-            toggleStudentArchived={toggleStudentArchived}
-            onAddStudent={handleAddStudent}
-            onAddAssessment={handleAddAssessment}
-            onUpdateDatasetMeta={handleUpdateDatasetMeta}
-          />
-        )}
+              onOpenClassWizard={() => setActiveModal({ type: 'classWizard' })}
+              onSelectStudent={(studentId) => {
+                setSelectedStudentId(studentId);
+                setMode('student_360');
+              }}
+              onSelectAssessment={(assessmentId) => {
+                setSelectedAssessmentId(assessmentId);
+                const assess = activeDataset.assessments.find((a) => a.id === assessmentId);
+                if (assess?.input_mode) {
+                  setSpeedInputMode(assess.input_mode);
+                }
+                setMode('speed_grading');
+              }}
+              setMode={setMode}
+              updateGradeEntry={updateGradeEntry}
+              updateReportCardOverride={updateReportCardOverride}
+              cycleStudentLevel={cycleStudentLevel}
+              toggleStudentNotGraded={toggleStudentNotGraded}
+              toggleStudentArchived={toggleStudentArchived}
+              onAddStudent={handleAddStudent}
+              onAddAssessment={handleAddAssessment}
+              onUpdateDatasetMeta={handleUpdateDatasetMeta}
+            />
+          )}
 
-        {mode === 'speed_grading' && (
-          <SpeedGradingView
-            activeDataset={activeDataset}
-            activeTerm={activeTerm}
-            termAssessments={termAssessments}
-            activeAssessment={activeAssessment}
-            setSelectedAssessmentId={setSelectedAssessmentId}
-            speedInputMode={speedInputMode}
-            setSpeedInputMode={setSpeedInputMode}
-            visibleStudents={visibleStudents}
-            summaryByStudentId={summaryByStudentId}
-            calculationReport={calculationReport}
-            updateGradeEntry={updateGradeEntry}
-            isCurveEditorVisible={isCurveEditorVisible}
-            userSettings={userSettings}
-            setShowOnDemandCurveEditor={setShowOnDemandCurveEditor}
-            globalTemplates={globalTemplates}
-            curvePresetKey={curvePresetKey}
-            curveCutoffs={curveCutoffs}
-            applyCurveCutoffs={applyCurveCutoffs}
-            applyGlobalCurveTemplate={applyGlobalCurveTemplate}
-            isDifferentiationEnabled={isDifferentiationEnabled}
-            toggleStudentLevelsEnabled={toggleStudentLevelsEnabled}
-            currentLevelOffsets={currentLevelOffsets}
-            setMode={setMode}
-          />
-        )}
+          {mode === 'speed_grading' && (
+            <SpeedGradingView
+              activeDataset={activeDataset}
+              activeTerm={activeTerm}
+              termAssessments={termAssessments}
+              activeAssessment={activeAssessment}
+              setSelectedAssessmentId={setSelectedAssessmentId}
+              speedInputMode={speedInputMode}
+              setSpeedInputMode={setSpeedInputMode}
+              visibleStudents={visibleStudents}
+              summaryByStudentId={summaryByStudentId}
+              calculationReport={calculationReport}
+              updateGradeEntry={updateGradeEntry}
+              isCurveEditorVisible={isCurveEditorVisible}
+              userSettings={userSettings}
+              setShowOnDemandCurveEditor={setShowOnDemandCurveEditor}
+              globalTemplates={globalTemplates}
+              curvePresetKey={curvePresetKey}
+              curveCutoffs={curveCutoffs}
+              applyCurveCutoffs={applyCurveCutoffs}
+              applyGlobalCurveTemplate={applyGlobalCurveTemplate}
+              isDifferentiationEnabled={isDifferentiationEnabled}
+              toggleStudentLevelsEnabled={toggleStudentLevelsEnabled}
+              currentLevelOffsets={currentLevelOffsets}
+              setMode={setMode}
+              onOpenClassManager={(initialTab, highlightAssessmentId) =>
+                setActiveModal({ type: 'classManager', initialTab, highlightAssessmentId })
+              }
+              onAddAssessment={handleAddAssessment}
+              onAddStudent={handleAddStudent}
+            />
+          )}
 
-        {mode === 'student_360' && (
-          <Student360View
-            activeDataset={activeDataset}
-            allDatasets={datasets}
-            activeTerm={activeTerm}
-            visibleStudents={visibleStudents}
-            activeStudent={activeStudent}
-            selectedStudentId={selectedStudentId}
-            setSelectedStudentId={setSelectedStudentId}
-            summaryByStudentId={summaryByStudentId}
-            activeStudentSummary={activeStudentSummary}
-            userSettings={userSettings}
-            showOnDemandSimulator={showOnDemandSimulator}
-            setShowOnDemandSimulator={setShowOnDemandSimulator}
-            updateReportCardOverride={updateReportCardOverride}
-            onUpdateStudentProfile={handleUpdateStudentProfile}
-            wasmReady={wasmReady}
-          />
-        )}
+          {mode === 'student_360' && (
+            <Student360View
+              activeDataset={activeDataset}
+              allDatasets={datasets}
+              activeTerm={activeTerm}
+              visibleStudents={visibleStudents}
+              activeStudent={activeStudent}
+              selectedStudentId={selectedStudentId}
+              setSelectedStudentId={setSelectedStudentId}
+              summaryByStudentId={summaryByStudentId}
+              activeStudentSummary={activeStudentSummary}
+              userSettings={userSettings}
+              showOnDemandSimulator={showOnDemandSimulator}
+              setShowOnDemandSimulator={setShowOnDemandSimulator}
+              updateReportCardOverride={updateReportCardOverride}
+              onUpdateStudentProfile={handleUpdateStudentProfile}
+              wasmReady={wasmReady}
+              setMode={setMode}
+              onOpenClassManager={(initialTab) =>
+                setActiveModal({ type: 'classManager', initialTab })
+              }
+              onAddStudent={handleAddStudent}
+              onLoadDemoDataset={handleLoadDemoDataset}
+              showArchivedInMatrix={showArchivedInMatrix}
+              setShowArchivedInMatrix={setShowArchivedInMatrix}
+            />
+          )}
 
-        {mode === 'configurator' && (
-          <GradingConfiguratorView
-            activeDataset={activeDataset}
-            updateSubjectConfig={updateSubjectConfig}
-            userSettings={userSettings}
-            setUserSettings={setUserSettings}
-            globalTemplates={globalTemplates}
-            curvePresetKey={curvePresetKey}
-            curveCutoffs={curveCutoffs}
-            applyCurveCutoffs={applyCurveCutoffs}
-            applyGlobalCurveTemplate={applyGlobalCurveTemplate}
-            applyGlobalWeightingTemplate={applyGlobalWeightingTemplate}
-            applyDifferentiationPreset={applyDifferentiationPreset}
-            currentLevelOffsets={currentLevelOffsets}
-            isDifferentiationEnabled={isDifferentiationEnabled}
-            toggleStudentLevelsEnabled={toggleStudentLevelsEnabled}
-            updateLevelOffset={updateLevelOffset}
-            activeFineThresholds={activeFineThresholds}
-            visibleStudents={visibleStudents}
-            activeStudent={activeStudent}
-            selectedStudentId={selectedStudentId}
-            setSelectedStudentId={setSelectedStudentId}
-            cycleStudentLevel={cycleStudentLevel}
-            summaryByStudentId={summaryByStudentId}
-          />
-        )}
+          {mode === 'configurator' && (
+            <GradingConfiguratorView
+              activeDataset={activeDataset}
+              updateSubjectConfig={updateSubjectConfig}
+              userSettings={userSettings}
+              setUserSettings={setUserSettings}
+              globalTemplates={globalTemplates}
+              curvePresetKey={curvePresetKey}
+              curveCutoffs={curveCutoffs}
+              applyCurveCutoffs={applyCurveCutoffs}
+              applyGlobalCurveTemplate={applyGlobalCurveTemplate}
+              applyGlobalWeightingTemplate={applyGlobalWeightingTemplate}
+              applyDifferentiationPreset={applyDifferentiationPreset}
+              currentLevelOffsets={currentLevelOffsets}
+              isDifferentiationEnabled={isDifferentiationEnabled}
+              toggleStudentLevelsEnabled={toggleStudentLevelsEnabled}
+              updateLevelOffset={updateLevelOffset}
+              activeFineThresholds={activeFineThresholds}
+              visibleStudents={visibleStudents}
+              activeStudent={activeStudent}
+              selectedStudentId={selectedStudentId}
+              setSelectedStudentId={setSelectedStudentId}
+              cycleStudentLevel={cycleStudentLevel}
+              summaryByStudentId={summaryByStudentId}
+            />
+          )}
+        </ErrorBoundary>
       </main>
 
       {/* APP FOOTER / LEGAL COMPLIANCE LINKS (Visible on Desktop & Tablets; on Mobile phones, cleanly accessed via Settings & Protection) */}
@@ -678,20 +694,38 @@ export const App: React.FC = () => {
           onDisconnectBackupDirectory={handleDisconnectBackupDirectory}
           isPersistentStorage={isPersistentStorage}
           session={vaultSession}
+          sampleEnvelope={sampleEnvelope}
+          onUnlockSuccess={(updatedSession) => setVaultSession(updatedSession)}
+          onLockVault={handleLockVault}
         />
       )}
 
       {activeModal?.type === 'vaultInspector' && (
-        <VaultLockAndAuthModal
-          isLockedScreen={false}
+        <SettingsModal
+          initialSection="account_security"
+          settings={userSettings}
+          onUpdateSettings={setUserSettings}
+          onClose={handleCloseModal}
+          onOpenInteractiveGuide={() => {
+            handleCloseModal();
+            setIsChapterSelectOpen(true);
+          }}
+          onOpenSchoolGuide={() => {
+            handleOpenLegal('school_guide');
+          }}
+          onToggleCloudSync={handleToggleCloudSync}
+          onPurgeCloudData={handlePurgeCloudData}
+          onExportEncryptedBackup={handleExportEncryptedBackup}
+          onImportEncryptedBackup={handleImportEncryptedBackup}
+          connectedBackupDirName={connectedBackupDirName}
+          lastLocalBackupTime={lastLocalBackupTime}
+          onConnectBackupDirectory={handleConnectBackupDirectory}
+          onDisconnectBackupDirectory={handleDisconnectBackupDirectory}
+          isPersistentStorage={isPersistentStorage}
           session={vaultSession}
           sampleEnvelope={sampleEnvelope}
           onUnlockSuccess={(updatedSession) => setVaultSession(updatedSession)}
           onLockVault={handleLockVault}
-          onCloseInspector={handleCloseModal}
-          cloudSyncEnabled={userSettings.cloudSyncEnabled ?? false}
-          onToggleCloudSync={handleToggleCloudSync}
-          onPurgeCloudData={handlePurgeCloudData}
         />
       )}
 

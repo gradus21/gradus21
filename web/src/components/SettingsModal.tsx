@@ -26,6 +26,7 @@ import {
   GraduationCap,
   HardDrive,
   HelpCircle,
+  KeyRound,
   Monitor,
   Moon,
   Palette,
@@ -48,6 +49,7 @@ import { checkForAppUpdate, installAppUpdate, UpdateInfo } from '../utils/update
 import { APP_VERSION } from '../version';
 import { isTauri, isDesktopTauri, isAppleTouchDevice, isLinux, getStorageLocationInfo } from '../utils/platform';
 import { ActiveVaultSession } from './vault/vaultTypes';
+import { VaultLockAndAuthModal } from './VaultLockAndAuthModal';
 import {
   checkNativeBiometricAvailability,
   hasNativeBiometricEnrollment,
@@ -69,6 +71,7 @@ export type SettingsSection =
   | 'favorites'
   | 'visibility'
   | 'appearance'
+  | 'account_security'
   | 'storage'
   | 'help';
 
@@ -89,6 +92,14 @@ interface SettingsModalProps {
   onDisconnectBackupDirectory?: () => void;
   isPersistentStorage?: boolean;
   session?: ActiveVaultSession | null;
+  sampleEnvelope?: {
+    entityId: string;
+    plaintext: string;
+    ciphertext: string;
+    decryptedVerify: string;
+  } | null;
+  onUnlockSuccess?: (newSession: ActiveVaultSession) => void;
+  onLockVault?: () => void;
 }
 
 export const WEIGHTING_PRESET_CATALOG: Array<{
@@ -123,6 +134,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onDisconnectBackupDirectory,
   isPersistentStorage,
   session,
+  sampleEnvelope,
+  onUnlockSuccess,
+  onLockVault,
 }) => {
   const legalConfig = useLegalConfig();
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection);
@@ -412,6 +426,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <span className="truncate">Farbwelt</span>
           </button>
           <button
+            onClick={() => setActiveSection('account_security')}
+            className={`flex-1 py-1.5 sm:py-2 px-2 sm:px-2.5 rounded-xl flex items-center justify-center gap-1 sm:gap-1.5 transition text-center min-h-[36px] shrink-0 sm:shrink ${
+              activeSection === 'account_security' ? 'text-white shadow-sm font-bold' : 'hover:opacity-85'
+            }`}
+            style={{
+              backgroundColor:
+                activeSection === 'account_security' ? 'var(--primary-500)' : 'transparent',
+              color: activeSection === 'account_security' ? '#fff' : 'var(--text-primary)',
+            }}
+          >
+            <KeyRound className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate hidden sm:inline">Konto &amp; Schutz</span>
+            <span className="sm:hidden">Konto</span>
+          </button>
+          <button
             onClick={() => setActiveSection('storage')}
             className={`flex-1 py-1.5 sm:py-2 px-2 sm:px-2.5 rounded-xl flex items-center justify-center gap-1 sm:gap-1.5 transition text-center min-h-[36px] shrink-0 sm:shrink ${
               activeSection === 'storage' ? 'text-white shadow-sm font-bold' : 'hover:opacity-85'
@@ -422,8 +451,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               color: activeSection === 'storage' ? '#fff' : 'var(--text-primary)',
             }}
           >
-            <Shield className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate hidden sm:inline">Datenschutz &amp; Speicher</span>
+            <HardDrive className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate hidden sm:inline">Speicher &amp; Backups</span>
             <span className="sm:hidden">Speicher</span>
           </button>
           <button
@@ -524,7 +553,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {WEIGHTING_PRESET_CATALOG.map((preset) => {
-                    const isFav = settings.favoriteWeightingPresets.includes(preset.id);
+                    const isFav = settings.favoriteWeightingPresets?.includes(preset.id) ?? false;
                     return (
                       <button
                         key={preset.id}
@@ -568,14 +597,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               >
                 <div>
                   <div className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
-                    Deine eigenen gespeicherten Fach-Vorlagen ({settings.customWeightingTemplates.length})
+                    Deine eigenen gespeicherten Fach-Vorlagen ({settings.customWeightingTemplates?.length ?? 0})
                   </div>
                   <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
                     Du kannst im Gewichtungs-Baukasten jede beliebige Kategorien-Struktur als eigene Vorlage speichern (z. B. für Sport, Kunst oder Oberstufe).
                   </p>
                 </div>
 
-                {settings.customWeightingTemplates.length === 0 ? (
+                {(settings.customWeightingTemplates?.length ?? 0) === 0 ? (
                   <div className="text-xs italic opacity-70">
                     Noch keine eigenen Vorlagen gespeichert.
                   </div>
@@ -926,258 +955,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           )}
 
           {/* =================================================================
-              SECTION 4: DATENSCHUTZ & SPEICHER (CLOUD-SYNC OPT-IN & BACKUPS)
+              SECTION 4: KONTO & SCHUTZ (IDENTITÄT, HARDWARE-ENTSICHERUNG & KEYS)
+             ================================================================= */}
+          {activeSection === 'account_security' && (
+            <div className="space-y-5">
+              {session ? (
+                <VaultLockAndAuthModal
+                  isLockedScreen={false}
+                  inlineContentOnly={true}
+                  session={session}
+                  sampleEnvelope={sampleEnvelope ?? null}
+                  onUnlockSuccess={onUnlockSuccess}
+                  onLockVault={onLockVault ?? onClose}
+                  cloudSyncEnabled={settings.cloudSyncEnabled ?? false}
+                  onToggleCloudSync={onToggleCloudSync}
+                  onPurgeCloudData={onPurgeCloudData}
+                  onImportEncryptedBackup={onImportEncryptedBackup}
+                />
+              ) : (
+                <div
+                  className="p-6 rounded-2xl border text-center space-y-3"
+                  style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+                >
+                  <KeyRound className="w-8 h-8 mx-auto text-amber-500" />
+                  <h4 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
+                    Kein aktiver Tresor geöffnet
+                  </h4>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    Bitte entsperre oder registriere einen Noten-Tresor, um Passkeys, Notfallblätter und 2FA zu verwalten.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* =================================================================
+              SECTION 5: SPEICHER & BACKUPS (CLOUD-SYNC OPT-IN, DATEI-BACKUPS & LOKALER PFAD)
              ================================================================= */}
           {activeSection === 'storage' && (
             <div className="space-y-5">
-              {/* Card 0-Android/Apple: Biometrische Entsperrung (Android Keystore / Apple Secure Enclave) */}
-              {isTauri() && !isLinux() && (
-                <div
-                  className="p-5 rounded-2xl border space-y-4"
-                  style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <Fingerprint className="w-4 h-4" style={{ color: 'var(--primary-500)' }} />
-                        <h4 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
-                          Biometrische Entsperrung (Fingerabdruck / Face ID)
-                        </h4>
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            hasNativeBio
-                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                              : 'bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
-                          }`}
-                        >
-                          {hasNativeBio ? 'Aktiviert (Hardware-Schutz)' : 'Deaktiviert'}
-                        </span>
-                      </div>
-                      <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                        Entsperre deinen verschlüsselten Noten-Tresor in der App direkt per{' '}
-                        <strong>
-                          {nativeBioStatus.biometryType === 'face' ? 'Face ID' : 'Fingerabdruck'}
-                        </strong>
-                        , ohne jedes Mal das Master-Passwort einzugeben oder den Browser zu öffnen.
-                        Dein Tresorschlüssel wird sicher im Hardware-Sicherheitschip deines Geräts (Android Keystore / StrongBox) mit AES-256-GCM verschlüsselt.
-                      </p>
-                    </div>
-
-                    <div className="shrink-0 mt-1">
-                      {hasNativeBio ? (
-                        <button
-                          type="button"
-                          onClick={handleDisableBiometric}
-                          className="px-3.5 py-1.5 rounded-xl border border-rose-500/30 text-rose-600 text-xs font-semibold hover:bg-rose-500/10 transition"
-                        >
-                          Deaktivieren
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={handleEnableBiometric}
-                          disabled={isEnrollingBio || !nativeBioStatus.available}
-                          className="px-4 py-2 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 shadow-sm transition hover:opacity-95 disabled:opacity-50"
-                          style={{ backgroundColor: 'var(--primary-500)' }}
-                        >
-                          <Fingerprint className="w-3.5 h-3.5" />
-                          <span>{isEnrollingBio ? 'Wird eingerichtet...' : 'Jetzt aktivieren'}</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  {!nativeBioStatus.available && !hasNativeBio && (
-                    <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-200 text-[11px]">
-                      Biometrische Hardware auf diesem Gerät derzeit nicht verfügbar oder in den Systemeinstellungen nicht eingerichtet.
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Card 0-Linux: Linux-Entsperrmethoden (Schlüsselbund, lokaler FIDO2, Passwort) */}
-              {isTauri() && isLinux() && (
-                <div
-                  className="p-5 rounded-2xl border space-y-4"
-                  style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <Fingerprint className="w-4 h-4" style={{ color: 'var(--primary-500)' }} />
-                        <h4 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
-                          Linux-Entsperrmethode wählen
-                        </h4>
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            hasLinuxKeyring
-                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                              : 'bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
-                          }`}
-                        >
-                          {hasLinuxKeyring ? 'Keyring verknüpft' : 'Standard'}
-                        </span>
-                      </div>
-                      <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                        Wähle, wie dein Noten-Tresor auf diesem Linux-Rechner entsperrt werden soll. Alle Methoden arbeiten nach Zero-Knowledge-Grundsätzen.
-                      </p>
-                    </div>
-
-                    <div className="shrink-0 mt-1">
-                      {hasLinuxKeyring ? (
-                        <button
-                          type="button"
-                          onClick={handleDisableLinuxKeyring}
-                          className="px-3.5 py-1.5 rounded-xl border border-rose-500/30 text-rose-600 text-xs font-semibold hover:bg-rose-500/10 transition"
-                        >
-                          Keyring trennen
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={handleEnableLinuxKeyring}
-                          disabled={isEnrollingLinuxKeyring}
-                          className="px-4 py-2 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 shadow-sm transition hover:opacity-95 disabled:opacity-50"
-                          style={{ backgroundColor: 'var(--primary-500)' }}
-                        >
-                          <Fingerprint className="w-3.5 h-3.5" />
-                          <span>{isEnrollingLinuxKeyring ? 'Wird verknüpft...' : 'Mit Keyring verknüpfen'}</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Methoden-Auswahl */}
-                  <div className="space-y-2 pt-1">
-                    <label
-                      className="flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition hover:bg-black/5 dark:hover:bg-white/5"
-                      style={{
-                        borderColor: linuxMethod === 'keyring' ? 'var(--primary-500)' : 'var(--border-subtle)',
-                        backgroundColor: linuxMethod === 'keyring' ? 'var(--primary-soft)' : 'transparent',
-                      }}
-                    >
-                      <input
-                        type="radio"
-                        name="linuxAuthMethod"
-                        value="keyring"
-                        checked={linuxMethod === 'keyring'}
-                        onChange={() => handleSelectLinuxMethod('keyring')}
-                        className="mt-0.5 text-teal-600 focus:ring-teal-500"
-                      />
-                      <div className="space-y-0.5">
-                        <div className="font-bold text-xs flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-                          <span>Nativer Linux-Schlüsselbund &amp; Fingerabdruck (Empfohlen)</span>
-                          <span className="text-[10px] px-1.5 py-0.2 bg-teal-500/20 text-teal-700 dark:text-teal-300 rounded font-bold">100% lokal</span>
-                        </div>
-                        <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-                          Nutzt den FreeDesktop Secret Service (GNOME Keyring / KWallet). Entsperrung via Laptop-Fingerabdruck (fprintd) oder System-PIN. Kein offener Netzwerkport.
-                        </p>
-                      </div>
-                    </label>
-
-                    <label
-                      className="flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition hover:bg-black/5 dark:hover:bg-white/5"
-                      style={{
-                        borderColor: linuxMethod === 'local_passkey' ? 'var(--primary-500)' : 'var(--border-subtle)',
-                        backgroundColor: linuxMethod === 'local_passkey' ? 'var(--primary-soft)' : 'transparent',
-                      }}
-                    >
-                      <input
-                        type="radio"
-                        name="linuxAuthMethod"
-                        value="local_passkey"
-                        checked={linuxMethod === 'local_passkey'}
-                        onChange={() => handleSelectLinuxMethod('local_passkey')}
-                        className="mt-0.5 text-teal-600 focus:ring-teal-500"
-                      />
-                      <div className="space-y-0.5">
-                        <div className="font-bold text-xs flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-                          <span>Lokaler FIDO2 / Passkey-Dienst (127.0.0.1 Loopback)</span>
-                          <span className="text-[10px] px-1.5 py-0.2 bg-teal-500/20 text-teal-700 dark:text-teal-300 rounded font-bold">YubiKey offline</span>
-                        </div>
-                        <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-                          Eingebetteter WebAuthn-Dienst auf 127.0.0.1 mit Einmal-Transit-Token. Ermöglicht Hardware-Tokens (YubiKey, Nitrokey) ohne externen Cloud-Server.
-                        </p>
-                      </div>
-                    </label>
-
-                    <label
-                      className="flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition hover:bg-black/5 dark:hover:bg-white/5"
-                      style={{
-                        borderColor: linuxMethod === 'password' ? 'var(--primary-500)' : 'var(--border-subtle)',
-                        backgroundColor: linuxMethod === 'password' ? 'var(--primary-soft)' : 'transparent',
-                      }}
-                    >
-                      <input
-                        type="radio"
-                        name="linuxAuthMethod"
-                        value="password"
-                        checked={linuxMethod === 'password'}
-                        onChange={() => handleSelectLinuxMethod('password')}
-                        className="mt-0.5 text-teal-600 focus:ring-teal-500"
-                      />
-                      <div className="space-y-0.5">
-                        <div className="font-bold text-xs flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-                          <span>Nur Master-Passwort</span>
-                        </div>
-                        <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-                          Rein kryptografische Entsperrung via Argon2id im RAM. Keine Schlüsselablage im System-Keyring, keine Hintergrunddienste.
-                        </p>
-                      </div>
-                    </label>
-
-                    {settings.cloudSyncEnabled && (
-                      <label
-                        className="flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition hover:bg-black/5 dark:hover:bg-white/5"
-                        style={{
-                          borderColor: linuxMethod === 'cloud_passkey' ? 'var(--primary-500)' : 'var(--border-subtle)',
-                          backgroundColor: linuxMethod === 'cloud_passkey' ? 'var(--primary-soft)' : 'transparent',
-                        }}
-                      >
-                        <input
-                          type="radio"
-                          name="linuxAuthMethod"
-                          value="cloud_passkey"
-                          checked={linuxMethod === 'cloud_passkey'}
-                          onChange={() => handleSelectLinuxMethod('cloud_passkey')}
-                          className="mt-0.5 text-teal-600 focus:ring-teal-500"
-                        />
-                        <div className="space-y-0.5">
-                          <div className="font-bold text-xs flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-                            <span>Cloud-Passkey ({(() => { try { return new URL(serverUrl).host; } catch { return 'gradus21.app'; } })()})</span>
-                            <span className="text-[10px] px-1.5 py-0.2 bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 rounded font-bold">Geräteübergreifend</span>
-                          </div>
-                          <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-                            Öffnet den Standard-Browser zur Anmeldung mit synchronisierten Passkeys (Google, Apple iCloud, 1Password).
-                          </p>
-                        </div>
-                      </label>
-                    )}
-                  </div>
-
-                  {/* Security Officer Auflage & Empfehlung */}
-                  <div
-                    className="p-3.5 rounded-xl border space-y-1.5 text-[11px]"
-                    style={{
-                      backgroundColor: 'var(--bg-surface)',
-                      borderColor: 'var(--border-subtle)',
-                    }}
-                  >
-                    <div className="font-bold text-xs flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
-                      <Shield className="w-3.5 h-3.5 shrink-0" />
-                      <span>IT-Sicherheitsauflage &amp; Datenschutz-Hinweis (BSI IT-Grundschutz):</span>
-                    </div>
-                    <ul className="space-y-1 list-disc list-inside text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-                      <li>
-                        <strong>Festplattenverschlüsselung (LUKS):</strong> Um Notendaten bei Geräteverlust auch im ausgeschalteten Zustand vor physischer Extraktion zu schützen, sollte das Linux-System zwingend mit voller Festplattenverschlüsselung (LUKS / dm-crypt) betrieben werden.
-                      </li>
-                      <li>
-                        <strong>Zero-Telemetry:</strong> Im reinen Offline- und lokalen Modus werden keinerlei Telemetrie- oder Anmeldedaten an externe Server übermittelt.
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-              )}
-
               {/* Card 1: Cloud-Synchronisation (Opt-In) */}
               <div
                 className="p-5 rounded-2xl border space-y-4"

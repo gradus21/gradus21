@@ -51,6 +51,7 @@ export interface ActiveVaultSession {
 
 export interface VaultLockAndAuthModalProps {
   isLockedScreen: boolean;
+  inlineContentOnly?: boolean;
   session: ActiveVaultSession | null;
   sampleEnvelope: {
     entityId: string;
@@ -58,13 +59,13 @@ export interface VaultLockAndAuthModalProps {
     ciphertext: string;
     decryptedVerify: string;
   } | null;
-  onUnlockSuccess: (newSession: ActiveVaultSession, options?: { enableCloudSync?: boolean }) => void;
-  onLockVault: () => void;
+  onUnlockSuccess?: (newSession: ActiveVaultSession, options?: { enableCloudSync?: boolean }) => void;
+  onLockVault?: () => void;
   onCloseInspector?: () => void;
   cloudSyncEnabled?: boolean;
   onToggleCloudSync?: (enable: boolean) => void | Promise<void | boolean>;
   onPurgeCloudData?: () => void | Promise<void | boolean>;
-  onImportEncryptedBackup?: (file: File) => Promise<void>;
+  onImportEncryptedBackup?: (file: File) => void | Promise<void>;
 }
 
 export interface LocalPasskeyStoreEntry {

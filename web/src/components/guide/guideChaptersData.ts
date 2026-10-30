@@ -447,12 +447,12 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         title: 'Zero-Knowledge E2EE & Tresor 🔐',
         content:
           'Deine Daten gehören dir und deiner Schule. Alle Noten und Namen werden mit **Argon2id** und **AES-256-GCM** direkt im Browser verschlüsselt, bevor sie jemals synchronisiert werden. Kein Serverbetreiber kann Klartext-Namen einsehen.',
-        targetId: 'header-vault-btn',
+        targetId: 'header-settings-btn',
         placement: 'bottom',
         targetMode: 'matrix',
         badge: 'E2EE Envelope Encryption',
         action: {
-          label: 'Kryptografischen Tresor öffnen',
+          label: 'Konto & Schutz öffnen',
           actionType: 'open_vault_inspector',
         },
       },

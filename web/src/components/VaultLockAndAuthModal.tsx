@@ -104,10 +104,11 @@ import {
 
 export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   isLockedScreen,
+  inlineContentOnly = false,
   session,
   sampleEnvelope,
-  onUnlockSuccess: rawOnUnlockSuccess,
-  onLockVault,
+  onUnlockSuccess: rawOnUnlockSuccess = () => {},
+  onLockVault = () => {},
   onCloseInspector,
   cloudSyncEnabled = false,
   onToggleCloudSync,
@@ -3393,6 +3394,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
   return (
     <CryptoEnvelopeInspector
+      inline={inlineContentOnly}
       session={session}
       sampleEnvelope={sampleEnvelope}
       onLockVault={onLockVault}

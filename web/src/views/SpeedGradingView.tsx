@@ -17,14 +17,14 @@ import {
   WorkspaceMode,
 } from '../types/workspace';
 import type { GlobalTemplateRecord } from '../types/templates';
-import { Sliders } from 'lucide-react';
+import { Sliders, Zap, ArrowLeft, Plus, Users, FileSpreadsheet } from 'lucide-react';
 import { triggerHapticFeedback } from '../utils/haptics';
 
 export interface SpeedGradingViewProps {
   activeDataset: ClassroomSubjectDataset;
   activeTerm: TermFilterId;
   termAssessments: AssessmentConfig[];
-  activeAssessment: AssessmentConfig;
+  activeAssessment?: AssessmentConfig;
   setSelectedAssessmentId: (id: string) => void;
   speedInputMode: 'percent' | 'points' | 'grade_scale';
   setSpeedInputMode: (mode: 'percent' | 'points' | 'grade_scale') => void;
@@ -52,6 +52,12 @@ export interface SpeedGradingViewProps {
   toggleStudentLevelsEnabled: (enabled: boolean) => void;
   currentLevelOffsets: { G: number; M: number; E: number };
   setMode: (mode: WorkspaceMode) => void;
+  onOpenClassManager?: (
+    initialTab?: 'students' | 'assessments' | 'meta',
+    highlightAssessmentId?: string
+  ) => void;
+  onAddAssessment?: (title: string, categoryId: string, inputMode: any, maxPoints?: number) => void;
+  onAddStudent?: (name: string, level: 'G' | 'M' | 'E') => void;
 }
 
 export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
@@ -78,7 +84,121 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
   toggleStudentLevelsEnabled,
   currentLevelOffsets,
   setMode,
+  onOpenClassManager,
+  onAddAssessment,
+  onAddStudent,
 }) => {
+  if (!activeAssessment) {
+    return (
+      <div
+        data-tour="speed-grading-empty-container"
+        data-testid="speed-grading-empty-state"
+        className="max-w-4xl mx-auto py-6 sm:py-10 px-4 space-y-6"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => setMode('matrix')}
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold border transition active:scale-95 touch-target shadow-xs"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            <ArrowLeft className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <span>Zurück zur Klassen-Matrix</span>
+          </button>
+
+          <span
+            className="text-xs font-bold px-3 py-1 rounded-full border hidden sm:inline-block"
+            style={{
+              backgroundColor: 'var(--bg-subtle)',
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--text-secondary)',
+            }}
+          >
+            {activeDataset.className} · {activeTerm.toUpperCase()}
+          </span>
+        </div>
+
+        <div
+          className="rounded-3xl border p-6 sm:p-10 shadow-sm text-center relative overflow-hidden"
+          style={{
+            backgroundColor: 'var(--bg-surface)',
+            borderColor: 'var(--border-subtle)',
+          }}
+        >
+          <div className="relative z-10 max-w-xl mx-auto space-y-4">
+            <div
+              className="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center shadow-xs"
+              style={{
+                backgroundColor: 'var(--primary-soft)',
+                color: 'var(--primary-text)',
+              }}
+            >
+              <Zap className="w-8 h-8" />
+            </div>
+
+            <div className="space-y-2">
+              <span
+                className="text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full inline-block"
+                style={{
+                  backgroundColor: 'var(--primary-soft)',
+                  color: 'var(--primary-text)',
+                }}
+              >
+                Speed-Grading Modus
+              </span>
+
+              <h2
+                className="text-2xl sm:text-3xl font-extrabold tracking-tight"
+                style={{ color: 'var(--text-primary)' }}
+              >
+                Noch keine Prüfungen angelegt
+              </h2>
+
+              <p
+                className="text-xs sm:text-sm text-balance leading-relaxed"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                In „{activeDataset.className}“ wurden für das Halbjahr ({activeTerm.toUpperCase()}) noch keine Leistungsbewertungen erfasst. Lege deine erste Prüfung an, um mit der schnellen Notenerfassung zu starten.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-3">
+              {onOpenClassManager && (
+                <button
+                  type="button"
+                  onClick={() => onOpenClassManager('assessments')}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-white flex items-center gap-2 transition active:scale-95 touch-target shadow-sm"
+                  style={{ backgroundColor: 'var(--primary-500)' }}
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Neue Prüfung anlegen</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setMode('matrix')}
+                className="px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition active:scale-95 touch-target shadow-xs"
+                style={{
+                  backgroundColor: 'var(--bg-subtle)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-subtle)',
+                }}
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Zurück zur Noten-Matrix</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const gradedCount = visibleStudents.filter((stu) => {
     const entry = activeDataset.grades.find(
       (g) => g.student_id === stu.id && g.assessment_id === activeAssessment.id
@@ -202,7 +322,34 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
           className="divide-y max-h-[620px] overflow-y-auto pr-2"
           style={{ borderColor: 'var(--border-subtle)' }}
         >
-          {visibleStudents.map((stu, idx) => {
+          {visibleStudents.length === 0 ? (
+            <div
+              className="py-10 px-4 text-center rounded-xl border border-dashed my-2 space-y-3"
+              style={{
+                borderColor: 'var(--border-subtle)',
+                backgroundColor: 'var(--bg-subtle)',
+              }}
+            >
+              <p className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                Keine Schüler:innen in dieser Klasse vorhanden. Füge Schüler:innen hinzu, um Noten für „{activeAssessment.title}“ einzutragen.
+              </p>
+              {onOpenClassManager && (
+                <button
+                  type="button"
+                  onClick={() => onOpenClassManager('students')}
+                  className="px-3.5 py-1.5 rounded-xl border text-xs font-bold transition active:scale-95 shadow-xs"
+                  style={{
+                    backgroundColor: 'var(--bg-surface)',
+                    borderColor: 'var(--border-subtle)',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  Schüler:innen verwalten
+                </button>
+              )}
+            </div>
+          ) : (
+            visibleStudents.map((stu, idx) => {
             const entry = activeDataset.grades.find(
               (g) => g.student_id === stu.id && g.assessment_id === activeAssessment.id
             );
@@ -406,7 +553,8 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
                 </div>
               </div>
             );
-          })}
+          })
+        )}
         </div>
       </div>
 
