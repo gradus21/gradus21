@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getServerUrl, setServerUrl } from '../utils/apiConfig';
 import {
   CellDisplayFormat,
@@ -62,6 +62,7 @@ import {
   isMacOS,
   getStorageLocationInfo,
 } from '../utils/platform';
+import { triggerHapticFeedback } from '../utils/haptics';
 import { ActiveVaultSession } from './vault/vaultTypes';
 import { VaultLockAndAuthModal } from './VaultLockAndAuthModal';
 import {
@@ -160,6 +161,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const legalConfig = useLegalConfig();
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection);
+  const tabListRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const activeBtn = tabListRef.current?.querySelector<HTMLButtonElement>('[data-active="true"]');
+    if (activeBtn && typeof activeBtn.scrollIntoView === 'function') {
+      activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+  }, [activeSection]);
 
   const [nativeBioStatus, setNativeBioStatus] = useState<NativeBiometricStatus>({
     available: false,
@@ -477,12 +486,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Section Tabs */}
         <div
-          className="flex items-center gap-1 sm:gap-1.5 p-1 rounded-2xl border text-xs font-semibold shrink-0 max-w-full overflow-x-auto"
+          ref={tabListRef}
+          className="flex items-center gap-1 sm:gap-1.5 p-1 rounded-xl border text-xs font-semibold shrink-0 max-w-full overflow-x-auto"
           style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
         >
           <button
-            onClick={() => setActiveSection('favorites')}
-            className={`flex-1 py-1.5 sm:py-2 px-2 sm:px-2.5 rounded-xl flex items-center justify-center gap-1 sm:gap-1.5 transition text-center min-h-[36px] shrink-0 sm:shrink ${
+            data-active={activeSection === 'favorites'}
+            onClick={() => {
+              triggerHapticFeedback('selection');
+              setActiveSection('favorites');
+            }}
+            className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg flex items-center justify-center gap-1 sm:gap-1.5 transition text-center min-h-[36px] shrink-0 sm:flex-1 whitespace-nowrap ${
               activeSection === 'favorites' ? 'text-white shadow-sm font-bold' : 'hover:opacity-85'
             }`}
             style={{
@@ -491,11 +505,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }}
           >
             <Sparkles className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Vorschläge</span>
+            <span>Vorschläge</span>
           </button>
           <button
-            onClick={() => setActiveSection('visibility')}
-            className={`flex-1 py-1.5 sm:py-2 px-2 sm:px-2.5 rounded-xl flex items-center justify-center gap-1 sm:gap-1.5 transition text-center min-h-[36px] shrink-0 sm:shrink ${
+            data-active={activeSection === 'visibility'}
+            onClick={() => {
+              triggerHapticFeedback('selection');
+              setActiveSection('visibility');
+            }}
+            className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg flex items-center justify-center gap-1 sm:gap-1.5 transition text-center min-h-[36px] shrink-0 sm:flex-1 whitespace-nowrap ${
               activeSection === 'visibility' ? 'text-white shadow-sm font-bold' : 'hover:opacity-85'
             }`}
             style={{
@@ -505,11 +523,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }}
           >
             <Eye className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Ansicht</span>
+            <span>Ansicht</span>
           </button>
           <button
-            onClick={() => setActiveSection('appearance')}
-            className={`flex-1 py-1.5 sm:py-2 px-2 sm:px-2.5 rounded-xl flex items-center justify-center gap-1 sm:gap-1.5 transition text-center min-h-[36px] shrink-0 sm:shrink ${
+            data-active={activeSection === 'appearance'}
+            onClick={() => {
+              triggerHapticFeedback('selection');
+              setActiveSection('appearance');
+            }}
+            className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg flex items-center justify-center gap-1 sm:gap-1.5 transition text-center min-h-[36px] shrink-0 sm:flex-1 whitespace-nowrap ${
               activeSection === 'appearance' ? 'text-white shadow-sm font-bold' : 'hover:opacity-85'
             }`}
             style={{
@@ -519,11 +541,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }}
           >
             <Palette className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Farbwelt</span>
+            <span>Farbwelt</span>
           </button>
           <button
-            onClick={() => setActiveSection('account_security')}
-            className={`flex-1 py-1.5 sm:py-2 px-2 sm:px-2.5 rounded-xl flex items-center justify-center gap-1 sm:gap-1.5 transition text-center min-h-[36px] shrink-0 sm:shrink ${
+            data-active={activeSection === 'account_security'}
+            onClick={() => {
+              triggerHapticFeedback('selection');
+              setActiveSection('account_security');
+            }}
+            className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg flex items-center justify-center gap-1 sm:gap-1.5 transition text-center min-h-[36px] shrink-0 sm:flex-1 whitespace-nowrap ${
               activeSection === 'account_security' ? 'text-white shadow-sm font-bold' : 'hover:opacity-85'
             }`}
             style={{
@@ -533,12 +559,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }}
           >
             <KeyRound className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate hidden sm:inline">Konto &amp; Schutz</span>
+            <span className="hidden sm:inline">Konto &amp; Schutz</span>
             <span className="sm:hidden">Konto</span>
           </button>
           <button
-            onClick={() => setActiveSection('storage')}
-            className={`flex-1 py-1.5 sm:py-2 px-2 sm:px-2.5 rounded-xl flex items-center justify-center gap-1 sm:gap-1.5 transition text-center min-h-[36px] shrink-0 sm:shrink ${
+            data-active={activeSection === 'storage'}
+            onClick={() => {
+              triggerHapticFeedback('selection');
+              setActiveSection('storage');
+            }}
+            className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg flex items-center justify-center gap-1 sm:gap-1.5 transition text-center min-h-[36px] shrink-0 sm:flex-1 whitespace-nowrap ${
               activeSection === 'storage' ? 'text-white shadow-sm font-bold' : 'hover:opacity-85'
             }`}
             style={{
@@ -548,12 +578,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }}
           >
             <HardDrive className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate hidden sm:inline">Speicher &amp; Backups</span>
+            <span className="hidden sm:inline">Speicher &amp; Backups</span>
             <span className="sm:hidden">Speicher</span>
           </button>
           <button
-            onClick={() => setActiveSection('help')}
-            className={`flex-1 py-1.5 sm:py-2 px-2 sm:px-2.5 rounded-xl flex items-center justify-center gap-1 sm:gap-1.5 transition text-center min-h-[36px] shrink-0 sm:shrink ${
+            data-active={activeSection === 'help'}
+            onClick={() => {
+              triggerHapticFeedback('selection');
+              setActiveSection('help');
+            }}
+            className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg flex items-center justify-center gap-1 sm:gap-1.5 transition text-center min-h-[36px] shrink-0 sm:flex-1 whitespace-nowrap ${
               activeSection === 'help' ? 'text-white shadow-sm font-bold' : 'hover:opacity-85'
             }`}
             style={{
@@ -563,7 +597,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }}
           >
             <Compass className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate hidden sm:inline">Hilfe &amp; Guide</span>
+            <span className="hidden sm:inline">Hilfe &amp; Guide</span>
             <span className="sm:hidden">Hilfe</span>
           </button>
         </div>

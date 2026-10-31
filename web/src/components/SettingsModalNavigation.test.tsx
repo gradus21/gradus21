@@ -158,6 +158,32 @@ describe('SettingsModal Navigation & Account Security Architecture', () => {
       window.matchMedia = originalMatchMedia;
     }
   });
+
+  it('renders a mobile-friendly tab bar with horizontal scroll and consistent pill buttons', () => {
+    const { container } = render(
+      <SettingsModal
+        settings={dummySettings}
+        onUpdateSettings={vi.fn()}
+        onClose={vi.fn()}
+        session={dummySession}
+        initialSection="favorites"
+      />
+    );
+
+    const tabList = container.querySelector('.overflow-x-auto');
+    expect(tabList).not.toBeNull();
+    expect(tabList?.className).toContain('rounded-xl');
+    expect(tabList?.className).toContain('overflow-x-auto');
+
+    const buttons = tabList?.querySelectorAll('button');
+    expect(buttons?.length).toBe(6);
+
+    buttons?.forEach((btn) => {
+      expect(btn.className).toContain('shrink-0');
+      expect(btn.className).toContain('whitespace-nowrap');
+      expect(btn.className).toContain('rounded-lg');
+    });
+  });
 });
 
 describe('AppHeader Navigation Unification', () => {
