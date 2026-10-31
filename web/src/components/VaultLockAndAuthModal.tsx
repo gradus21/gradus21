@@ -3320,6 +3320,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           <EmailVerificationModal
             isOpen={showEmailVerificationModal}
             email={email.trim().toLowerCase()}
+            onUpdateEmail={(newEmail) => setEmail(newEmail)}
             onSuccess={async () => {
               setShowEmailVerificationModal(false);
               const trimmed = email.trim().toLowerCase();

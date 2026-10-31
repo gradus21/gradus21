@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, KeyRound, Mail, RefreshCw, ShieldCheck, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, KeyRound, Mail, Pencil, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { formatApiErrorMessage } from '../utils/legalConfig';
 import { apiUrl } from '../utils/apiConfig';
 
@@ -8,6 +8,7 @@ interface EmailVerificationModalProps {
   email: string;
   onSuccess: () => void;
   onCancel: () => void;
+  onUpdateEmail?: (newEmail: string) => Promise<boolean | void> | boolean | void;
 }
 
 export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
@@ -15,6 +16,7 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
   email,
   onSuccess,
   onCancel,
+  onUpdateEmail,
 }) => {
   const [codeDigits, setCodeDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
@@ -23,8 +25,15 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState<number>(0);
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
+  const [isEditingEmail, setIsEditingEmail] = useState(false);
+  const [editedEmail, setEditedEmail] = useState(email);
+  const [savingEmail, setSavingEmail] = useState(false);
 
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  useEffect(() => {
+    setEditedEmail(email);
+  }, [email]);
 
   // Timer for cooldown
   useEffect(() => {
@@ -35,8 +44,9 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
     return () => clearInterval(interval);
   }, [cooldown]);
 
-  const requestVerificationCode = async () => {
-    if (!email || !email.includes('@')) {
+  const requestVerificationCode = async (targetEmail?: string) => {
+    const activeEmail = (targetEmail || editedEmail || email || '').trim().toLowerCase();
+    if (!activeEmail || !activeEmail.includes('@') || activeEmail.length < 5) {
       setErrorMsg('Bitte gib eine gültige E-Mail-Adresse an.');
       return;
     }
@@ -46,7 +56,7 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
       const res = await fetch(apiUrl('/api/auth/verify-email/start'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: activeEmail }),
       });
       const rawText = await res.text();
       let data: any = {};
@@ -62,9 +72,15 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
         setCooldown(data.cooldown_seconds || 60);
         setRemainingAttempts(5);
         if (data.dev_code) {
-          setSuccessMsg(`Test-Modus: Dein Bestätigungscode lautet: ${data.dev_code}`);
+          if (data.mail_error) {
+            setErrorMsg(`Hinweis (${data.mail_error}): Dein Test-Code lautet: ${data.dev_code}`);
+          } else {
+            setSuccessMsg(`Test-Modus: Dein Bestätigungscode lautet: ${data.dev_code}`);
+          }
+        } else if (data.mail_error) {
+          setErrorMsg(data.mail_error);
         } else {
-          setSuccessMsg(`Ein 6-stelliger Bestätigungscode wurde an ${email} gesendet.`);
+          setSuccessMsg(`Ein 6-stelliger Bestätigungscode wurde an ${activeEmail} gesendet.`);
         }
         // Focus first input
         setTimeout(() => {
@@ -77,8 +93,19 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
       } else {
         setErrorMsg(isJson && data.error ? data.error : formatApiErrorMessage(rawText, res.status));
       }
-    } catch {
-      setErrorMsg('Der Server konnte nicht erreicht werden.');
+    } catch (err: any) {
+      const errMsg = err?.message || String(err || '');
+      if (
+        errMsg.includes('Failed to fetch') ||
+        errMsg.includes('NetworkError') ||
+        errMsg.includes('Load failed')
+      ) {
+        setErrorMsg(
+          'Verbindungsfehler: Der Server antwortet nicht oder die Anfrage wurde blockiert (z. B. durch RFC 1918 LAN-Sperre in iOS, CORS oder ungültiges SSL-Zertifikat).'
+        );
+      } else {
+        setErrorMsg(`Netzwerkfehler: ${errMsg || 'Der Server konnte nicht erreicht werden.'}`);
+      }
     } finally {
       setSendingCode(false);
     }
@@ -90,6 +117,7 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
       setCodeDigits(['', '', '', '', '', '']);
       setErrorMsg(null);
       setSuccessMsg(null);
+      setIsEditingEmail(false);
       requestVerificationCode();
     }
   }, [isOpen, email]);
@@ -145,11 +173,12 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
 
     setLoading(true);
     setErrorMsg(null);
+    const activeEmail = (editedEmail || email || '').trim().toLowerCase();
     try {
       const res = await fetch(apiUrl('/api/auth/verify-email/confirm'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, code: fullCode }),
+        body: JSON.stringify({ email: activeEmail, code: fullCode }),
       });
       const rawText = await res.text();
       let data: any = {};
@@ -180,8 +209,19 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
           setErrorMsg((isJson && data.error) || formatApiErrorMessage(rawText, res.status));
         }
       }
-    } catch {
-      setErrorMsg('Der Server konnte nicht erreicht werden.');
+    } catch (err: any) {
+      const errMsg = err?.message || String(err || '');
+      if (
+        errMsg.includes('Failed to fetch') ||
+        errMsg.includes('NetworkError') ||
+        errMsg.includes('Load failed')
+      ) {
+        setErrorMsg(
+          'Verbindungsfehler: Der Server antwortet nicht oder die Anfrage wurde blockiert (z. B. durch RFC 1918 LAN-Sperre in iOS, CORS oder ungültiges SSL-Zertifikat).'
+        );
+      } else {
+        setErrorMsg(`Netzwerkfehler: ${errMsg || 'Der Server konnte nicht erreicht werden.'}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -234,14 +274,125 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
           </div>
         </div>
 
-        <p className="text-sm mb-4 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-          Um sicherzustellen, dass nur du Zugriff auf deinen verschlüsselten Cloud-Speicher hast,
-          wurde ein 6-stelliger Einmalcode an{' '}
-          <span className="font-mono font-semibold" style={{ color: 'var(--primary-text)' }}>
-            {email}
-          </span>{' '}
-          gesendet.
-        </p>
+        {!isEditingEmail ? (
+          <div
+            className="mb-4 p-3 rounded-xl border flex flex-col gap-2"
+            style={{
+              backgroundColor: 'var(--bg-subtle)',
+              borderColor: 'var(--border-subtle)',
+            }}
+          >
+            <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              Um sicherzustellen, dass nur du Zugriff auf deinen verschlüsselten Cloud-Speicher hast,
+              wurde ein 6-stelliger Einmalcode gesendet an:
+            </p>
+            <div className="flex items-center justify-between gap-2">
+              <span
+                className="font-mono text-xs font-semibold truncate"
+                style={{ color: 'var(--primary-text)' }}
+              >
+                {editedEmail || email}
+              </span>
+              {onUpdateEmail && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditedEmail(editedEmail || email);
+                    setIsEditingEmail(true);
+                    setErrorMsg(null);
+                  }}
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400 hover:bg-teal-500/10 transition inline-flex items-center gap-1.5 shrink-0"
+                  title="E-Mail-Adresse korrigieren"
+                >
+                  <Pencil className="w-3 h-3" />
+                  <span>E-Mail ändern</span>
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div
+            className="mb-4 p-3.5 rounded-xl border space-y-2.5"
+            style={{
+              backgroundColor: 'var(--bg-subtle)',
+              borderColor: 'var(--border-subtle)',
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
+                E-Mail-Adresse korrigieren:
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditedEmail(email);
+                  setIsEditingEmail(false);
+                  setErrorMsg(null);
+                }}
+                className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+              >
+                Abbrechen
+              </button>
+            </div>
+            <div className="space-y-2">
+              <input
+                type="email"
+                autoFocus
+                value={editedEmail}
+                onChange={(e) => setEditedEmail(e.target.value)}
+                placeholder="name@schule.de"
+                className="w-full px-3 py-2 rounded-xl border text-xs font-mono bg-transparent focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                disabled={savingEmail}
+              />
+              <button
+                type="button"
+                disabled={
+                  savingEmail ||
+                  !editedEmail.trim().includes('@') ||
+                  editedEmail.trim().length < 5
+                }
+                onClick={async () => {
+                  const clean = editedEmail.trim().toLowerCase();
+                  if (!clean.includes('@') || clean.length < 5) {
+                    setErrorMsg('Bitte gib eine gültige E-Mail-Adresse an.');
+                    return;
+                  }
+                  setSavingEmail(true);
+                  setErrorMsg(null);
+                  try {
+                    if (onUpdateEmail) {
+                      await onUpdateEmail(clean);
+                    }
+                    setIsEditingEmail(false);
+                    setCodeDigits(['', '', '', '', '', '']);
+                    await requestVerificationCode(clean);
+                  } catch (err: any) {
+                    setErrorMsg(
+                      'Fehler beim Aktualisieren der E-Mail: ' +
+                        (err?.message || String(err))
+                    );
+                  } finally {
+                    setSavingEmail(false);
+                  }
+                }}
+                className="w-full py-2 px-3 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 transition flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50"
+              >
+                {savingEmail ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Wird gespeichert...</span>
+                  </>
+                ) : (
+                  <>
+                    <Mail className="w-3.5 h-3.5" />
+                    <span>Speichern & Code anfordern</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
 
         {errorMsg && (
           <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 dark:text-red-300 text-xs flex items-start gap-2.5">
@@ -315,7 +466,7 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
             <button
               type="button"
               disabled={cooldown > 0 || sendingCode}
-              onClick={requestVerificationCode}
+              onClick={() => requestVerificationCode()}
               className="w-full py-2 px-4 rounded-xl text-xs hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1.5"
               style={{ color: 'var(--text-secondary)' }}
             >

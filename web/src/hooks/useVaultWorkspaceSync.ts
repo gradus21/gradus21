@@ -2,9 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   wasm_decrypt_envelope,
   wasm_encrypt_envelope,
+  wasm_unlock_vault,
 } from '../wasm-pkg/gradus21_core';
 import { ensureWasmLoaded } from '../utils/wasmLoader';
-import { ActiveVaultSession, normalizeKdfParams } from '../components/vault/vaultTypes';
+import {
+  ActiveVaultSession,
+  findLocalCachedVault,
+  normalizeKdfParams,
+  saveLastLoginEmail,
+} from '../components/vault/vaultTypes';
 import type { GlobalTemplateRecord } from '../types/templates';
 import { SyncReconciliationStrategy } from '../components/SyncReconciliationModal';
 import { apiUrl } from '../utils/apiConfig';
@@ -525,6 +531,7 @@ export function useVaultWorkspaceSync() {
   const [isEmailVerificationOpen, setIsEmailVerificationOpen] = useState(false);
   const [emailForVerification, setEmailForVerification] = useState('');
   const [isEmailVerified, setIsEmailVerified] = useState(false);
+  const [isPasswordPromptOpen, setIsPasswordPromptOpen] = useState(false);
   const [isReconciliationOpen, setIsReconciliationOpen] = useState(false);
   const [reconciliationMeta, setReconciliationMeta] = useState<{
     localClassCount: number;
@@ -1964,6 +1971,52 @@ export function useVaultWorkspaceSync() {
 
     const canonicalUserId = ensureValidUuid(currentSession.userId);
 
+    // 1. Erst Login versuchen falls Konto bereits auf dem Server existiert
+    try {
+      let totpCode: string | undefined;
+      if (currentSession.totpSecretBase32) {
+        try {
+          totpCode = await generateTotpCode(currentSession.totpSecretBase32);
+        } catch {
+          // ignore
+        }
+      }
+
+      const logRes = await fetch(apiUrl('/api/auth/login'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: currentSession.email,
+          auth_key_b64: authKey,
+          ...(totpCode ? { totp_code: totpCode } : {}),
+        }),
+      });
+
+      if (logRes.ok) {
+        const logData = await logRes.json();
+        const serverUserId = logData.user_id || canonicalUserId;
+        const nextSession: ActiveVaultSession = {
+          ...currentSession,
+          userId: serverUserId,
+          token: logData.token,
+          authKeyB64: authKey,
+          isAdmin: logData.is_admin ?? currentSession.isAdmin,
+          totpEnabled: logData.totp_enabled ?? currentSession.totpEnabled,
+          totpSecretBase32: currentSession.totpSecretBase32 || logData.totp_secret_base32,
+          totpSetupUri: currentSession.totpSetupUri || logData.totp_setup_uri,
+        };
+        migrateLocalUserIdIfNeeded(currentSession.userId, serverUserId, nextSession);
+        setStoredToken(serverUserId, logData.token);
+        setStoredAuthKey(serverUserId, authKey);
+        setVaultSession(nextSession);
+        persistEncryptedSessionCredentialsToCache(nextSession);
+        return { token: logData.token, session: nextSession };
+      }
+    } catch (err) {
+      console.warn('Vorab-Login für Cloud-Verknüpfung fehlgeschlagen, versuche Registrierung:', err);
+    }
+
+    // 2. Falls noch nicht registriert, Registrierung durchführen
     try {
       const regRes = await fetch(apiUrl('/api/auth/register'), {
         method: 'POST',
@@ -2013,50 +2066,93 @@ export function useVaultWorkspaceSync() {
         persistEncryptedSessionCredentialsToCache(nextSession);
         return { token: regData.token, session: nextSession };
       }
-
-      // If already registered on server (e.g. 409 Conflict), attempt login
-      let totpCode: string | undefined;
-      if (currentSession.totpSecretBase32) {
-        try {
-          totpCode = await generateTotpCode(currentSession.totpSecretBase32);
-        } catch {
-          // ignore
-        }
-      }
-
-      const logRes = await fetch(apiUrl('/api/auth/login'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: currentSession.email,
-          auth_key_b64: authKey,
-          ...(totpCode ? { totp_code: totpCode } : {}),
-        }),
-      });
-
-      if (logRes.ok) {
-        const logData = await logRes.json();
-        const serverUserId = logData.user_id || canonicalUserId;
-        const nextSession: ActiveVaultSession = {
-          ...currentSession,
-          userId: serverUserId,
-          token: logData.token,
-          authKeyB64: authKey,
-          isAdmin: logData.is_admin ?? currentSession.isAdmin,
-          totpEnabled: logData.totp_enabled ?? currentSession.totpEnabled,
-        };
-        migrateLocalUserIdIfNeeded(currentSession.userId, serverUserId, nextSession);
-        setStoredToken(serverUserId, logData.token);
-        setStoredAuthKey(serverUserId, authKey);
-        setVaultSession(nextSession);
-        persistEncryptedSessionCredentialsToCache(nextSession);
-        return { token: logData.token, session: nextSession };
-      }
     } catch (err) {
       console.error('Konnte Sitzung nicht mit Server verknüpfen:', err);
     }
 
     return { token: '', session: currentSession };
+  };
+
+  const handleUpdateVaultEmail = async (newEmail: string): Promise<boolean> => {
+    const trimmed = (newEmail || '').trim().toLowerCase();
+    if (!trimmed || !trimmed.includes('@') || trimmed.length < 5) {
+      alert('Bitte gib eine gültige E-Mail-Adresse ein.');
+      return false;
+    }
+
+    if (!vaultSession) {
+      alert('Kein aktiver Tresor geöffnet.');
+      return false;
+    }
+
+    const oldEmail = vaultSession.email;
+    if (oldEmail === trimmed) {
+      return true;
+    }
+
+    // 1. If currently authenticated with server token, update server record
+    let newToken = vaultSession.token;
+    if (vaultSession.token) {
+      try {
+        const res = await fetch(apiUrl('/api/auth/email/update'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${vaultSession.token}`,
+          },
+          body: JSON.stringify({ new_email: trimmed }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.token) {
+            newToken = data.token;
+            setStoredToken(vaultSession.userId, data.token);
+          }
+        }
+      } catch (e) {
+        console.warn('Fehler beim Aktualisieren der E-Mail auf dem Server:', e);
+      }
+    }
+
+    // 2. Remove verification markers for old email
+    if (oldEmail) {
+      localStorage.removeItem(`gradus21_email_verified_${oldEmail}`);
+    }
+    localStorage.removeItem(`gradus21_email_verified_${trimmed}`);
+    setIsEmailVerified(false);
+
+    // 3. Update session state
+    const updatedSession: ActiveVaultSession = {
+      ...vaultSession,
+      email: trimmed,
+      token: newToken,
+    };
+    setVaultSession(updatedSession);
+    setEmailForVerification(trimmed);
+
+    // 4. Update localStorage last login email
+    saveLastLoginEmail(trimmed);
+
+    // 5. Update user-scoped cache in localStorage
+    if (updatedSession.userId) {
+      const userCacheKey = getUserEncryptedCacheKey(updatedSession.userId);
+      const existingCacheRaw = localStorage.getItem(userCacheKey);
+      if (existingCacheRaw) {
+        try {
+          const parsed = JSON.parse(existingCacheRaw);
+          if (parsed?.session) {
+            parsed.session.email = trimmed;
+            parsed.session.token = newToken;
+            localStorage.setItem(userCacheKey, JSON.stringify(parsed));
+          }
+        } catch {
+          // ignore
+        }
+      }
+      persistEncryptedSessionCredentialsToCache(updatedSession);
+    }
+
+    return true;
   };
 
   const handleToggleCloudSync = async (enabled: boolean) => {
@@ -2071,11 +2167,27 @@ export function useVaultWorkspaceSync() {
       return;
     }
 
+    const hasAuthKey = Boolean(
+      vaultSession.authKeyB64 ||
+      (vaultSession.userId && getStoredAuthKey(vaultSession.userId))
+    );
+    const hasToken = Boolean(
+      vaultSession.token ||
+      (vaultSession.userId && getStoredToken(vaultSession.userId))
+    );
+
+    // Falls weder Token noch AuthKey vorliegen (z.B. nach Face ID / biometrischem Unlock),
+    // fordern wir direkt das Master-Passwort an, anstatt den Tresor zu sperren
+    if (!hasToken && !hasAuthKey) {
+      setIsPasswordPromptOpen(true);
+      return;
+    }
+
     const emailVerifiedKey = `gradus21_email_verified_${vaultSession.email}`;
     const isAlreadyVerified =
       isEmailVerified ||
       localStorage.getItem(emailVerifiedKey) === 'true' ||
-      Boolean(vaultSession.token);
+      hasToken;
 
     if (!isAlreadyVerified) {
       setEmailForVerification(vaultSession.email);
@@ -2088,6 +2200,89 @@ export function useVaultWorkspaceSync() {
 
   const handleEmailVerificationCancel = () => {
     setIsEmailVerificationOpen(false);
+  };
+
+  const handleVerifyPasswordForCloudSync = async (
+    password: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!vaultSession) {
+      return { success: false, error: 'Kein aktiver Tresor geöffnet.' };
+    }
+
+    try {
+      await ensureWasmLoaded();
+
+      const candidateSalt =
+        vaultSession.kdfSaltB64 ||
+        findLocalCachedVault(vaultSession.email)?.kdfSaltB64 ||
+        findLocalCachedVault()?.kdfSaltB64;
+      const candidateEncryptedDek =
+        vaultSession.encryptedDek ||
+        findLocalCachedVault(vaultSession.email)?.encryptedDek ||
+        findLocalCachedVault()?.encryptedDek;
+      const kdfParams =
+        vaultSession.kdfParams ||
+        findLocalCachedVault(vaultSession.email)?.kdfParams ||
+        { memory_kib: 19456, iterations: 2, parallelism: 1 };
+
+      if (!candidateSalt || !candidateEncryptedDek) {
+        return {
+          success: false,
+          error: 'Tresor-Metadaten (Salt/DEK) konnten nicht gefunden werden.',
+        };
+      }
+
+      let unlockedJson: string;
+      try {
+        unlockedJson = wasm_unlock_vault(
+          password,
+          candidateSalt,
+          JSON.stringify(normalizeKdfParams(kdfParams)),
+          candidateEncryptedDek
+        );
+      } catch (err: any) {
+        const msg = String(err?.message || err || '');
+        if (msg.includes('Decryption failed') || msg.includes('invalid key')) {
+          return { success: false, error: 'Das eingegebene Master-Passwort ist nicht korrekt.' };
+        }
+        return { success: false, error: `Fehler beim Entschlüsseln: ${msg}` };
+      }
+
+      const unlocked = JSON.parse(unlockedJson);
+      const authKey = unlocked.auth_key_b64;
+      if (!authKey) {
+        return { success: false, error: 'Kryptografischer Anmeldeschlüssel konnte nicht abgeleitet werden.' };
+      }
+
+      const updatedSession: ActiveVaultSession = {
+        ...vaultSession,
+        authKeyB64: authKey,
+        kdfSaltB64: candidateSalt,
+        kdfParams: normalizeKdfParams(kdfParams),
+        encryptedDek: candidateEncryptedDek,
+      };
+
+      if (updatedSession.userId) {
+        setStoredAuthKey(updatedSession.userId, authKey);
+      }
+      setVaultSession(updatedSession);
+      persistEncryptedSessionCredentialsToCache(updatedSession);
+
+      setIsPasswordPromptOpen(false);
+
+      setTimeout(() => {
+        proceedToCloudSyncActivation('', updatedSession);
+      }, 50);
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Fehler bei Passwort-Prüfung für Cloud-Sync:', err);
+      return { success: false, error: String(err?.message || err || 'Unbekannter Fehler.') };
+    }
+  };
+
+  const handleCancelPasswordPrompt = () => {
+    setIsPasswordPromptOpen(false);
   };
 
   const proceedToCloudSyncActivation = async (
@@ -2134,10 +2329,18 @@ export function useVaultWorkspaceSync() {
     }
 
     if (!token) {
-      alert(
-        'Für den Cloud-Sync ist eine aktive Anmeldung am Server erforderlich. Bitte melde dich an.'
+      const hasAuthKey = Boolean(
+        activeSession?.authKeyB64 ||
+        (activeSession?.userId && getStoredAuthKey(activeSession.userId))
       );
-      setIsVaultLocked(true);
+      if (!hasAuthKey) {
+        setIsPasswordPromptOpen(true);
+        return;
+      }
+      alert(
+        'Konnte keine Verbindung zum Cloud-Server herstellen. Bitte prüfe deine Internetverbindung und Server-Adresse.'
+      );
+      setSyncStatus('offline_local');
       return;
     }
 
@@ -2213,13 +2416,22 @@ export function useVaultWorkspaceSync() {
       (vaultSession?.userId ? getStoredToken(vaultSession.userId) : '');
     let activeSession = vaultSession || undefined;
 
-    if (!token && vaultSession) {
-      const linked = await linkLocalVaultWithServer(vaultSession);
+    const hasAuthKey = Boolean(
+      activeSession?.authKeyB64 ||
+      (activeSession?.userId && getStoredAuthKey(activeSession.userId))
+    );
+
+    if (!token && activeSession && hasAuthKey) {
+      const linked = await linkLocalVaultWithServer(activeSession);
       token = linked.token;
       activeSession = linked.session;
     }
 
-    await proceedToCloudSyncActivation(token, activeSession);
+    if (token || hasAuthKey) {
+      await proceedToCloudSyncActivation(token, activeSession);
+    } else {
+      setIsPasswordPromptOpen(true);
+    }
   };
 
   const handleCancelReconciliation = () => {
@@ -2766,6 +2978,10 @@ export function useVaultWorkspaceSync() {
     emailForVerification,
     handleEmailVerificationSuccess,
     handleEmailVerificationCancel,
+    handleUpdateVaultEmail,
+    isPasswordPromptOpen,
+    handleVerifyPasswordForCloudSync,
+    handleCancelPasswordPrompt,
     isReconciliationOpen,
     reconciliationMeta,
     openReconciliationModal,

@@ -15,6 +15,7 @@ import { LegalModal, LegalTab } from './components/LegalModal';
 import { useLegalConfig } from './utils/legalConfig';
 import { StorageNoticeModal } from './components/StorageNoticeModal';
 import { EmailVerificationModal } from './components/EmailVerificationModal';
+import { VaultPasswordPromptModal } from './components/vault/VaultPasswordPromptModal';
 import { SyncReconciliationModal } from './components/SyncReconciliationModal';
 import { CellDisplayFormat, TermFilterId, INITIAL_CLASS_DATASETS, resolveIsDarkMode } from './data/demoClasses';
 import { useVaultWorkspaceSync } from './hooks/useVaultWorkspaceSync';
@@ -81,6 +82,10 @@ export const App: React.FC = () => {
     emailForVerification,
     handleEmailVerificationSuccess,
     handleEmailVerificationCancel,
+    handleUpdateVaultEmail,
+    isPasswordPromptOpen,
+    handleVerifyPasswordForCloudSync,
+    handleCancelPasswordPrompt,
     isReconciliationOpen,
     reconciliationMeta,
     openReconciliationModal,
@@ -336,6 +341,15 @@ export const App: React.FC = () => {
           email={emailForVerification}
           onSuccess={handleEmailVerificationSuccess}
           onCancel={handleEmailVerificationCancel}
+          onUpdateEmail={handleUpdateVaultEmail}
+        />
+
+        {/* MASTER-PASSWORT MODAL ZUR CLOUD-VERKNÜPFUNG */}
+        <VaultPasswordPromptModal
+          isOpen={isPasswordPromptOpen}
+          email={vaultSession?.email || emailForVerification || ''}
+          onSubmit={handleVerifyPasswordForCloudSync}
+          onCancel={handleCancelPasswordPrompt}
         />
 
         {/* SYNC-RECONCILIATION MODAL (RICHTUNGSBASIERTER ABGLEICH) */}
@@ -700,6 +714,7 @@ export const App: React.FC = () => {
           sampleEnvelope={sampleEnvelope}
           onUnlockSuccess={(updatedSession) => setVaultSession(updatedSession)}
           onLockVault={handleLockVault}
+          onUpdateVaultEmail={handleUpdateVaultEmail}
         />
       )}
 
@@ -730,6 +745,7 @@ export const App: React.FC = () => {
           sampleEnvelope={sampleEnvelope}
           onUnlockSuccess={(updatedSession) => setVaultSession(updatedSession)}
           onLockVault={handleLockVault}
+          onUpdateVaultEmail={handleUpdateVaultEmail}
         />
       )}
 
@@ -784,6 +800,15 @@ export const App: React.FC = () => {
         email={emailForVerification}
         onSuccess={handleEmailVerificationSuccess}
         onCancel={handleEmailVerificationCancel}
+        onUpdateEmail={handleUpdateVaultEmail}
+      />
+
+      {/* MASTER-PASSWORT MODAL ZUR CLOUD-VERKNÜPFUNG */}
+      <VaultPasswordPromptModal
+        isOpen={isPasswordPromptOpen}
+        email={vaultSession?.email || emailForVerification || ''}
+        onSubmit={handleVerifyPasswordForCloudSync}
+        onCancel={handleCancelPasswordPrompt}
       />
 
       {/* SYNC-RECONCILIATION MODAL (RICHTUNGSBASIERTER ABGLEICH) */}

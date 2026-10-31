@@ -2115,3 +2115,72 @@ async fn test_local_only_vault_cloud_linking_deserialization() {
 
     let _ = fs::remove_file(&state.disk_store_path);
 }
+
+#[tokio::test]
+async fn test_update_user_email_flow() {
+    let state = create_test_state();
+    let bundle = generate_vault_bundle("MasterPassword123!").expect("bundle");
+
+    // 1. Register user
+    let register_res = register_user(
+        State(state.clone()),
+        Json(RegisterRequest {
+            email: "old_email@schule.de".into(),
+            auth_key_b64: bundle.auth_key_b64.clone(),
+            kdf_salt_b64: bundle.kdf_salt_b64.clone(),
+            kdf_params: bundle.kdf_params.clone(),
+            encrypted_dek: bundle.encrypted_dek.clone(),
+            recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
+            recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
+            user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
+        }),
+    )
+    .await
+    .expect("register user");
+
+    let auth_token = register_res.0.token;
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::AUTHORIZATION,
+        format!("Bearer {}", auth_token).parse().unwrap(),
+    );
+
+    // 2. Reject invalid email
+    let invalid_err = update_user_email(
+        State(state.clone()),
+        headers.clone(),
+        Json(UpdateUserEmailRequest {
+            new_email: "not-an-email".into(),
+        }),
+    )
+    .await;
+    assert!(invalid_err.is_err());
+    assert_eq!(invalid_err.unwrap_err().0, StatusCode::BAD_REQUEST);
+
+    // 3. Update to valid new email
+    let update_res = update_user_email(
+        State(state.clone()),
+        headers.clone(),
+        Json(UpdateUserEmailRequest {
+            new_email: "new_email@schule.de".into(),
+        }),
+    )
+    .await
+    .expect("email update");
+
+    assert_eq!(update_res.0["status"], "ok");
+    assert_eq!(update_res.0["email"], "new_email@schule.de");
+    let new_token = update_res.0["token"].as_str().expect("new token string");
+    assert!(!new_token.is_empty());
+
+    // 4. Verify user in state has new email
+    {
+        let users = state.mem_users.read().unwrap();
+        assert!(users.values().any(|u| u.email == "new_email@schule.de"));
+        assert!(!users.values().any(|u| u.email == "old_email@schule.de"));
+    }
+
+    let _ = fs::remove_file(&state.disk_store_path);
+}

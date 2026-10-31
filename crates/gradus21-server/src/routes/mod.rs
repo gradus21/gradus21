@@ -42,6 +42,7 @@ pub fn create_app_router(state: AppState, cors: CorsLayer) -> Router {
         .route("/api/auth/desktop-relay/init", post(desktop_relay_init))
         .route("/api/auth/desktop-relay/complete", post(desktop_relay_complete))
         .route("/api/auth/desktop-relay/poll", get(desktop_relay_poll))
+        .route("/api/auth/email/update", post(update_user_email))
         .route("/api/auth/verify-email/start", post(verify_email_start))
         .route("/api/auth/verify-email/confirm", post(verify_email_confirm))
         .route("/api/auth/2fa/setup", get(get_2fa_setup_info))

@@ -42,6 +42,7 @@ import {
   Copy,
   Check,
   Fingerprint,
+  Pencil,
 } from 'lucide-react';
 import {
   isFileSystemAccessSupported,
@@ -108,6 +109,7 @@ interface SettingsModalProps {
   onDisconnectBackupDirectory?: () => void;
   isPersistentStorage?: boolean;
   session?: ActiveVaultSession | null;
+  onUpdateVaultEmail?: (newEmail: string) => Promise<boolean | void> | boolean | void;
   sampleEnvelope?: {
     entityId: string;
     plaintext: string;
@@ -154,6 +156,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   sampleEnvelope,
   onUnlockSuccess,
   onLockVault,
+  onUpdateVaultEmail,
 }) => {
   const legalConfig = useLegalConfig();
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection);
@@ -1180,6 +1183,40 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 )}
 
+                {/* Tresor-E-Mail & Identität */}
+                {session?.email && (
+                  <div className="pt-3 border-t text-xs space-y-1.5" style={{ borderColor: 'var(--border-subtle)' }}>
+                    <div className="flex items-center justify-between">
+                      <label className="block font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                        Tresor-E-Mail-Adresse:
+                      </label>
+                      {onUpdateVaultEmail && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const newEmail = prompt('Neue E-Mail-Adresse für diesen Tresor eingeben:', session.email);
+                            if (newEmail && newEmail.trim() && newEmail.trim().toLowerCase() !== session.email.toLowerCase()) {
+                              await onUpdateVaultEmail(newEmail.trim().toLowerCase());
+                              triggerSaved();
+                            }
+                          }}
+                          className="text-xs font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400 hover:underline flex items-center gap-1"
+                        >
+                          <Pencil className="w-3 h-3" />
+                          <span>E-Mail ändern</span>
+                        </button>
+                      )}
+                    </div>
+                    <div
+                      className="px-3 py-1.5 rounded-xl border font-mono text-xs flex items-center justify-between"
+                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)', backgroundColor: 'var(--bg-surface)' }}
+                    >
+                      <span className="truncate">{session.email}</span>
+                      <span className="text-[10px] text-zinc-400 font-sans shrink-0">Lokal verknüpft</span>
+                    </div>
+                  </div>
+                )}
+
                 {/* Server-Adresse für Cloud-Synchronisation */}
                 <div className="pt-3 border-t text-xs space-y-1.5" style={{ borderColor: 'var(--border-subtle)' }}>
                   <label className="block font-semibold" style={{ color: 'var(--text-secondary)' }}>
@@ -1189,7 +1226,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <input
                       type="url"
                       value={serverUrl}
-                      onChange={(e) => setServerUrlState(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setServerUrlState(val);
+                        setServerUrl(val);
+                      }}
                       onBlur={() => {
                         const saved = setServerUrl(serverUrl);
                         setServerUrlState(saved);
@@ -1902,6 +1943,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 type="button"
                 onClick={() => {
                   setShowAvvConfirmation(false);
+                  if (serverUrl) {
+                    setServerUrl(serverUrl);
+                  }
                   if (onToggleCloudSync) {
                     onToggleCloudSync(true);
                   } else {

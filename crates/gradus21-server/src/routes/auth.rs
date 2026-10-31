@@ -281,6 +281,14 @@ pub async fn register_user(
     let is_active = true;
     let now = Utc::now();
 
+    let user_exists = {
+        let users = state.mem_users.read().unwrap();
+        users.values().any(|u| u.email == email)
+    };
+    if user_exists {
+        return Err((StatusCode::CONFLICT, "Diese E-Mail ist bereits registriert".into()));
+    }
+
     let was_verified = {
         let verifs = state.mem_email_verifications.read().unwrap();
         verifs
@@ -298,9 +306,6 @@ pub async fn register_user(
 
     let new_user = {
         let mut users = state.mem_users.write().unwrap();
-        if users.values().any(|u| u.email == email) {
-            return Err((StatusCode::CONFLICT, "Diese E-Mail ist bereits registriert".into()));
-        }
         let record = UserRecord {
             id: user_id,
             email: email.clone(),
@@ -802,6 +807,60 @@ pub async fn disable_2fa(
 }
 
 #[derive(Debug, Deserialize)]
+pub struct UpdateUserEmailRequest {
+    pub new_email: String,
+}
+
+pub async fn update_user_email(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<UpdateUserEmailRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let claims = authenticate_request(&state, &headers)?;
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
+
+    let new_email = req.new_email.trim().to_lowercase();
+    if !new_email.contains('@') || new_email.len() < 5 {
+        return Err((StatusCode::BAD_REQUEST, "Ungültige E-Mail-Adresse".into()));
+    }
+
+    if new_email == claims.email.to_lowercase() {
+        return Ok(Json(serde_json::json!({
+            "status": "ok",
+            "email": new_email,
+        })));
+    }
+
+    // Check if new_email is already used by another account
+    {
+        let users = state.mem_users.read().unwrap();
+        if users.values().any(|u| u.email == new_email && u.id != user_id) {
+            return Err((StatusCode::CONFLICT, "Diese E-Mail-Adresse wird bereits verwendet.".into()));
+        }
+    }
+
+    let updated_user = {
+        let mut users = state.mem_users.write().unwrap();
+        let user = users.get_mut(&user_id)
+            .ok_or_else(|| (StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()))?;
+        user.email = new_email.clone();
+        user.clone()
+    };
+
+    sync_user_to_pg(&state, &updated_user).await;
+    persist_to_disk(&state);
+
+    let new_token = issue_jwt(&state.jwt_secret, updated_user.id, &updated_user.email, updated_user.is_admin, true)?;
+
+    Ok(Json(serde_json::json!({
+        "status": "ok",
+        "email": new_email,
+        "token": new_token,
+    })))
+}
+
+#[derive(Debug, Deserialize)]
 pub struct VerifyEmailStartRequest {
     pub email: String,
 }
@@ -813,6 +872,8 @@ pub struct VerifyEmailStartResponse {
     pub cooldown_seconds: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dev_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mail_error: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -887,6 +948,7 @@ pub async fn verify_email_start(
     let smtp_configured = smtp_cfg.is_some() && !smtp_cfg.as_ref().unwrap().host.is_empty();
 
     let mut dev_code = None;
+    let mut mail_error = None;
 
     if let Some(cfg) = smtp_cfg {
         if !cfg.host.is_empty() {
@@ -899,14 +961,17 @@ pub async fn verify_email_start(
                 tracing::warn!("Fehler beim SMTP-Versand des Verifikations-Codes an {}: {}", email, e);
                 tracing::info!("Verifikationscode für {}: {}", email, code);
                 dev_code = Some(code);
+                mail_error = Some(format!("SMTP-Versand fehlgeschlagen: {}", e));
             }
         } else {
             tracing::info!("SMTP nicht konfiguriert. Verifikationscode für {}: {}", email, code);
             dev_code = Some(code);
+            mail_error = Some("SMTP-Mailversand ist auf diesem Server nicht konfiguriert.".into());
         }
     } else {
         tracing::info!("SMTP nicht konfiguriert. Verifikationscode für {}: {}", email, code);
         dev_code = Some(code);
+        mail_error = Some("SMTP-Mailversand ist auf diesem Server nicht konfiguriert.".into());
     }
 
     Ok(Json(VerifyEmailStartResponse {
@@ -914,6 +979,7 @@ pub async fn verify_email_start(
         smtp_configured,
         cooldown_seconds: 60,
         dev_code,
+        mail_error,
     }))
 }
 
