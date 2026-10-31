@@ -215,8 +215,9 @@ jobs:
         run: |
           Write-Host "Configuring Microsoft Store Developer CLI..."
           msstore reconfigure --tenantId "$env:MS_STORE_TENANT_ID" --sellerId "$env:MS_STORE_SELLER_ID" --clientId "$env:MS_STORE_CLIENT_ID" --clientSecret "$env:MS_STORE_CLIENT_SECRET"
-          Write-Host "Publishing MSIX package to Microsoft Store (Product ID: 9MTB3WRKMNDD)..."
-          msstore publish target/release/bundle/msix -id 9MTB3WRKMNDD -v
+          $msix = (Get-Item "target/release/bundle/msix/*.msix").FullName
+          Write-Host "Publishing MSIX package $msix to Microsoft Store (Product ID: 9MTB3WRKMNDD)..."
+          msstore publish "$msix" -id 9MTB3WRKMNDD -v
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v6
