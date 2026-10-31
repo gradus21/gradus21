@@ -1101,6 +1101,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   onToggleCloudSync={onToggleCloudSync}
                   onPurgeCloudData={onPurgeCloudData}
                   onImportEncryptedBackup={onImportEncryptedBackup}
+                  onUpdateVaultEmail={onUpdateVaultEmail}
                 />
               ) : (
                 <div
@@ -1214,40 +1215,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <Trash2 className="w-3.5 h-3.5" />
                       <span>Cloud-Kopie jetzt löschen</span>
                     </button>
-                  </div>
-                )}
-
-                {/* Tresor-E-Mail & Identität */}
-                {session?.email && (
-                  <div className="pt-3 border-t text-xs space-y-1.5" style={{ borderColor: 'var(--border-subtle)' }}>
-                    <div className="flex items-center justify-between">
-                      <label className="block font-semibold" style={{ color: 'var(--text-secondary)' }}>
-                        Tresor-E-Mail-Adresse:
-                      </label>
-                      {onUpdateVaultEmail && (
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            const newEmail = prompt('Neue E-Mail-Adresse für diesen Tresor eingeben:', session.email);
-                            if (newEmail && newEmail.trim() && newEmail.trim().toLowerCase() !== session.email.toLowerCase()) {
-                              await onUpdateVaultEmail(newEmail.trim().toLowerCase());
-                              triggerSaved();
-                            }
-                          }}
-                          className="text-xs font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400 hover:underline flex items-center gap-1"
-                        >
-                          <Pencil className="w-3 h-3" />
-                          <span>E-Mail ändern</span>
-                        </button>
-                      )}
-                    </div>
-                    <div
-                      className="px-3 py-1.5 rounded-xl border font-mono text-xs flex items-center justify-between"
-                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)', backgroundColor: 'var(--bg-surface)' }}
-                    >
-                      <span className="truncate">{session.email}</span>
-                      <span className="text-[10px] text-zinc-400 font-sans shrink-0">Lokal verknüpft</span>
-                    </div>
                   </div>
                 )}
 

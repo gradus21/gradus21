@@ -51,21 +51,36 @@ describe('SettingsModal Navigation & Account Security Architecture', () => {
     expect(storageTab).toBeDefined();
   });
 
-  it('opens "Konto & Schutz" and displays account email and security section', () => {
-    render(
-      <SettingsModal
-        settings={dummySettings}
-        onUpdateSettings={vi.fn()}
-        onClose={vi.fn()}
-        session={dummySession}
-        initialSection="account_security"
-      />
-    );
+  it('opens "Konto & Schutz" and displays account email and allows changing email under konto', () => {
+    const onUpdateVaultEmail = vi.fn();
+    const originalPrompt = window.prompt;
+    window.prompt = vi.fn().mockReturnValue('neu@schule.de');
 
-    expect(screen.getByText(/angemeldet als lehrer@schule\.de/i)).toBeDefined();
+    try {
+      render(
+        <SettingsModal
+          settings={dummySettings}
+          onUpdateSettings={vi.fn()}
+          onClose={vi.fn()}
+          session={dummySession}
+          initialSection="account_security"
+          onUpdateVaultEmail={onUpdateVaultEmail}
+        />
+      );
+
+      expect(screen.getByText(/angemeldet als lehrer@schule\.de/i)).toBeDefined();
+      const changeEmailBtn = screen.getByRole('button', { name: /e-mail ändern/i });
+      expect(changeEmailBtn).toBeDefined();
+
+      fireEvent.click(changeEmailBtn);
+      expect(window.prompt).toHaveBeenCalled();
+      expect(onUpdateVaultEmail).toHaveBeenCalledWith('neu@schule.de');
+    } finally {
+      window.prompt = originalPrompt;
+    }
   });
 
-  it('opens "Speicher & Backups" and displays cloud sync and backup options without misplaced auth cards', () => {
+  it('opens "Speicher & Backups" and displays cloud sync and backup options without misplaced email change button', () => {
     render(
       <SettingsModal
         settings={dummySettings}
@@ -73,11 +88,13 @@ describe('SettingsModal Navigation & Account Security Architecture', () => {
         onClose={vi.fn()}
         session={dummySession}
         initialSection="storage"
+        onUpdateVaultEmail={vi.fn()}
       />
     );
 
     expect(screen.getByText(/e2ee cloud-synchronisation/i)).toBeDefined();
     expect(screen.getByText(/verschlüsseltes datei-backup/i)).toBeDefined();
+    expect(screen.queryByRole('button', { name: /e-mail ändern/i })).toBeNull();
   });
 
   it('displays native separate backup path configuration on native clients instead of Chromium File System API warning', async () => {

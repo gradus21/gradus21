@@ -20,6 +20,7 @@ import {
   GraduationCap,
   ExternalLink,
   FileText,
+  Pencil,
 } from 'lucide-react';
 import { ActiveVaultSession, UserPasskeyItem, LocalPasskeyStoreEntry } from './vaultTypes';
 import { LegalModal, LegalTab } from '../LegalModal';
@@ -57,6 +58,7 @@ interface CryptoEnvelopeInspectorProps {
   cloudSyncEnabled?: boolean;
   onToggleCloudSync?: (enable: boolean) => void | Promise<void | boolean>;
   onPurgeCloudData?: () => void | Promise<void | boolean>;
+  onUpdateVaultEmail?: (newEmail: string) => Promise<boolean | void> | boolean | void;
   userPasskeys: UserPasskeyItem[];
   localPasskeyForEmail: LocalPasskeyStoreEntry | null;
   qrSvgDataUrl: string | null;
@@ -85,6 +87,7 @@ export const CryptoEnvelopeInspector: React.FC<CryptoEnvelopeInspectorProps> = (
   cloudSyncEnabled = false,
   onToggleCloudSync,
   onPurgeCloudData,
+  onUpdateVaultEmail,
   userPasskeys,
   localPasskeyForEmail,
   qrSvgDataUrl,
@@ -243,17 +246,37 @@ export const CryptoEnvelopeInspector: React.FC<CryptoEnvelopeInspectorProps> = (
           </div>
         </div>
 
-        {onLockVault && inline && (
-          <button
-            type="button"
-            onClick={onLockVault}
-            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-1.5 transition active:scale-[0.98] shrink-0"
-            title="Sperrt die Ansicht, bis du dich wieder anmeldest"
-          >
-            <Lock className="w-3.5 h-3.5" />
-            <span>Jetzt sperren</span>
-          </button>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          {onUpdateVaultEmail && (
+            <button
+              type="button"
+              onClick={async () => {
+                const newEmail = prompt('Neue E-Mail-Adresse für diesen Tresor eingeben:', session.email);
+                if (newEmail && newEmail.trim() && newEmail.trim().toLowerCase() !== session.email.toLowerCase()) {
+                  await onUpdateVaultEmail(newEmail.trim().toLowerCase());
+                }
+              }}
+              className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 hover:bg-black/5 dark:hover:bg-white/5 transition"
+              style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+              title="E-Mail-Adresse für diesen Tresor ändern"
+            >
+              <Pencil className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+              <span>E-Mail ändern</span>
+            </button>
+          )}
+
+          {onLockVault && inline && (
+            <button
+              type="button"
+              onClick={onLockVault}
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-1.5 transition active:scale-[0.98] shrink-0"
+              title="Sperrt die Ansicht, bis du dich wieder anmeldest"
+            >
+              <Lock className="w-3.5 h-3.5" />
+              <span>Jetzt sperren</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {errorMsg && (
@@ -1143,6 +1166,23 @@ export const CryptoEnvelopeInspector: React.FC<CryptoEnvelopeInspectorProps> = (
           </div>
 
           <div className="flex items-center gap-2">
+            {onUpdateVaultEmail && (
+              <button
+                type="button"
+                onClick={async () => {
+                  const newEmail = prompt('Neue E-Mail-Adresse für diesen Tresor eingeben:', session.email);
+                  if (newEmail && newEmail.trim() && newEmail.trim().toLowerCase() !== session.email.toLowerCase()) {
+                    await onUpdateVaultEmail(newEmail.trim().toLowerCase());
+                  }
+                }}
+                className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 hover:bg-black/5 dark:hover:bg-white/5 transition"
+                style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                title="E-Mail-Adresse für diesen Tresor ändern"
+              >
+                <Pencil className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                <span>E-Mail ändern</span>
+              </button>
+            )}
             <button
               onClick={onLockVault}
               className="px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-1.5 transition active:scale-[0.98]"

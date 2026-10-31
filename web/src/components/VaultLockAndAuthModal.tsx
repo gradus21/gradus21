@@ -115,6 +115,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   onToggleCloudSync,
   onPurgeCloudData,
   onImportEncryptedBackup,
+  onUpdateVaultEmail,
 }) => {
   const [authTab, setAuthTab] = useState<'login' | 'register' | 'recover'>('login');
   const [desktopAuthParams] = useState<DesktopAuthParams | null>(() => {
@@ -3416,6 +3417,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       cloudSyncEnabled={cloudSyncEnabled}
       onToggleCloudSync={onToggleCloudSync}
       onPurgeCloudData={onPurgeCloudData}
+      onUpdateVaultEmail={onUpdateVaultEmail}
       userPasskeys={userPasskeys}
       localPasskeyForEmail={localPasskeyForEmail}
       qrSvgDataUrl={qrSvgDataUrl}
