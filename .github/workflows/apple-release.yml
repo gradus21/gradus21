@@ -89,7 +89,7 @@ jobs:
             security import "$INSTALLER_CERT_FILE" -k "$KEYCHAIN_PATH" -P "${APPLE_INSTALLER_CERTIFICATE_PASSWORD:-$APPLE_CERTIFICATE_PASSWORD}" -T /usr/bin/codesign -T /usr/bin/productbuild
           fi
 
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign:,productbuild: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           
           # Add to keychain search list
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
@@ -216,7 +216,7 @@ jobs:
           # Re-sign app bundle for Mac App Store with Sandbox Entitlements
           if [ -n "$DIST_IDENTITY" ]; then
             echo "Codesigning MAS bundle with $DIST_IDENTITY..."
-            codesign --deep --force --options runtime \
+            codesign --keychain "$RUNNER_TEMP/build.keychain" --deep --force --options runtime \
               --entitlements src-tauri/Entitlements.mas.plist \
               --sign "$DIST_IDENTITY" \
               "$MAS_APP_DIR"
@@ -226,7 +226,10 @@ jobs:
           PKG_PATH="$RUNNER_TEMP/Gradus21-macOS.pkg"
           if [ -n "$INSTALLER_IDENTITY" ]; then
             echo "Building signed .pkg with $INSTALLER_IDENTITY..."
-            productbuild --component "$MAS_APP_DIR" /Applications --sign "$INSTALLER_IDENTITY" "$PKG_PATH"
+            productbuild --keychain "$RUNNER_TEMP/build.keychain" \
+              --component "$MAS_APP_DIR" /Applications \
+              --sign "$INSTALLER_IDENTITY" \
+              "$PKG_PATH"
           else
             echo "::notice::No Mac Installer Distribution certificate found in keychain. Attempting unsigned package build..."
             productbuild --component "$MAS_APP_DIR" /Applications "$PKG_PATH"
