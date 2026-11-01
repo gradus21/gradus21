@@ -104,22 +104,22 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     <>
       {/* UNIFIED SINGLE HEADER BAR */}
       <header
-        className="border-b px-3 sm:px-5 py-2 pt-safe flex items-center justify-between gap-2 sm:gap-4 sticky top-0 z-30 shadow-xs"
+        className="border-b px-4 sm:px-6 py-3 sm:py-3.5 pt-safe flex items-center justify-between gap-3 sm:gap-6 sticky top-0 z-30 shadow-xs min-h-[64px]"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
         {/* LEFT: Logo & Class Switcher Dropdown */}
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+        <div className="flex items-center gap-3 sm:gap-4 min-w-0">
           <a
             href="https://gradus21.de"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 group transition hover:opacity-95 shrink-0"
+            className="flex items-center gap-2.5 group transition hover:opacity-95 shrink-0"
             title="Zur offiziellen Website gradus21.de"
           >
-            <FlowRibbonLogo size={26} showWordmark={false} />
+            <FlowRibbonLogo size={28} showWordmark={false} />
             <span
-              className="font-extrabold tracking-tight text-base sm:text-lg group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors hidden sm:inline"
-              style={{ color: 'var(--text-primary)' }}
+              className="font-extrabold tracking-tight text-lg group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors hidden sm:inline"
+              style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}
             >
               Gradus21
             </span>
@@ -128,14 +128,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           {/* Compact Unified Class Switcher */}
           <div
             data-tour="header-class-switcher"
-            className="flex items-center gap-1 p-0.5 sm:p-1 rounded-xl border min-w-0"
+            className="flex items-center gap-1.5 p-1 rounded-xl border min-w-0 shadow-2xs"
             style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
           >
             <div className="relative min-w-0">
               <select
                 value={activeDataset.id}
                 onChange={(e) => setActiveClassId(e.target.value)}
-                className="text-xs font-bold rounded-lg border-0 bg-transparent py-1.5 pl-2 pr-6 max-w-[130px] sm:max-w-[190px] md:max-w-[220px] truncate focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
+                className="text-xs font-bold rounded-lg border-0 bg-transparent py-1.5 pl-2.5 pr-7 max-w-[140px] sm:max-w-[200px] md:max-w-[240px] truncate focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
                 style={{ color: 'var(--text-primary)' }}
                 aria-label="Klasse auswählen"
               >
@@ -146,7 +146,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 ))}
               </select>
               <ChevronDown
-                className="w-3.5 h-3.5 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-60"
+                className="w-3.5 h-3.5 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-60"
                 style={{ color: 'var(--text-secondary)' }}
               />
             </div>
@@ -154,7 +154,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             <button
               onClick={onOpenClassManager}
               data-tour="header-class-manager-btn"
-              className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-lg flex items-center justify-center shrink-0 transition hover:bg-black/5 dark:hover:bg-white/10 active:scale-95"
+              className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition hover:bg-black/5 dark:hover:bg-white/10 active:scale-95"
               title="Aktuelle Klasse bearbeiten (Schüler, Kategorien, Prüfungen)"
               aria-label="Klasse bearbeiten"
             >
@@ -164,7 +164,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             <button
               onClick={onOpenClassWizard}
               data-tour="header-class-wizard-btn"
-              className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-lg flex items-center justify-center shrink-0 transition active:scale-95"
+              className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition active:scale-95"
               style={{
                 backgroundColor: 'var(--primary-soft)',
                 color: 'var(--primary-text)',
@@ -181,7 +181,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         <nav
           data-tour="header-mode-tabs"
           aria-label="Arbeitsmodi"
-          className="hidden md:flex items-center gap-1 p-1 rounded-xl border shrink-0"
+          className="hidden md:flex items-center gap-1 p-1 rounded-xl border shrink-0 shadow-2xs"
           style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
         >
           {(
@@ -207,18 +207,18 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 key={tab.id}
                 onClick={() => setMode(tab.id)}
                 data-tour={tourId}
-                className={`px-2.5 lg:px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 shrink-0 ${
                   active
-                    ? 'shadow-xs text-white'
+                    ? 'shadow-xs font-bold text-white'
                     : 'opacity-70 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5'
                 }`}
                 style={{
                   backgroundColor: active ? 'var(--primary-500)' : 'transparent',
-                  color: active ? '#FFFFFF' : 'var(--text-primary)',
+                  color: active ? '#FFFFFF' : 'var(--text-secondary)',
                 }}
                 title={`${tab.full} (${getModifierKey()}+${tab.num})`}
               >
-                <Icon className="w-3.5 h-3.5 shrink-0" />
+                <Icon className="w-3.5 h-3.5 shrink-0 opacity-80" />
                 <span className="hidden lg:inline">{tab.full}</span>
                 <span className="lg:hidden">{tab.label}</span>
               </button>
@@ -227,10 +227,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         </nav>
 
         {/* RIGHT: Term Filter + Average + Storage Indicator + Action Icons */}
-        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+        <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
           {/* Halbjahr Switcher (Desktop / Tablet) */}
           <div
-            className="hidden sm:inline-flex items-center gap-0.5 p-0.5 rounded-xl border"
+            className="hidden sm:inline-flex items-center gap-0.5 p-1 rounded-xl border"
             style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
           >
             {(
@@ -243,7 +243,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               <button
                 key={term.id}
                 onClick={() => setActiveTerm(term.id)}
-                className={`px-2 py-1 rounded-lg text-[11px] font-bold transition ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
                   activeTerm === term.id ? 'shadow-xs font-bold' : 'opacity-65 hover:opacity-100'
                 }`}
                 style={{
@@ -259,17 +259,17 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           {/* Compact Live-Klassenschnitt (Visible on large screens) */}
           {calculationReport?.class_average_percent != null && (
             <span
-              className="hidden xl:inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-mono font-bold border"
+              className="hidden xl:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono font-bold border"
               style={{
-                backgroundColor: 'var(--primary-soft)',
-                color: 'var(--primary-text)',
+                backgroundColor: 'var(--bg-subtle)',
+                color: 'var(--text-primary)',
                 borderColor: 'var(--border-subtle)',
               }}
               title={`Live-Klassenschnitt ${activeTerm.toUpperCase()}: ${calculationReport.class_average_percent}% (Note ${calculationReport.class_display_grade})`}
             >
-              <span className="text-[10px] font-sans font-semibold opacity-70">Ø</span>
-              <span>{calculationReport.class_display_grade}</span>
-              <span className="opacity-60 text-[10px]">({calculationReport.class_average_percent}%)</span>
+              <span className="text-[11px] font-sans font-medium opacity-60">Ø</span>
+              <span className="text-teal-600 dark:text-teal-400 font-extrabold">{calculationReport.class_display_grade}</span>
+              <span className="opacity-50 text-[11px]">({calculationReport.class_average_percent}%)</span>
             </span>
           )}
 
@@ -278,7 +278,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             <button
               onClick={onOpenInteractiveGuide}
               data-tour="header-guide-btn"
-              className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl border flex items-center justify-center transition hover:opacity-90 active:scale-95 shrink-0"
+              className="w-9 h-9 rounded-xl border flex items-center justify-center transition hover:opacity-90 active:scale-95 shrink-0"
               style={{
                 backgroundColor: 'var(--bg-subtle)',
                 color: 'var(--text-secondary)',
@@ -296,7 +296,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             <button
               onClick={() => setIsStoragePopoverOpen((prev) => !prev)}
               data-tour="header-sync-status"
-              className={`h-8 sm:h-9 px-2.5 sm:px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer hover:opacity-95 flex items-center justify-center gap-1.5 shrink-0 ${
+              className={`h-9 px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer hover:opacity-95 flex items-center justify-center gap-1.5 shrink-0 ${
                 syncStatus === 'synced'
                   ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-300'
                   : syncStatus === 'local_only'
@@ -544,7 +544,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           <button
             onClick={() => setPrivacyBlur((b) => !b)}
             data-tour="header-privacy-blur"
-            className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl text-xs font-semibold border flex items-center justify-center transition active:scale-95 shrink-0 ${
+            className={`w-9 h-9 rounded-xl text-xs font-semibold border flex items-center justify-center transition active:scale-95 shrink-0 ${
               privacyBlur ? 'ring-2 ring-amber-500 bg-amber-500/10 text-amber-600' : ''
             }`}
             style={
@@ -566,7 +566,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           <button
             onClick={() => onOpenSettings()}
             data-tour="header-settings-btn"
-            className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl text-xs font-semibold border flex items-center justify-center transition active:scale-95 shrink-0"
+            className="w-9 h-9 rounded-xl text-xs font-semibold border flex items-center justify-center transition active:scale-95 shrink-0"
             style={{
               backgroundColor: 'var(--bg-subtle)',
               color: 'var(--text-primary)',
@@ -582,7 +582,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           {isAdmin && (
             <button
               onClick={onOpenAdmin}
-              className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl text-xs font-semibold border flex items-center justify-center transition active:scale-95 shadow-xs shrink-0"
+              className="w-9 h-9 rounded-xl text-xs font-semibold border flex items-center justify-center transition active:scale-95 shadow-xs shrink-0"
               style={{
                 backgroundColor: 'rgba(239, 68, 68, 0.1)',
                 color: '#dc2626',
@@ -598,7 +598,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           {/* LOCK */}
           <button
             onClick={onLockVault}
-            className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl text-xs font-semibold border flex items-center justify-center transition active:scale-95 shrink-0"
+            className="w-9 h-9 rounded-xl text-xs font-semibold border flex items-center justify-center transition active:scale-95 shrink-0"
             style={{
               backgroundColor: 'var(--bg-subtle)',
               color: 'var(--text-secondary)',

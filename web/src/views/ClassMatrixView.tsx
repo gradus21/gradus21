@@ -1027,7 +1027,7 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
         className="hidden md:block rounded-2xl border shadow-sm overflow-hidden"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
-        <div className="overflow-x-auto overflow-y-auto max-h-[calc(100dvh-240px)] sm:max-h-[calc(100vh-270px)]">
+        <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-160px)] min-h-[500px]">
           <table className="w-full text-left border-collapse">
             <thead className="sticky top-0 z-20 shadow-xs">
               <tr
@@ -1070,19 +1070,13 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                     <th
                       key={cat.id}
                       colSpan={colSpan}
-                      className="py-2.5 px-3 text-center border-r"
+                      className="py-2.5 px-3 text-center border-r font-semibold"
                       style={{ borderColor: 'var(--border-subtle)' }}
                     >
-                      <div className="flex items-center justify-center gap-1.5">
+                      <div className="flex items-center justify-center gap-1">
                         <span style={{ color: 'var(--text-primary)' }}>{cat.name}</span>
-                        <span
-                          className="px-1.5 py-0.5 rounded text-[10px] font-mono"
-                          style={{
-                            backgroundColor: 'var(--primary-soft)',
-                            color: 'var(--primary-text)',
-                          }}
-                        >
-                          {normPct}%
+                        <span className="text-[10px] font-mono opacity-60" style={{ color: 'var(--text-secondary)' }}>
+                          ({normPct}%)
                         </span>
                       </div>
                     </th>
@@ -1158,31 +1152,16 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                                 <Settings className="w-3 h-3" />
                               </button>
                             </div>
-                            <div className="flex items-center gap-1">
-                              {assess.input_mode === 'grade_scale' ? (
-                                <span
-                                  className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/25 tracking-tight"
-                                  title="Bewertungsmodus: Direkte Note"
-                                >
-                                  {activeDataset.config.scale_id === 'de_oberstufe_0_to_15' ? '0–15 MSS' : 'Note (1–6)'}
-                                </span>
-                              ) : assess.input_mode === 'points' ? (
-                                <span
-                                  className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/25 tracking-tight"
-                                  title={`Bewertungsmodus: Rohpunkte (max. ${assess.max_points || 15} Pkt)`}
-                                >
-                                  max. {assess.max_points || 15} Pkt
-                                </span>
-                              ) : (
-                                <span
-                                  className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/25 tracking-tight"
-                                  title="Bewertungsmodus: Prozent (0–100%)"
-                                >
-                                  % Prozent
-                                </span>
-                              )}
-                              <span className="text-[10px] text-teal-600 dark:text-teal-400 font-bold" title="Speed-Grading verfügbar">
-                                ⚡
+                            <div className="flex items-center justify-center">
+                              <span
+                                className="text-[10px] font-mono tracking-tight opacity-60"
+                                style={{ color: 'var(--text-secondary)' }}
+                              >
+                                {assess.input_mode === 'grade_scale'
+                                  ? (activeDataset.config.scale_id === 'de_oberstufe_0_to_15' ? '0–15 MSS' : 'Note')
+                                  : assess.input_mode === 'points'
+                                  ? `max. ${assess.max_points || 15} P`
+                                  : '0–100%'}
                               </span>
                             </div>
                           </div>
@@ -1285,27 +1264,25 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                       <td className="py-2 px-2 text-center">
                         <button
                           onClick={() => cycleStudentLevel(stu.id)}
-                          className="px-2 py-0.5 rounded-md text-[11px] font-bold font-mono transition hover:scale-105"
+                          className="w-7 h-6 rounded-md text-[11px] font-bold font-mono transition hover:bg-black/5 dark:hover:bg-white/10"
                           style={{
-                            backgroundColor: levelStyle?.bg || 'var(--bg-subtle)',
                             color: levelStyle?.text || 'var(--text-secondary)',
                           }}
+                          title="Binnendifferenzierungs-Niveau wechseln (G / M / E)"
                         >
                           {stu.level || 'M'}
                         </button>
                       </td>
                     )}
 
-                    {/* Calculated Overall Grade Pill (LIVE) */}
+                    {/* Calculated Overall Grade (LIVE) */}
                     <td className="py-2 px-3 text-center whitespace-nowrap">
                       {summary && summary.overall_percent !== null ? (
-                        <div className="inline-flex items-center gap-1.5">
+                        <div className="inline-flex items-center justify-center font-mono tabular-nums font-bold text-xs">
                           <span
-                            className="px-2.5 py-1 rounded-full font-mono tabular-nums font-bold text-xs border"
+                            className="px-2 py-0.5 rounded-md transition"
                             style={{
-                              backgroundColor: tierStyle?.bg || 'var(--primary-soft)',
                               color: tierStyle?.text || 'var(--primary-text)',
-                              borderColor: tierStyle?.border || 'transparent',
                             }}
                           >
                             {cellFormat === 'percent_only'
@@ -1317,7 +1294,7 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                         </div>
                       ) : (
                         <span
-                          className="font-mono text-xs"
+                          className="font-mono text-xs opacity-40"
                           style={{ color: 'var(--text-muted)' }}
                         >
                           {stu.is_not_graded ? 'o.B.' : '—'}
@@ -1338,15 +1315,13 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                           onChange={(e) =>
                             updateReportCardOverride(stu.id, e.target.value)
                           }
-                          className={`w-14 text-center font-mono tabular-nums text-xs py-1 px-1 rounded-lg border transition ${
+                          className={`w-14 text-center font-mono tabular-nums text-xs py-1 px-1 rounded-lg border bg-transparent transition ${
                             currentZeugnisOverride
-                              ? 'font-extrabold ring-1 ring-teal-500 border-teal-500'
+                              ? 'font-extrabold ring-1 ring-teal-500 border-teal-500 text-teal-600 dark:text-teal-400'
                               : 'border-transparent hover:border-[var(--border-subtle)] focus:border-teal-500 opacity-75 hover:opacity-100'
                           }`}
                           style={{
-                            backgroundColor: currentZeugnisOverride
-                              ? 'var(--primary-soft)'
-                              : 'transparent',
+                            backgroundColor: 'transparent',
                             color: currentZeugnisOverride
                               ? 'var(--primary-text)'
                               : 'var(--text-primary)',
@@ -1421,8 +1396,9 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                                         assess.input_mode || 'percent'
                                       )
                                     }
-                                    className="w-16 text-center font-mono text-xs py-1 px-1.5 rounded-lg border border-transparent hover:border-[var(--border-subtle)] focus:border-teal-500 focus:bg-teal-500/5 focus:outline-none focus:ring-1 focus:ring-teal-500 transition tabular-nums"
+                                    className="w-16 text-center font-mono text-xs py-1 px-1.5 rounded-lg border border-transparent bg-transparent hover:border-[var(--border-subtle)] hover:bg-black/5 dark:hover:bg-white/5 focus:border-teal-500 focus:bg-teal-500/10 focus:outline-none focus:ring-1 focus:ring-teal-500 transition tabular-nums"
                                     style={{
+                                      backgroundColor: 'transparent',
                                       color: 'var(--text-primary)',
                                     }}
                                   />
