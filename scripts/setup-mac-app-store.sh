@@ -60,8 +60,8 @@ if [ -f "$CER_FILE" ]; then
   echo "Verarbeite Mac Installer Zertifikat..."
   openssl x509 -in "$CER_FILE" -inform DER -out "$WORK_DIR/mac_installer.crt"
   
-  PASS="gradus21-installer"
-  openssl pkcs12 -export -out "$P12_FILE" \
+  PASS="gradus21-installer-pass"
+  openssl pkcs12 -export -legacy -out "$P12_FILE" \
     -inkey "$KEY_FILE" \
     -in "$WORK_DIR/mac_installer.crt" \
     -password "pass:$PASS"
