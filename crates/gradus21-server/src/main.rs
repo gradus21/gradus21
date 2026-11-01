@@ -210,10 +210,12 @@ async fn main() {
                 .allow_origin(origins)
                 .allow_methods(AllowMethods::mirror_request())
                 .allow_headers(AllowHeaders::mirror_request())
+                .allow_private_network(true)
         } else {
             CorsLayer::new()
                 .allow_methods(AllowMethods::mirror_request())
                 .allow_headers(AllowHeaders::mirror_request())
+                .allow_private_network(true)
         }
     } else {
         // Fallback to configured WEBAUTHN_RP_ORIGIN and WEBAUTHN_ALLOWED_ORIGINS (no wildcard Any fallback)
@@ -253,6 +255,7 @@ async fn main() {
             .allow_origin(origins)
             .allow_methods(AllowMethods::mirror_request())
             .allow_headers(AllowHeaders::mirror_request())
+            .allow_private_network(true)
     };
 
     let app = routes::create_app_router(state, cors);

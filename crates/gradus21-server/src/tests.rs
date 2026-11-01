@@ -2184,3 +2184,57 @@ async fn test_update_user_email_flow() {
 
     let _ = fs::remove_file(&state.disk_store_path);
 }
+
+#[tokio::test]
+async fn test_cors_private_network_access_header() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    let state = create_test_state();
+    let cors = CorsLayer::new()
+        .allow_origin(vec!["http://tauri.localhost".parse::<HeaderValue>().unwrap()])
+        .allow_methods(AllowMethods::mirror_request())
+        .allow_headers(AllowHeaders::mirror_request())
+        .allow_private_network(true);
+
+    let app = routes::create_app_router(state.clone(), cors);
+
+    // 1. Valid origin requesting PNA -> must receive Access-Control-Allow-Private-Network: true
+    let req = Request::builder()
+        .method("OPTIONS")
+        .uri("/api/legal/info")
+        .header("Origin", "http://tauri.localhost")
+        .header("Access-Control-Request-Method", "GET")
+        .header("Access-Control-Request-Headers", "authorization")
+        .header("Access-Control-Request-Private-Network", "true")
+        .body(axum::body::Body::empty())
+        .unwrap();
+
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers().get("access-control-allow-private-network").and_then(|v| v.to_str().ok()),
+        Some("true")
+    );
+    assert_eq!(
+        resp.headers().get("access-control-allow-origin").and_then(|v| v.to_str().ok()),
+        Some("http://tauri.localhost")
+    );
+
+    // 2. Untrusted origin requesting PNA -> must NOT receive Access-Control-Allow-Origin or PNA approval
+    let evil_req = Request::builder()
+        .method("OPTIONS")
+        .uri("/api/legal/info")
+        .header("Origin", "https://evil-attacker.com")
+        .header("Access-Control-Request-Method", "GET")
+        .header("Access-Control-Request-Headers", "authorization")
+        .header("Access-Control-Request-Private-Network", "true")
+        .body(axum::body::Body::empty())
+        .unwrap();
+
+    let evil_resp = app.oneshot(evil_req).await.unwrap();
+    // Untrusted origin is strictly NOT allowed in Access-Control-Allow-Origin -> browser drops preflight
+    assert_eq!(evil_resp.headers().get("access-control-allow-origin"), None);
+
+    let _ = fs::remove_file(&state.disk_store_path);
+}

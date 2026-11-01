@@ -146,14 +146,15 @@ CREATE INDEX IF NOT EXISTS idx_grades_class_owner ON grades (owner_user_id, clas
 
 -- 11. Generic Encrypted Envelopes (Workspace & Entity Envelopes)
 CREATE TABLE IF NOT EXISTS encrypted_envelopes (
-    id UUID PRIMARY KEY,
+    id UUID NOT NULL,
     owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     entity_type TEXT NOT NULL,
     parent_id UUID,
     class_id UUID,
     encrypted_payload TEXT NOT NULL,
     version INT NOT NULL DEFAULT 1,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (owner_user_id, id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_encrypted_envelopes_owner ON encrypted_envelopes (owner_user_id);

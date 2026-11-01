@@ -29,3 +29,7 @@ webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"]
 url = "2.5"
 subtle = "2.5"
 
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+
+

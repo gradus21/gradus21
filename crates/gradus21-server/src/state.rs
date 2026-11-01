@@ -288,6 +288,23 @@ pub async fn ensure_pg_schema_and_load(
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_expires_at TIMESTAMPTZ",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_attempts INT NOT NULL DEFAULT 0",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_cooldown_until TIMESTAMPTZ",
+        r#"DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.table_constraints 
+                WHERE constraint_name = 'encrypted_envelopes_pkey' 
+                AND table_name = 'encrypted_envelopes'
+            ) THEN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.key_column_usage 
+                    WHERE constraint_name = 'encrypted_envelopes_pkey' 
+                    AND column_name = 'owner_user_id'
+                ) THEN
+                    ALTER TABLE encrypted_envelopes DROP CONSTRAINT encrypted_envelopes_pkey;
+                    ALTER TABLE encrypted_envelopes ADD PRIMARY KEY (owner_user_id, id);
+                END IF;
+            END IF;
+        END $$;"#,
     ];
 
     for q in schema_queries {
