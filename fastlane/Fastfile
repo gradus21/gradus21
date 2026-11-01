@@ -22,6 +22,7 @@ platform :ios do
     deliver(
       api_key: api_key,
       platform: "ios",
+      screenshots_path: "./fastlane/screenshots_ios",
       skip_binary_upload: true,
       skip_screenshots: false,
       skip_metadata: false,
@@ -37,6 +38,7 @@ platform :ios do
       deliver(
         api_key: api_key,
         platform: "osx",
+        screenshots_path: "./fastlane/screenshots_mac",
         skip_binary_upload: true,
         skip_screenshots: false,
         skip_metadata: false,
@@ -46,7 +48,7 @@ platform :ios do
         app_review_information: review_info
       )
     rescue => ex
-      UI.important("macOS Upload Note: #{ex.message}. Falls die macOS-Plattform in App Store Connect noch nicht angelegt ist, kann sie im linken Menü per '+' hinzugefügt werden.")
+      UI.important("macOS Upload Note: #{ex.message}. Falls die macOS-Plattform in App Store Connect noch nicht per '+' angelegt wurde, kann sie im linken Menü hinzugefügt werden.")
     end
   end
 end
