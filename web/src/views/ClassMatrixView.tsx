@@ -304,8 +304,8 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 md:shrink-0">
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           <div
-            className="hidden md:inline-flex items-center gap-1 p-0.5 rounded-xl border"
-            style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+            className="hidden md:inline-flex items-center gap-0.5 p-0.5 rounded-lg"
+            style={{ backgroundColor: 'var(--bg-subtle)' }}
           >
             {(
               [
@@ -317,16 +317,13 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
               <button
                 key={fmt.id}
                 onClick={() => setCellFormat(fmt.id)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
-                  cellFormat === fmt.id
-                    ? 'shadow-xs font-bold'
-                    : 'opacity-70 hover:opacity-100'
+                className={`px-2 py-1 rounded-md text-[11px] font-medium transition-colors duration-150 ${
+                  cellFormat === fmt.id ? 'font-semibold' : ''
                 }`}
                 style={{
-                  backgroundColor:
-                    cellFormat === fmt.id ? 'var(--bg-surface)' : 'transparent',
-                  color:
-                    cellFormat === fmt.id ? 'var(--primary-text)' : 'var(--text-secondary)',
+                  backgroundColor: cellFormat === fmt.id ? 'var(--bg-surface)' : 'transparent',
+                  color: cellFormat === fmt.id ? 'var(--text-primary)' : 'var(--text-muted)',
+                  boxShadow: cellFormat === fmt.id ? '0 1px 2px rgba(0,0,0,.06), 0 0 0 1px var(--border-subtle)' : 'none',
                 }}
               >
                 {fmt.label}
@@ -384,11 +381,10 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
           {/* Quick Action: + Schüler:in */}
           <button
             onClick={() => setShowNewStudentForm((s) => !s)}
-            className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition active:scale-[0.98] hover:opacity-90"
+            className="px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors active:scale-[0.98] hover:bg-black/5 dark:hover:bg-white/5"
             style={{
-              backgroundColor: showNewStudentForm ? 'var(--primary-soft)' : 'var(--bg-surface)',
-              color: showNewStudentForm ? 'var(--primary-text)' : 'var(--text-primary)',
-              borderColor: 'var(--border-subtle)',
+              color: showNewStudentForm ? 'var(--primary-text)' : 'var(--text-secondary)',
+              backgroundColor: showNewStudentForm ? 'var(--primary-soft)' : 'transparent',
             }}
           >
             <UserPlus className="w-3.5 h-3.5" style={{ color: 'var(--primary-500)' }} />
@@ -399,11 +395,10 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
           <div className="relative">
             <button
               onClick={() => setShowExportMenu((open) => !open)}
-              className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition active:scale-[0.98] hover:opacity-90"
+              className="px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors active:scale-[0.98] hover:bg-black/5 dark:hover:bg-white/5"
               style={{
-                backgroundColor: showExportMenu ? 'var(--bg-subtle)' : 'var(--bg-surface)',
-                color: 'var(--text-primary)',
-                borderColor: 'var(--border-subtle)',
+                backgroundColor: showExportMenu ? 'var(--bg-subtle)' : 'transparent',
+                color: 'var(--text-secondary)',
               }}
               aria-expanded={showExportMenu}
             >
@@ -420,7 +415,7 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                   onClick={() => setShowExportMenu(false)}
                 />
                 <div
-                  className="absolute right-0 mt-1 w-60 rounded-xl border shadow-xl py-1 z-40 backdrop-blur-md"
+                  className="absolute right-0 mt-1 w-60 rounded-lg border shadow-lg py-1 z-40 animate-pop-in"
                   style={{
                     backgroundColor: 'var(--bg-surface)',
                     borderColor: 'var(--border-subtle)',
@@ -495,8 +490,8 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
           {/* Primary Action: Prüfungen verwalten */}
           <button
             onClick={() => onOpenClassManager('assessments')}
-            className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold text-white flex items-center justify-center gap-1.5 shadow-sm transition active:scale-[0.98] hover:opacity-95"
-            style={{ backgroundColor: 'var(--primary-500)' }}
+            className="px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors active:scale-[0.98] hover:opacity-90"
+            style={{ backgroundColor: 'var(--primary-soft)', color: 'var(--primary-text)' }}
             title="Prüfungen im Detail verwalten, anlegen oder Bewertungsart ändern"
           >
             <Sliders className="w-3.5 h-3.5" />
@@ -510,7 +505,7 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
       {showNewStudentForm && (
         <form
           onSubmit={handleCreateStudent}
-          className="p-4 rounded-2xl border flex flex-wrap items-end gap-3 shadow-sm"
+          className="p-4 rounded-lg border flex flex-wrap items-end gap-3 shadow-sm"
           style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
         >
           <div>
@@ -1024,7 +1019,7 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
       {/* Desktop & Large Tablet Matrix Table (Hidden on small displays < md) */}
       <div
         data-tour="matrix-table"
-        className="hidden md:flex md:flex-col md:flex-1 md:min-h-0 rounded-2xl border overflow-hidden matrix-surface"
+        className="hidden md:flex md:flex-col md:flex-1 md:min-h-0 rounded-2xl border overflow-hidden "
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
         <div className="flex-1 min-h-0 overflow-auto overscroll-contain scroll-smooth matrix-scroll">

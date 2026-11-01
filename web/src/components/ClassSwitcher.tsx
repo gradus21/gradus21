@@ -6,14 +6,13 @@ interface ClassSwitcherProps {
   datasets: ClassroomSubjectDataset[];
   activeDataset: ClassroomSubjectDataset;
   setActiveClassId: (id: string) => void;
-  /** Shown as popover actions (header buttons are hidden on narrow widths). */
   onEditClass?: () => void;
   onCreateClass?: () => void;
 }
 
 /**
- * Custom class picker (replaces the native <select>, whose OS-rendered arrow and
- * option list clashed with the dark theme). Popover with filter field + keyboard nav.
+ * Custom class picker — replaces the native <select>.
+ * Popover with optional search, keyboard nav, and class actions.
  */
 export const ClassSwitcher: React.FC<ClassSwitcherProps> = ({
   datasets,
@@ -85,30 +84,30 @@ export const ClassSwitcher: React.FC<ClassSwitcherProps> = ({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label="Klasse auswählen"
-        className="group flex items-center gap-2 rounded-lg pl-2.5 pr-2 py-1 w-[132px] sm:w-[150px] lg:w-auto lg:min-w-[150px] lg:max-w-[210px] xl:max-w-[270px] text-left transition-colors hover:bg-black/5 dark:hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/60"
+        className="group flex items-center gap-1.5 rounded-md px-2 py-1 min-w-0 max-w-[130px] md:max-w-[180px] lg:max-w-[220px] text-left transition-colors hover:bg-black/5 dark:hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40"
       >
         <span className="flex flex-col min-w-0 flex-1 leading-tight">
-          <span className="text-[13px] font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+          <span className="text-[12px] font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
             {activeDataset.className}
           </span>
-          <span className="text-[11px] truncate" style={{ color: 'var(--text-muted)' }}>
+          <span className="text-[10px] truncate" style={{ color: 'var(--text-muted)' }}>
             {activeDataset.subjectName}
           </span>
         </span>
         <ChevronsUpDown
-          className="w-3.5 h-3.5 shrink-0 ml-auto opacity-50 group-hover:opacity-90 transition-opacity"
+          className="w-3 h-3 shrink-0 opacity-40 group-hover:opacity-70 transition-opacity"
           style={{ color: 'var(--text-secondary)' }}
         />
       </button>
 
       {open && (
         <div
-          className="absolute left-0 top-full mt-2 w-72 rounded-xl border shadow-2xl z-50 overflow-hidden origin-top-left animate-pop-in"
+          className="absolute left-0 top-full mt-1.5 w-64 rounded-lg border shadow-xl z-50 overflow-hidden origin-top-left animate-pop-in"
           style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
         >
           {showSearch && (
             <div className="flex items-center gap-2 px-3 py-2 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
-              <Search className="w-3.5 h-3.5 opacity-50" style={{ color: 'var(--text-secondary)' }} />
+              <Search className="w-3.5 h-3.5 opacity-40" style={{ color: 'var(--text-secondary)' }} />
               <input
                 ref={inputRef}
                 value={query}
@@ -122,9 +121,9 @@ export const ClassSwitcher: React.FC<ClassSwitcherProps> = ({
               />
             </div>
           )}
-          <ul role="listbox" aria-label="Klassen" className="max-h-80 overflow-y-auto p-1.5">
+          <ul role="listbox" aria-label="Klassen" className="max-h-72 overflow-y-auto p-1">
             {filtered.length === 0 && (
-              <li className="px-3 py-4 text-xs text-center" style={{ color: 'var(--text-muted)' }}>
+              <li className="px-3 py-3 text-[11px] text-center" style={{ color: 'var(--text-muted)' }}>
                 Keine Treffer
               </li>
             )}
@@ -138,52 +137,46 @@ export const ClassSwitcher: React.FC<ClassSwitcherProps> = ({
                   aria-selected={selected}
                   onMouseEnter={() => setCursor(i)}
                   onClick={() => pick(ds.id)}
-                  className="flex items-center gap-3 px-2.5 py-2 rounded-lg cursor-pointer transition-colors"
+                  className="flex items-center gap-2.5 px-2 py-1.5 rounded-md cursor-pointer transition-colors"
                   style={{ backgroundColor: highlighted ? 'var(--bg-subtle)' : 'transparent' }}
                 >
                   <span className="flex flex-col min-w-0 flex-1 leading-tight">
-                    <span className="text-xs font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+                    <span className="text-[11px] font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
                       {ds.className}
                       <span className="font-normal" style={{ color: 'var(--text-secondary)' }}>
                         {' '}· {ds.subjectName}
                       </span>
                     </span>
-                    <span className="text-[11px] truncate" style={{ color: 'var(--text-muted)' }}>
+                    <span className="text-[10px] truncate" style={{ color: 'var(--text-muted)' }}>
                       {ds.students.filter((s) => !s.is_archived).length} Schüler:innen
                       {ds.schoolYear ? ` · ${ds.schoolYear}` : ''}
                     </span>
                   </span>
-                  {selected && <Check className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--primary-500)' }} />}
+                  {selected && <Check className="w-3 h-3 shrink-0" style={{ color: 'var(--primary-500)' }} />}
                 </li>
               );
             })}
           </ul>
           {(onEditClass || onCreateClass) && (
-            <div className="border-t p-1.5 flex flex-col" style={{ borderColor: 'var(--border-subtle)' }}>
+            <div className="border-t p-1 flex flex-col" style={{ borderColor: 'var(--border-subtle)' }}>
               {onEditClass && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setOpen(false);
-                    onEditClass();
-                  }}
-                  className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs text-left transition-colors hover:bg-[var(--bg-subtle)]"
-                  style={{ color: 'var(--text-secondary)' }}
+                  onClick={() => { setOpen(false); onEditClass(); }}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] text-left transition-colors hover:bg-[var(--bg-subtle)]"
+                  style={{ color: 'var(--text-muted)' }}
                 >
-                  <Edit3 className="w-3.5 h-3.5" /> Aktuelle Klasse bearbeiten
+                  <Edit3 className="w-3 h-3" /> Klasse bearbeiten
                 </button>
               )}
               {onCreateClass && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setOpen(false);
-                    onCreateClass();
-                  }}
-                  className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs text-left transition-colors hover:bg-[var(--bg-subtle)]"
-                  style={{ color: 'var(--text-secondary)' }}
+                  onClick={() => { setOpen(false); onCreateClass(); }}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] text-left transition-colors hover:bg-[var(--bg-subtle)]"
+                  style={{ color: 'var(--text-muted)' }}
                 >
-                  <FolderPlus className="w-3.5 h-3.5" /> Neue Klasse / Excel-Import
+                  <FolderPlus className="w-3 h-3" /> Neue Klasse / Import
                 </button>
               )}
             </div>
