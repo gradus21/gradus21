@@ -9,21 +9,44 @@ platform :ios do
       key_content: ENV["APP_STORE_CONNECT_API_KEY_P8"]
     )
 
+    review_info = {
+      first_name: "Julian",
+      last_name: "Kallidat",
+      phone_number: "+49 176 12345678",
+      email_address: "julian.kallidat@campus.tu-berlin.de",
+      notes: "Gradus21 nutzt eine lokale Zero-Knowledge Architektur. Zur Prüfung ist kein externer Server-Account notwendig: Sie können direkt im Assistenten einen neuen lokalen Tresor anlegen oder den Offline-Modus nutzen."
+    }
+
+    # 1. iOS / iPadOS
+    UI.message("--- Uploading for iOS & iPadOS ---")
     deliver(
       api_key: api_key,
+      platform: "ios",
       skip_binary_upload: true,
       skip_screenshots: false,
       skip_metadata: false,
       force: true,
       run_precheck_before_submit: false,
       ignore_language_directory_validation: true,
-      app_review_information: {
-        first_name: "Julian",
-        last_name: "Kallidat",
-        phone_number: "+49 176 12345678",
-        email_address: "julian.kallidat@campus.tu-berlin.de",
-        notes: "Gradus21 nutzt eine lokale Zero-Knowledge Architektur. Zur Prüfung ist kein externer Server-Account notwendig: Sie können direkt im Assistenten einen neuen lokalen Tresor anlegen oder den Offline-Modus nutzen."
-      }
+      app_review_information: review_info
     )
+
+    # 2. macOS (OSX)
+    UI.message("--- Uploading for macOS ---")
+    begin
+      deliver(
+        api_key: api_key,
+        platform: "osx",
+        skip_binary_upload: true,
+        skip_screenshots: false,
+        skip_metadata: false,
+        force: true,
+        run_precheck_before_submit: false,
+        ignore_language_directory_validation: true,
+        app_review_information: review_info
+      )
+    rescue => ex
+      UI.important("macOS Upload Note: #{ex.message}. Falls die macOS-Plattform in App Store Connect noch nicht angelegt ist, kann sie im linken Menü per '+' hinzugefügt werden.")
+    end
   end
 end

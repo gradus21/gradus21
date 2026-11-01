@@ -54,6 +54,22 @@ $CHROME --headless --disable-gpu --hide-scrollbars \
   --window-size=1024,1366 \
   --screenshot="$DEST/3_iPadPro_Student360.png" "http://localhost:$PORT/#student360"
 
+echo "Capturing Mac Desktop (2880x1800) screenshots..."
+$CHROME --headless --disable-gpu --hide-scrollbars \
+  --force-device-scale-factor=2 \
+  --window-size=1440,900 \
+  --screenshot="$DEST/1_Mac_Matrix.png" "http://localhost:$PORT/#matrix"
+
+$CHROME --headless --disable-gpu --hide-scrollbars \
+  --force-device-scale-factor=2 \
+  --window-size=1440,900 \
+  --screenshot="$DEST/2_Mac_SpeedGrading.png" "http://localhost:$PORT/#speed"
+
+$CHROME --headless --disable-gpu --hide-scrollbars \
+  --force-device-scale-factor=2 \
+  --window-size=1440,900 \
+  --screenshot="$DEST/3_Mac_Student360.png" "http://localhost:$PORT/#student360"
+
 chmod +x "$REPO_ROOT/scripts/generate-screenshots.sh"
 echo "Screenshots generated successfully in $DEST"
 ls -lh "$DEST"
