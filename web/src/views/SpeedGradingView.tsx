@@ -320,7 +320,7 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
             </select>
 
             <div
-              className="flex rounded-xl p-1 border text-xs font-semibold w-full sm:w-auto justify-center"
+              className="flex rounded-xl p-0.5 border text-xs font-semibold w-full sm:w-auto justify-center"
               style={{
                 backgroundColor: 'var(--bg-subtle)',
                 borderColor: 'var(--border-subtle)',
@@ -329,24 +329,33 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
               <button
                 onClick={() => setSpeedInputMode('percent')}
                 className={`px-2 sm:px-2.5 py-1 rounded-lg transition ${
-                  speedInputMode === 'percent' ? 'bg-teal-600 text-white font-bold' : 'opacity-80'
+                  speedInputMode === 'percent' ? 'font-bold shadow-xs text-white' : 'opacity-70 hover:opacity-100'
                 }`}
+                style={{
+                  backgroundColor: speedInputMode === 'percent' ? 'var(--primary-500)' : 'transparent',
+                }}
               >
                 % Prozent
               </button>
               <button
                 onClick={() => setSpeedInputMode('points')}
                 className={`px-2 sm:px-2.5 py-1 rounded-lg transition ${
-                  speedInputMode === 'points' ? 'bg-teal-600 text-white font-bold' : 'opacity-80'
+                  speedInputMode === 'points' ? 'font-bold shadow-xs text-white' : 'opacity-70 hover:opacity-100'
                 }`}
+                style={{
+                  backgroundColor: speedInputMode === 'points' ? 'var(--primary-500)' : 'transparent',
+                }}
               >
                 Punkte (/{activeAssessment.max_points || 15})
               </button>
               <button
                 onClick={() => setSpeedInputMode('grade_scale')}
                 className={`px-2 sm:px-2.5 py-1 rounded-lg transition ${
-                  speedInputMode === 'grade_scale' ? 'bg-teal-600 text-white font-bold' : 'opacity-80'
+                  speedInputMode === 'grade_scale' ? 'font-bold shadow-xs text-white' : 'opacity-70 hover:opacity-100'
                 }`}
+                style={{
+                  backgroundColor: speedInputMode === 'grade_scale' ? 'var(--primary-500)' : 'transparent',
+                }}
               >
                 {activeDataset.config.scale_id === 'de_oberstufe_0_to_15'
                   ? '0–15 Pkt'

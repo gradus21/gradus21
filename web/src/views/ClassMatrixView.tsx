@@ -303,10 +303,10 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
     <div className="space-y-3 sm:space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3">
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-          <div className="hidden md:flex items-center gap-1.5 sm:gap-2">
-            <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
-              Darstellung:
-            </span>
+          <div
+            className="hidden md:inline-flex items-center gap-1 p-0.5 rounded-xl border"
+            style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+          >
             {(
               [
                 { id: 'combined', label: 'Kombi' },
@@ -317,13 +317,16 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
               <button
                 key={fmt.id}
                 onClick={() => setCellFormat(fmt.id)}
-                className="px-2.5 sm:px-3 py-1 rounded-lg text-xs font-semibold border transition"
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
+                  cellFormat === fmt.id
+                    ? 'shadow-xs font-bold'
+                    : 'opacity-70 hover:opacity-100'
+                }`}
                 style={{
                   backgroundColor:
-                    cellFormat === fmt.id ? 'var(--primary-soft)' : 'var(--bg-surface)',
+                    cellFormat === fmt.id ? 'var(--bg-surface)' : 'transparent',
                   color:
                     cellFormat === fmt.id ? 'var(--primary-text)' : 'var(--text-secondary)',
-                  borderColor: 'var(--border-subtle)',
                 }}
               >
                 {fmt.label}
@@ -335,7 +338,7 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
           {!userSettings.showReportCardColumn && (
             <button
               onClick={() => setShowOnDemandReportCardCol((s) => !s)}
-              className="px-2 sm:px-2.5 py-1 rounded-lg text-xs font-semibold border transition"
+              className="px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition hover:opacity-90 active:scale-[0.98]"
               style={{
                 backgroundColor: showOnDemandReportCardCol
                   ? 'var(--primary-soft)'
@@ -355,7 +358,7 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
           {archivedCount > 0 && (
             <button
               onClick={() => setShowArchivedInMatrix((a) => !a)}
-              className="px-2 sm:px-2.5 py-1 rounded-lg text-xs font-semibold border flex items-center gap-1 transition"
+              className="px-2.5 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition hover:opacity-90 active:scale-[0.98]"
               style={{
                 backgroundColor: showArchivedInMatrix
                   ? 'var(--primary-soft)'
@@ -366,7 +369,7 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                 borderColor: 'var(--border-subtle)',
               }}
             >
-              <Archive className="w-3 h-3" />
+              <Archive className="w-3.5 h-3.5" />
               <span>
                 {showArchivedInMatrix
                   ? 'Archivierte ausblenden'
@@ -1337,8 +1340,8 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                           }
                           className={`w-14 text-center font-mono tabular-nums text-xs py-1 px-1 rounded-lg border transition ${
                             currentZeugnisOverride
-                              ? 'font-extrabold ring-1 ring-teal-500'
-                              : 'opacity-70'
+                              ? 'font-extrabold ring-1 ring-teal-500 border-teal-500'
+                              : 'border-transparent hover:border-[var(--border-subtle)] focus:border-teal-500 opacity-75 hover:opacity-100'
                           }`}
                           style={{
                             backgroundColor: currentZeugnisOverride
@@ -1347,7 +1350,6 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                             color: currentZeugnisOverride
                               ? 'var(--primary-text)'
                               : 'var(--text-primary)',
-                            borderColor: 'var(--border-subtle)',
                           }}
                           title="Offizielle Zeugnisnote eintragen (leer lassen = berechnete Note übernehmen)"
                         />
@@ -1419,14 +1421,8 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                                         assess.input_mode || 'percent'
                                       )
                                     }
-                                    className="w-16 text-center font-mono text-xs py-1 px-1.5 rounded-lg border bg-transparent focus:outline-none focus:ring-2 focus:ring-teal-500 transition tabular-nums"
+                                    className="w-16 text-center font-mono text-xs py-1 px-1.5 rounded-lg border border-transparent hover:border-[var(--border-subtle)] focus:border-teal-500 focus:bg-teal-500/5 focus:outline-none focus:ring-1 focus:ring-teal-500 transition tabular-nums"
                                     style={{
-                                      borderColor:
-                                        entry?.percent_value != null ||
-                                        entry?.direct_grade_value != null ||
-                                        entry?.raw_points != null
-                                          ? 'var(--border-subtle)'
-                                          : 'transparent',
                                       color: 'var(--text-primary)',
                                     }}
                                   />

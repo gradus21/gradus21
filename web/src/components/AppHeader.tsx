@@ -119,26 +119,16 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           >
             <FlowRibbonLogo size={28} showWordmark={false} />
             <div>
-              <div className="flex items-center gap-1.5 sm:gap-2">
+              <div className="flex items-center gap-1.5">
                 <span
-                  className="font-extrabold tracking-tight text-sm sm:text-base group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors"
+                  className="font-extrabold tracking-tight text-base sm:text-lg group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors"
                   style={{ color: 'var(--text-primary)' }}
                 >
                   Gradus21
                 </span>
-                <span
-                  className="text-[9px] sm:text-[10px] font-bold px-1 sm:px-1.5 py-0.5 rounded uppercase tracking-wider"
-                  style={{
-                    backgroundColor: 'var(--primary-soft)',
-                    color: 'var(--primary-text)',
-                  }}
-                  title="Zero-Knowledge End-to-End Encryption"
-                >
-                  E2EE
-                </span>
               </div>
-              <p className="text-[10px] sm:text-[11px] leading-tight hidden sm:block" style={{ color: 'var(--text-secondary)' }}>
-                Offline-First & Zero-Knowledge Notenverwaltung
+              <p className="text-[10px] sm:text-[11px] leading-tight hidden lg:block" style={{ color: 'var(--text-secondary)' }}>
+                Zero-Knowledge Notenverwaltung
               </p>
             </div>
           </a>
@@ -309,37 +299,29 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               }
               aria-label="Speicherampel: Wo liegen Ihre Daten?"
             >
-              {/* Ampel-Dot mit Glow/Pulse */}
-              <span className="relative flex h-2.5 w-2.5 shrink-0">
-                {syncStatus === 'local_only' && (
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-                )}
-                {syncStatus === 'offline_local' && (
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+              {/* Ampel-Dot & Icon integriert */}
+              <span className="relative flex items-center justify-center shrink-0">
+                {syncStatus === 'syncing' ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-teal-600 dark:text-teal-400" />
+                ) : syncStatus === 'synced' ? (
+                  <Cloud className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                ) : syncStatus === 'local_only' ? (
+                  <HardDrive className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                ) : (
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
                 )}
                 <span
-                  className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                  className={`absolute -top-1 -right-1 w-2 h-2 rounded-full ${
                     syncStatus === 'synced'
-                      ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]'
+                      ? 'bg-emerald-500'
                       : syncStatus === 'local_only'
-                      ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)]'
+                      ? 'bg-amber-500'
                       : syncStatus === 'syncing'
                       ? 'bg-teal-500 animate-pulse'
-                      : 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.8)]'
+                      : 'bg-rose-500'
                   }`}
                 />
               </span>
-
-              {/* Icon */}
-              {syncStatus === 'syncing' ? (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin text-teal-600 dark:text-teal-400" />
-              ) : syncStatus === 'synced' ? (
-                <Cloud className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              ) : syncStatus === 'local_only' ? (
-                <HardDrive className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-              ) : (
-                <AlertTriangle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
-              )}
 
               {/* Status Text Desktop */}
               <span className="hidden sm:inline font-bold">
@@ -738,10 +720,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   <div className="text-xs font-bold whitespace-nowrap flex items-center gap-1.5">
                     <span>{tab.label}</span>
                     <span
-                      className={`text-[9px] font-mono px-1 py-0.2 rounded border hidden lg:inline ${
+                      className={`text-[10px] font-mono hidden xl:inline ${
                         active
-                          ? 'border-white/30 bg-white/20 text-white'
-                          : 'border-slate-300/60 dark:border-slate-700 text-slate-500 dark:text-slate-400'
+                          ? 'text-teal-100 opacity-90'
+                          : 'text-slate-400 dark:text-slate-500'
                       }`}
                     >
                       {getModifierKey()}+{tab.num}
