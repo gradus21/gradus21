@@ -221,26 +221,25 @@ jobs:
           if [ "$VALID_MAC_PROFILE" = "false" ]; then
             echo "Attempting to auto-generate or download native macOS profile via fastlane sigh..."
             gem install fastlane --no-document --quiet || true
-            ruby -r fastlane -e '
-              begin
-                key = Fastlane::Actions::AppStoreConnectApiKeyAction.run(
-                  key_id: ENV["KEY_ID"],
-                  issuer_id: ENV["ISSUER_ID"],
-                  key_content: ENV["API_KEY_P8"]
-                )
-                Fastlane::Actions::SighAction.run(
-                  api_key: key,
-                  platform: "macos",
-                  app_identifier: "de.gradus21.app",
-                  type: "appstore",
-                  output_path: ENV["RUNNER_TEMP"],
-                  filename: "embedded.provisionprofile",
-                  skip_install: true
-                )
-              rescue => e
-                puts "Fastlane sigh warning: #{e.message}"
-              end
-            ' || true
+            node -e '
+              const fs = require("fs");
+              const json = {
+                key_id: process.env.KEY_ID,
+                issuer_id: process.env.ISSUER_ID,
+                key: process.env.API_KEY_P8,
+                is_key_content_base64: false
+              };
+              fs.writeFileSync(process.env.RUNNER_TEMP + "/asc_api_key.json", JSON.stringify(json));
+            '
+            fastlane sigh \
+              --platform macos \
+              --app_identifier "de.gradus21.app" \
+              --type appstore \
+              --api_key_path "$RUNNER_TEMP/asc_api_key.json" \
+              --output_path "$RUNNER_TEMP" \
+              --filename "embedded.provisionprofile" \
+              --skip_install true \
+              --force false 2>&1 || true
 
             if [ -f "$RUNNER_TEMP/embedded.provisionprofile" ]; then
               cp "$RUNNER_TEMP/embedded.provisionprofile" "$MAS_APP_DIR/Contents/embedded.provisionprofile"
