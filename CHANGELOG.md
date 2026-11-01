@@ -3,6 +3,31 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.17] - 2026-11-01
+
+### Mobile UI/UX Overhaul & Smartphone Ergonomics
+- **Mobiles Redesign für Smartphones**:
+  - Klassen- und Notenübersicht auf Mobilgeräten als flüssiges Karten-Karussell mit Swipe-Gesten und Haptik-Feedback (`vibrate`).
+  - Mobile Bottom-Navigation und ergonomische Tab-Bar für einfache Einhand-Bedienung.
+  - Tastatur-Ergonomie und Vollbild-Sheets (Full-Height Modals) mit geschützten Safe-Area-Insets auf iOS und Android.
+- **Plattform-Harmonisierung**:
+  - Einheitlicher nativer Look & Feel über alle Zielsysteme (macOS, Windows, Linux, iPadOS, iOS, Android).
+  - Zusammenführung von Konto- und Sicherheitseinstellungen in ein aufgeräumtes Einstellungs-Modal.
+
+### Sync, E2EE Security & Backup Path Selection
+- **Stabilität des Cloud-Syncs & Biometrie**:
+  - Behebung einer Endlosschleife bei der iOS Face ID-Authentifizierung während der Cloud-Verknüpfung.
+  - Nahtlose Persistenz der Ende-zu-Ende-Verschlüsselungssitzung (E2EE) auf mobilen Clients.
+  - Korrektur der Verknüpfung von rein lokalen Tresoren mit der Cloud.
+- **Benutzerdefinierte Tresor-Backups**:
+  - Nativer Dateisystem-Dialog zur Auswahl individueller Backup-Pfade in allen Tauri-Clients (Desktop & Mobile).
+
+### Automated CI/CD Store Deployment
+- **Google Play Console Integration**:
+  - Vollautomatischer Upload von Android App Bundles (`.aab`) in den internen Test-Track der Google Play Console via Publishing API.
+- **Microsoft Store Integration**:
+  - Automatisierte MSIX-Paketierung und direkte Store-Einreichung für Windows über die offizielle `msstore`-CLI und Entra ID-Authentifizierung.
+
 ## [1.2.16] - 2026-10-29
 
 ### Client-Side API Routing & Mobile Tauri E-Mail-Verifikationsfix
