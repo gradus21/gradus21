@@ -222,21 +222,12 @@ nav,
   }
 }
 
-/* Garantiert zentrierte Ausrichtung für reine Icon-Buttons (ohne .hidden zu überschreiben) */
-button:has(> svg:only-child):not(.hidden):not([hidden]),
-button:has(> svg.shrink-0:only-child):not(.hidden):not([hidden]),
-.icon-btn:not(.hidden):not([hidden]) {
+/* Garantiert zentrierte Ausrichtung für reine Icon-Buttons mit :where (Spezifität 0, damit Tailwind .hidden & responsive Klassen wie gewohnt greifen) */
+:where(button:has(> svg:only-child), button:has(> svg.shrink-0:only-child), .icon-btn) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
-
-/* Visibility utilities: ensure hidden cannot be overridden by element defaults */
-.hidden { display: none !important; }
-@media (max-width: 639px) { .sm\:hidden { display: none !important; } }
-@media (max-width: 767px) { .md\:hidden { display: none !important; } }
-@media (max-width: 1023px) { .lg\:hidden { display: none !important; } }
-@media (max-width: 1279px) { .xl\:hidden { display: none !important; } }
 
 @media (max-width: 640px) {
   button:has(> [class*="hidden sm:inline"]),
