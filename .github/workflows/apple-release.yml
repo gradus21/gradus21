@@ -219,32 +219,41 @@ jobs:
           fi
 
           if [ "$VALID_MAC_PROFILE" = "false" ]; then
-            echo "Attempting to auto-generate or download native macOS profile via fastlane sigh..."
+            echo "Attempting to auto-generate or download native macOS profile via fastlane..."
             gem install fastlane --no-document --quiet || true
-            node -e '
-              const fs = require("fs");
-              const json = {
-                key_id: process.env.KEY_ID,
-                issuer_id: process.env.ISSUER_ID,
-                key: process.env.API_KEY_P8,
-                is_key_content_base64: false
-              };
-              fs.writeFileSync(process.env.RUNNER_TEMP + "/asc_api_key.json", JSON.stringify(json));
-            '
-            fastlane sigh \
-              --platform macos \
-              --app_identifier "de.gradus21.app" \
-              --type appstore \
-              --api_key_path "$RUNNER_TEMP/asc_api_key.json" \
-              --output_path "$RUNNER_TEMP" \
-              --filename "embedded.provisionprofile" \
-              --skip_install true \
-              --force false 2>&1 || true
+            export KEY_ID="$KEY_ID"
+            export ISSUER_ID="$ISSUER_ID"
+            export API_KEY_P8="$API_KEY_P8"
+            fastlane mac get_provisioning_profile || true
+
+            # Fallback direct CLI invocation (ensuring no invalid options)
+            if [ ! -f "$RUNNER_TEMP/embedded.provisionprofile" ]; then
+              node -e '
+                const fs = require("fs");
+                const json = {
+                  key_id: process.env.KEY_ID,
+                  issuer_id: process.env.ISSUER_ID,
+                  key: process.env.API_KEY_P8,
+                  is_key_content_base64: false
+                };
+                fs.writeFileSync(process.env.RUNNER_TEMP + "/asc_api_key.json", JSON.stringify(json));
+              '
+              fastlane sigh \
+                --platform macos \
+                --app_identifier "de.gradus21.app" \
+                --api_key_path "$RUNNER_TEMP/asc_api_key.json" \
+                --output_path "$RUNNER_TEMP" \
+                --filename "embedded.provisionprofile" \
+                --skip_install true \
+                --force false || true
+            fi
 
             if [ -f "$RUNNER_TEMP/embedded.provisionprofile" ]; then
               cp "$RUNNER_TEMP/embedded.provisionprofile" "$MAS_APP_DIR/Contents/embedded.provisionprofile"
               echo "Successfully embedded freshly fetched macOS profile!"
               VALID_MAC_PROFILE=true
+            else
+              echo "::warning::Could not automatically fetch macOS provisioning profile via Fastlane. If TestFlight requires it, register a 'Mac App Store Connect' profile on developer.apple.com."
             fi
           fi
 
