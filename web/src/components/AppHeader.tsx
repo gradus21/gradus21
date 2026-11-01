@@ -6,7 +6,6 @@ import {
   ChevronDown,
   ChevronRight,
   Cloud,
-  CloudOff,
   Columns,
   Download,
   Edit3,
@@ -16,7 +15,6 @@ import {
   HardDrive,
   HelpCircle,
   Info,
-  KeyRound,
   Lock,
   RefreshCw,
   Settings,
@@ -30,7 +28,7 @@ import { FlowRibbonLogo } from './FlowRibbonLogo';
 import { ClassroomSubjectDataset, TermFilterId } from '../data/demoClasses';
 import { ClassCalculationReport, WorkspaceMode } from '../types/workspace';
 import { SettingsSection } from './SettingsModal';
-import { getStorageLocationInfo, getModifierKey, getAltKey } from '../utils/platform';
+import { getStorageLocationInfo, getModifierKey } from '../utils/platform';
 
 export interface AppHeaderProps {
   datasets: ClassroomSubjectDataset[];
@@ -104,51 +102,45 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
   return (
     <>
-      {/* HEADER BAR */}
+      {/* UNIFIED SINGLE HEADER BAR */}
       <header
-        className="border-b px-3 sm:px-6 py-2 sm:py-3 pt-safe flex flex-wrap items-center justify-between gap-2.5 sm:gap-4 sticky top-0 z-30 shadow-sm"
+        className="border-b px-3 sm:px-5 py-2 pt-safe flex items-center justify-between gap-2 sm:gap-4 sticky top-0 z-30 shadow-xs"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
-        <div className="flex flex-wrap items-center gap-2.5 sm:gap-4 min-w-0">
+        {/* LEFT: Logo & Class Switcher Dropdown */}
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <a
             href="https://gradus21.de"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 sm:gap-2.5 group transition hover:opacity-95 shrink-0"
+            className="flex items-center gap-2 group transition hover:opacity-95 shrink-0"
             title="Zur offiziellen Website gradus21.de"
           >
-            <FlowRibbonLogo size={28} showWordmark={false} />
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span
-                  className="font-extrabold tracking-tight text-base sm:text-lg group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors"
-                  style={{ color: 'var(--text-primary)' }}
-                >
-                  Gradus21
-                </span>
-              </div>
-              <p className="text-[10px] sm:text-[11px] leading-tight hidden lg:block" style={{ color: 'var(--text-secondary)' }}>
-                Zero-Knowledge Notenverwaltung
-              </p>
-            </div>
+            <FlowRibbonLogo size={26} showWordmark={false} />
+            <span
+              className="font-extrabold tracking-tight text-base sm:text-lg group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors hidden sm:inline"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              Gradus21
+            </span>
           </a>
 
-          {/* Mobile Class Switcher (Compact select on small displays) */}
-          <div className="flex sm:hidden items-center gap-1 min-w-0">
-            <div className="relative">
+          {/* Compact Unified Class Switcher */}
+          <div
+            data-tour="header-class-switcher"
+            className="flex items-center gap-1 p-0.5 sm:p-1 rounded-xl border min-w-0"
+            style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+          >
+            <div className="relative min-w-0">
               <select
                 value={activeDataset.id}
                 onChange={(e) => setActiveClassId(e.target.value)}
-                className="text-xs font-bold rounded-xl border py-1.5 pl-2 pr-6 max-w-[130px] truncate focus:outline-none focus:ring-1 focus:ring-teal-500"
-                style={{
-                  backgroundColor: 'var(--bg-subtle)',
-                  borderColor: 'var(--border-subtle)',
-                  color: 'var(--text-primary)',
-                }}
+                className="text-xs font-bold rounded-lg border-0 bg-transparent py-1.5 pl-2 pr-6 max-w-[130px] sm:max-w-[190px] md:max-w-[220px] truncate focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
+                style={{ color: 'var(--text-primary)' }}
                 aria-label="Klasse auswählen"
               >
                 {datasets.map((ds) => (
-                  <option key={ds.id} value={ds.id}>
+                  <option key={ds.id} value={ds.id} className="text-slate-900 dark:text-slate-100 bg-white dark:bg-zinc-800">
                     {ds.className} · {ds.subjectName}
                   </option>
                 ))}
@@ -161,13 +153,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
             <button
               onClick={onOpenClassManager}
-              className="w-8 h-8 rounded-xl border flex items-center justify-center shrink-0 transition active:scale-95"
-              style={{
-                backgroundColor: 'var(--bg-surface)',
-                borderColor: 'var(--border-subtle)',
-                color: 'var(--text-primary)',
-              }}
-              title="Aktuelle Klasse bearbeiten"
+              data-tour="header-class-manager-btn"
+              className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-lg flex items-center justify-center shrink-0 transition hover:bg-black/5 dark:hover:bg-white/10 active:scale-95"
+              title="Aktuelle Klasse bearbeiten (Schüler, Kategorien, Prüfungen)"
               aria-label="Klasse bearbeiten"
             >
               <Edit3 className="w-3.5 h-3.5" style={{ color: 'var(--primary-500)' }} />
@@ -175,109 +163,140 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
             <button
               onClick={onOpenClassWizard}
-              className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition active:scale-95"
-              style={{
-                backgroundColor: 'var(--primary-soft)',
-                color: 'var(--primary-text)',
-              }}
-              title="Neue Klasse erstellen"
-              aria-label="Neue Klasse"
-            >
-              <FolderPlus className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* Desktop/Tablet Class Switcher */}
-          <div
-            data-tour="header-class-switcher"
-            className="hidden sm:flex items-center gap-1 p-1 rounded-xl border max-w-full overflow-x-auto"
-            style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
-          >
-            {datasets.map((ds) => {
-              const active = ds.id === activeDataset.id;
-              return (
-                <button
-                  key={ds.id}
-                  onClick={() => setActiveClassId(ds.id)}
-                  className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 sm:gap-2 shrink-0 ${
-                    active ? 'shadow-sm' : 'opacity-75 hover:opacity-100'
-                  }`}
-                  style={{
-                    backgroundColor: active ? 'var(--bg-surface)' : 'transparent',
-                    color: active ? 'var(--primary-500)' : 'var(--text-secondary)',
-                  }}
-                >
-                  <span
-                    className="w-2 h-2 rounded-full shrink-0"
-                    style={{
-                      backgroundColor: active ? 'var(--primary-500)' : 'var(--text-muted)',
-                    }}
-                  />
-                  <span className="whitespace-nowrap">
-                    {ds.className} · {ds.subjectName}
-                  </span>
-                </button>
-              );
-            })}
-
-            <button
-              onClick={onOpenClassManager}
-              data-tour="header-class-manager-btn"
-              className="w-10 h-10 md:w-auto md:h-auto p-0 md:px-2.5 md:py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition hover:opacity-90 border shrink-0"
-              style={{
-                backgroundColor: 'var(--bg-surface)',
-                borderColor: 'var(--border-subtle)',
-                color: 'var(--text-primary)',
-              }}
-              title="Aktuelle Klasse bearbeiten"
-            >
-              <Edit3 className="w-4 h-4 md:w-3.5 md:h-3.5" style={{ color: 'var(--primary-500)' }} />
-              <span className="hidden md:inline">Klasse bearbeiten</span>
-            </button>
-
-            <button
-              onClick={onOpenClassWizard}
               data-tour="header-class-wizard-btn"
-              className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition hover:opacity-90 shrink-0"
+              className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-lg flex items-center justify-center shrink-0 transition active:scale-95"
               style={{
                 backgroundColor: 'var(--primary-soft)',
                 color: 'var(--primary-text)',
               }}
               title="Neue Klasse erstellen oder .xlsx Excel-Datei importieren"
+              aria-label="Neue Klasse"
             >
-              <FolderPlus className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-              <span className="hidden sm:inline">Neue Klasse</span>
-              <span className="sm:hidden">Neu</span>
+              <FolderPlus className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
 
-        {/* Right Controls */}
+        {/* CENTER: 4 Workspace Mode Tabs (Segmented Control on tablet & desktop, hidden on phone) */}
+        <nav
+          data-tour="header-mode-tabs"
+          aria-label="Arbeitsmodi"
+          className="hidden md:flex items-center gap-1 p-1 rounded-xl border shrink-0"
+          style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+        >
+          {(
+            [
+              { id: 'matrix', label: 'Matrix', full: 'Klassen-Matrix', icon: Columns, num: '1' },
+              { id: 'speed_grading', label: 'Speed', full: 'Speed-Grading', icon: Zap, num: '2' },
+              { id: 'student_360', label: '360°', full: '360°-Akte', icon: UserCheck, num: '3' },
+              { id: 'configurator', label: 'Setup', full: 'Gewichtung', icon: Sliders, num: '4' },
+            ] as const
+          ).map((tab) => {
+            const Icon = tab.icon;
+            const active = mode === tab.id;
+            const tourId =
+              tab.id === 'matrix'
+                ? 'header-mode-matrix'
+                : tab.id === 'speed_grading'
+                ? 'header-mode-speed'
+                : tab.id === 'student_360'
+                ? 'header-mode-student360'
+                : 'header-mode-configurator';
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setMode(tab.id)}
+                data-tour={tourId}
+                className={`px-2.5 lg:px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+                  active
+                    ? 'shadow-xs text-white'
+                    : 'opacity-70 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5'
+                }`}
+                style={{
+                  backgroundColor: active ? 'var(--primary-500)' : 'transparent',
+                  color: active ? '#FFFFFF' : 'var(--text-primary)',
+                }}
+                title={`${tab.full} (${getModifierKey()}+${tab.num})`}
+              >
+                <Icon className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden lg:inline">{tab.full}</span>
+                <span className="lg:hidden">{tab.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* RIGHT: Term Filter + Average + Storage Indicator + Action Icons */}
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-          {/* OPTIONAL SUBTLE GUIDE BUTTON (CAN BE TOGGLED IN SETTINGS) */}
+          {/* Halbjahr Switcher (Desktop / Tablet) */}
+          <div
+            className="hidden sm:inline-flex items-center gap-0.5 p-0.5 rounded-xl border"
+            style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+          >
+            {(
+              [
+                { id: 'hj1', label: '1. HJ' },
+                { id: 'hj2', label: '2. HJ' },
+                { id: 'all', label: 'Gesamt' },
+              ] as const
+            ).map((term) => (
+              <button
+                key={term.id}
+                onClick={() => setActiveTerm(term.id)}
+                className={`px-2 py-1 rounded-lg text-[11px] font-bold transition ${
+                  activeTerm === term.id ? 'shadow-xs font-bold' : 'opacity-65 hover:opacity-100'
+                }`}
+                style={{
+                  backgroundColor: activeTerm === term.id ? 'var(--bg-surface)' : 'transparent',
+                  color: activeTerm === term.id ? 'var(--primary-text)' : 'var(--text-secondary)',
+                }}
+              >
+                {term.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Compact Live-Klassenschnitt (Visible on large screens) */}
+          {calculationReport?.class_average_percent != null && (
+            <span
+              className="hidden xl:inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-mono font-bold border"
+              style={{
+                backgroundColor: 'var(--primary-soft)',
+                color: 'var(--primary-text)',
+                borderColor: 'var(--border-subtle)',
+              }}
+              title={`Live-Klassenschnitt ${activeTerm.toUpperCase()}: ${calculationReport.class_average_percent}% (Note ${calculationReport.class_display_grade})`}
+            >
+              <span className="text-[10px] font-sans font-semibold opacity-70">Ø</span>
+              <span>{calculationReport.class_display_grade}</span>
+              <span className="opacity-60 text-[10px]">({calculationReport.class_average_percent}%)</span>
+            </span>
+          )}
+
+          {/* GUIDE BUTTON (OPTIONAL) */}
           {showGuideButtonInHeader && (
             <button
               onClick={onOpenInteractiveGuide}
               data-tour="header-guide-btn"
-              className="w-10 h-10 xl:w-auto xl:h-auto p-0 xl:px-2.5 xl:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition hover:opacity-90 shrink-0"
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl border flex items-center justify-center transition hover:opacity-90 active:scale-95 shrink-0"
               style={{
                 backgroundColor: 'var(--bg-subtle)',
                 color: 'var(--text-secondary)',
                 borderColor: 'var(--border-subtle)',
               }}
               title="Interaktive Demo & Funktions-Guide (Taste ?)"
+              aria-label="Guide"
             >
-              <HelpCircle className="w-4 h-4 xl:w-3.5 xl:h-3.5" style={{ color: 'var(--primary-500)' }} />
-              <span className="hidden xl:inline">Guide</span>
+              <HelpCircle className="w-4 h-4" style={{ color: 'var(--primary-500)' }} />
             </button>
           )}
 
-          {/* HEADER SPEICHERAMPEL (§ 241 Abs. 2 BGB Transparenz: Lehrkraft sieht jede Sekunde, wo die Noten liegen) */}
+          {/* SPEICHERAMPEL */}
           <div className="relative" ref={storagePopoverRef}>
             <button
               onClick={() => setIsStoragePopoverOpen((prev) => !prev)}
               data-tour="header-sync-status"
-              className={`h-10 lg:h-auto px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer hover:opacity-95 flex items-center justify-center gap-2 shrink-0 ${
+              className={`h-8 sm:h-9 px-2.5 sm:px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer hover:opacity-95 flex items-center justify-center gap-1.5 shrink-0 ${
                 syncStatus === 'synced'
                   ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-300'
                   : syncStatus === 'local_only'
@@ -291,15 +310,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   ? 'Speicherampel: GRÜN - Verschlüsselt in der Cloud & lokal gesichert (E2EE)'
                   : syncStatus === 'local_only'
                   ? storageInfo.isNative
-                    ? `Speicherampel: GELB - Noten liegen ausschließlich lokal in der ${storageInfo.platformName}-App. Klicke für Details & Backup.`
-                    : 'Speicherampel: GELB - Achtung: Noten liegen ausschließlich in diesem Browser. Klicke für Details & Backup.'
+                    ? `Speicherampel: GELB - Noten liegen ausschließlich lokal in der ${storageInfo.platformName}-App.`
+                    : 'Speicherampel: GELB - Achtung: Noten liegen ausschließlich in diesem Browser.'
                   : syncStatus === 'syncing'
                   ? 'Speicherampel: BLAU - Änderungen werden verschlüsselt gesichert...'
                   : 'Speicherampel: ROT - Offline / Lokale Änderungen nicht synchronisiert.'
               }
               aria-label="Speicherampel: Wo liegen Ihre Daten?"
             >
-              {/* Ampel-Dot & Icon integriert */}
               <span className="relative flex items-center justify-center shrink-0">
                 {syncStatus === 'syncing' ? (
                   <RefreshCw className="w-3.5 h-3.5 animate-spin text-teal-600 dark:text-teal-400" />
@@ -324,28 +342,21 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               </span>
 
               {/* Status Text Desktop */}
-              <span className="hidden sm:inline font-bold">
+              <span className="hidden lg:inline font-bold">
                 {syncStatus === 'syncing'
                   ? 'Sichern...'
                   : syncStatus === 'synced'
-                  ? 'Cloud-Sync (E2EE)'
+                  ? 'Cloud'
                   : syncStatus === 'local_only'
-                  ? storageInfo.isNative
-                    ? 'Nur lokal (App)'
-                    : 'Nur lokal (Browser)'
-                  : 'Offline (Lokal)'}
-              </span>
-
-              {/* Status Text Mobile */}
-              <span className="sm:hidden font-bold text-[11px]">
-                {syncStatus === 'synced' ? 'Cloud' : syncStatus === 'syncing' ? '...' : 'Lokal'}
+                  ? 'Lokal'
+                  : 'Offline'}
               </span>
             </button>
 
             {/* SPEICHERAMPEL POPOVER / FLYOUT */}
             {isStoragePopoverOpen && (
               <div
-                className="fixed left-3 right-3 top-[6.75rem] max-w-md mx-auto sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96 sm:max-w-none max-h-[80dvh] overflow-y-auto rounded-2xl border shadow-2xl p-4 z-50 text-xs space-y-3.5 animate-in fade-in zoom-in-95 duration-150"
+                className="fixed left-3 right-3 top-[3.75rem] max-w-md mx-auto sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96 sm:max-w-none max-h-[80dvh] overflow-y-auto rounded-2xl border shadow-2xl p-4 z-50 text-xs space-y-3.5 animate-in fade-in zoom-in-95 duration-150"
                 style={{
                   backgroundColor: 'var(--bg-surface)',
                   borderColor: 'var(--border-subtle)',
@@ -529,43 +540,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             )}
           </div>
 
-          <button
-            onClick={() => onOpenSettings()}
-            data-tour="header-settings-btn"
-            className="w-9 h-9 sm:w-10 sm:h-10 lg:w-auto lg:h-auto p-0 lg:px-3 lg:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition active:scale-95 shrink-0"
-            style={{
-              backgroundColor: 'var(--bg-subtle)',
-              color: 'var(--text-primary)',
-              borderColor: 'var(--border-subtle)',
-            }}
-            title="Einstellungen"
-            aria-label="Einstellungen"
-          >
-            <Settings className="w-4 h-4 lg:w-3.5 lg:h-3.5" style={{ color: 'var(--primary-500)' }} />
-            <span className="hidden lg:inline">Einstellungen</span>
-          </button>
-
-          {isAdmin && (
-            <button
-              onClick={onOpenAdmin}
-              className="w-9 h-9 sm:w-10 sm:h-10 xl:w-auto xl:h-auto p-0 xl:px-3 xl:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition active:scale-95 shadow-sm shrink-0"
-              style={{
-                backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                color: '#dc2626',
-                borderColor: 'rgba(239, 68, 68, 0.25)',
-              }}
-              title="Admin-Bereich"
-              aria-label="Admin-Bereich"
-            >
-              <Shield className="w-4 h-4 xl:w-3.5 xl:h-3.5 text-red-600" />
-              <span className="hidden xl:inline">Admin</span>
-            </button>
-          )}
-
+          {/* PRIVACY BLUR */}
           <button
             onClick={() => setPrivacyBlur((b) => !b)}
             data-tour="header-privacy-blur"
-            className={`w-9 h-9 sm:w-10 sm:h-10 md:w-auto md:h-auto p-0 md:px-3 md:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition active:scale-95 shrink-0 ${
+            className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl text-xs font-semibold border flex items-center justify-center transition active:scale-95 shrink-0 ${
               privacyBlur ? 'ring-2 ring-amber-500 bg-amber-500/10 text-amber-600' : ''
             }`}
             style={
@@ -577,165 +556,105 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   }
                 : undefined
             }
-            title="Namen & Noten unscharf schalten (Alt+P)"
+            title={privacyBlur ? 'Namen & Noten einblenden (Alt+P)' : 'Namen & Noten unscharf schalten (Alt+P)'}
             aria-label="Datenschutz Unschärfe umschalten"
           >
-            {privacyBlur ? <Eye className="w-4 h-4 md:w-3.5 md:h-3.5" /> : <EyeOff className="w-4 h-4 md:w-3.5 md:h-3.5" />}
-            <span className="hidden md:inline">{privacyBlur ? 'Namen zeigen' : 'Namen ausblenden'}</span>
+            {privacyBlur ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
           </button>
 
+          {/* SETTINGS */}
+          <button
+            onClick={() => onOpenSettings()}
+            data-tour="header-settings-btn"
+            className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl text-xs font-semibold border flex items-center justify-center transition active:scale-95 shrink-0"
+            style={{
+              backgroundColor: 'var(--bg-subtle)',
+              color: 'var(--text-primary)',
+              borderColor: 'var(--border-subtle)',
+            }}
+            title="Einstellungen"
+            aria-label="Einstellungen"
+          >
+            <Settings className="w-4 h-4" style={{ color: 'var(--primary-500)' }} />
+          </button>
+
+          {/* ADMIN */}
+          {isAdmin && (
+            <button
+              onClick={onOpenAdmin}
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl text-xs font-semibold border flex items-center justify-center transition active:scale-95 shadow-xs shrink-0"
+              style={{
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                color: '#dc2626',
+                borderColor: 'rgba(239, 68, 68, 0.25)',
+              }}
+              title="Admin-Bereich"
+              aria-label="Admin-Bereich"
+            >
+              <Shield className="w-4 h-4 text-red-600" />
+            </button>
+          )}
+
+          {/* LOCK */}
           <button
             onClick={onLockVault}
-            className="w-9 h-9 sm:w-10 sm:h-10 sm:w-auto sm:h-auto p-0 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition active:scale-95 shrink-0"
+            className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl text-xs font-semibold border flex items-center justify-center transition active:scale-95 shrink-0"
             style={{
               backgroundColor: 'var(--bg-subtle)',
               color: 'var(--text-secondary)',
               borderColor: 'var(--border-subtle)',
             }}
-            title="Gradus21 sperren"
+            title="Gradus21 sperren / Abmelden"
             aria-label="Abmelden und sperren"
           >
-            <Lock className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-            <span className="hidden sm:inline">Abmelden</span>
+            <Lock className="w-4 h-4" />
           </button>
         </div>
       </header>
 
-      {/* SUB-HEADER: CONTEXT & TABS */}
+      {/* MOBILE MINI-STRIP (Exclusively visible on phones < md, height ~34px) */}
       <div
-        className="border-b px-3 sm:px-6 py-2.5 sm:py-4 flex flex-wrap items-center justify-between gap-3 sm:gap-4"
+        className="md:hidden border-b px-3 py-1 flex items-center justify-between text-xs"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
-        <div className="space-y-1 min-w-0">
-          <div
-            className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs font-medium"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            <span className="hidden sm:inline">{activeDataset.schoolName}</span>
-            <ChevronRight className="w-3.5 h-3.5 hidden sm:inline" />
-            <span>SJ {activeDataset.schoolYear}</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-
-            <div
-              className="inline-flex items-center gap-1 p-0.5 rounded-lg border"
-              style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
-            >
-              <Calendar className="w-3 h-3 ml-1.5" style={{ color: 'var(--primary-500)' }} />
-              {(
-                [
-                  { id: 'hj1', label: '1. Halbjahr', short: '1. HJ' },
-                  { id: 'hj2', label: '2. Halbjahr', short: '2. HJ' },
-                  { id: 'all', label: 'Gesamtjahr', short: 'Gesamt' },
-                ] as const
-              ).map((term) => (
-                <button
-                  key={term.id}
-                  onClick={() => setActiveTerm(term.id)}
-                  className={`px-2 py-0.5 rounded-md text-[11px] font-bold transition ${
-                    activeTerm === term.id ? 'text-white shadow-sm' : ''
-                  }`}
-                  style={{
-                    backgroundColor: activeTerm === term.id ? 'var(--primary-500)' : 'transparent',
-                    color: activeTerm === term.id ? '#fff' : 'var(--text-secondary)',
-                  }}
-                >
-                  <span className="hidden sm:inline">{term.label}</span>
-                  <span className="sm:hidden">{term.short}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <h1
-            className="text-base sm:text-xl font-bold flex flex-wrap items-center gap-1.5 sm:gap-3"
-            style={{ color: 'var(--text-primary)' }}
-          >
-            <span>
-              {activeDataset.subjectName} – {activeDataset.className}
-            </span>
-            <span
-              className="text-[11px] sm:text-xs font-semibold px-2 sm:px-2.5 py-0.5 rounded-full"
-              style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--text-secondary)' }}
-            >
-              {activeDataset.students.filter((s) => !s.is_archived).length} Schüler
-              {archivedCount > 0 ? ` (+${archivedCount})` : ''}
-            </span>
-            {calculationReport?.class_average_percent != null && (
-              <span
-                className="text-[11px] sm:text-xs font-mono font-semibold px-2 sm:px-2.5 py-0.5 rounded-full"
-                style={{ backgroundColor: 'var(--primary-soft)', color: 'var(--primary-text)' }}
-              >
-                <span className="hidden sm:inline">Live-Klassenschnitt ({activeTerm.toUpperCase()}): </span>
-                <span className="sm:hidden">Ø </span>
-                {calculationReport.class_average_percent}% (Ø{' '}
-                {calculationReport.class_display_grade})
-              </span>
-            )}
-          </h1>
-          <p className="text-xs hidden sm:block" style={{ color: 'var(--text-secondary)' }}>
-            {activeDataset.description}
-          </p>
-        </div>
-
-        {/* 4 Specialized Workspace Mode Tabs (Desktop / Tablet - on mobile replaced by persistent bottom bar) */}
         <div
-          data-tour="header-mode-tabs"
-          className="hidden md:flex items-center gap-1 sm:gap-1.5 p-1 sm:p-1.5 rounded-2xl border max-w-full overflow-x-auto"
+          className="inline-flex items-center gap-0.5 p-0.5 rounded-lg border"
           style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
         >
           {(
             [
-              { id: 'matrix', label: 'Klassen-Matrix', sub: 'Übersicht & Zeugnis', icon: Columns, num: '1' },
-              { id: 'speed_grading', label: 'Speed-Grading', sub: 'Prüfung & Schlüssel', icon: Zap, num: '2' },
-              { id: 'student_360', label: 'Schüler-360°-Akte', sub: 'Elterngespräch & PDF', icon: UserCheck, num: '3' },
-              { id: 'configurator', label: 'Gewichtungs-Baukasten', sub: 'Individuell & Vorlagen', icon: Sliders, num: '4' },
+              { id: 'hj1', label: '1. HJ' },
+              { id: 'hj2', label: '2. HJ' },
+              { id: 'all', label: 'Gesamt' },
             ] as const
-          ).map((tab) => {
-            const Icon = tab.icon;
-            const active = mode === tab.id;
-            const tourId =
-              tab.id === 'matrix'
-                ? 'header-mode-matrix'
-                : tab.id === 'speed_grading'
-                ? 'header-mode-speed'
-                : tab.id === 'student_360'
-                ? 'header-mode-student360'
-                : 'header-mode-configurator';
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setMode(tab.id)}
-                data-tour={tourId}
-                className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl text-left transition-all flex items-center gap-2 shrink-0 ${
-                  active ? 'shadow-sm' : 'opacity-75 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5'
-                }`}
-                style={{
-                  backgroundColor: active ? 'var(--primary-500)' : 'transparent',
-                  color: active ? '#FFFFFF' : 'var(--text-primary)',
-                }}
-                title={`${tab.label} (${getModifierKey()}+${tab.num})`}
-              >
-                <Icon className="w-4 h-4 shrink-0" />
-                <div className="leading-tight">
-                  <div className="text-xs font-bold whitespace-nowrap flex items-center gap-1.5">
-                    <span>{tab.label}</span>
-                    <span
-                      className={`text-[10px] font-mono hidden xl:inline ${
-                        active
-                          ? 'text-teal-100 opacity-90'
-                          : 'text-slate-400 dark:text-slate-500'
-                      }`}
-                    >
-                      {getModifierKey()}+{tab.num}
-                    </span>
-                  </div>
-                  <div className={`text-[10px] hidden md:block ${active ? 'text-teal-50/90' : 'opacity-70'}`}>
-                    {tab.sub}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
+          ).map((term) => (
+            <button
+              key={term.id}
+              onClick={() => setActiveTerm(term.id)}
+              className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition ${
+                activeTerm === term.id
+                  ? 'shadow-xs bg-white dark:bg-zinc-800 text-teal-600 dark:text-teal-400'
+                  : 'opacity-70'
+              }`}
+            >
+              {term.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2 text-[11px]">
+          <span className="font-semibold text-slate-500">
+            {activeDataset.students.filter((s) => !s.is_archived).length} SuS
+            {archivedCount > 0 ? ` (+${archivedCount})` : ''}
+          </span>
+          {calculationReport?.class_average_percent != null && (
+            <span
+              className="px-2 py-0.5 rounded-full font-mono font-bold"
+              style={{ backgroundColor: 'var(--primary-soft)', color: 'var(--primary-text)' }}
+            >
+              Ø {calculationReport.class_display_grade} ({calculationReport.class_average_percent}%)
+            </span>
+          )}
         </div>
       </div>
     </>
