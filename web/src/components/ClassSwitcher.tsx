@@ -1,11 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, ChevronsUpDown, Search } from 'lucide-react';
+import { Check, ChevronsUpDown, Edit3, FolderPlus, Search } from 'lucide-react';
 import { ClassroomSubjectDataset } from '../data/demoClasses';
 
 interface ClassSwitcherProps {
   datasets: ClassroomSubjectDataset[];
   activeDataset: ClassroomSubjectDataset;
   setActiveClassId: (id: string) => void;
+  /** Shown as popover actions (header buttons are hidden on narrow widths). */
+  onEditClass?: () => void;
+  onCreateClass?: () => void;
 }
 
 /**
@@ -16,6 +19,8 @@ export const ClassSwitcher: React.FC<ClassSwitcherProps> = ({
   datasets,
   activeDataset,
   setActiveClassId,
+  onEditClass,
+  onCreateClass,
 }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -80,9 +85,9 @@ export const ClassSwitcher: React.FC<ClassSwitcherProps> = ({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label="Klasse auswählen"
-        className="group flex items-center gap-2 rounded-lg pl-2.5 pr-2 py-1 min-w-0 max-w-[160px] sm:max-w-[230px] md:max-w-[270px] text-left transition-colors hover:bg-black/5 dark:hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/60"
+        className="group flex items-center gap-2 rounded-lg pl-2.5 pr-2 py-1 w-[132px] sm:w-[150px] lg:w-auto lg:min-w-[150px] lg:max-w-[210px] xl:max-w-[270px] text-left transition-colors hover:bg-black/5 dark:hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/60"
       >
-        <span className="flex flex-col min-w-0 leading-tight">
+        <span className="flex flex-col min-w-0 flex-1 leading-tight">
           <span className="text-[13px] font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
             {activeDataset.className}
           </span>
@@ -153,6 +158,36 @@ export const ClassSwitcher: React.FC<ClassSwitcherProps> = ({
               );
             })}
           </ul>
+          {(onEditClass || onCreateClass) && (
+            <div className="border-t p-1.5 flex flex-col" style={{ borderColor: 'var(--border-subtle)' }}>
+              {onEditClass && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    onEditClass();
+                  }}
+                  className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs text-left transition-colors hover:bg-[var(--bg-subtle)]"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  <Edit3 className="w-3.5 h-3.5" /> Aktuelle Klasse bearbeiten
+                </button>
+              )}
+              {onCreateClass && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    onCreateClass();
+                  }}
+                  className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs text-left transition-colors hover:bg-[var(--bg-subtle)]"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  <FolderPlus className="w-3.5 h-3.5" /> Neue Klasse / Excel-Import
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

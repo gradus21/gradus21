@@ -120,7 +120,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     <>
       {/* UNIFIED SINGLE HEADER BAR */}
       <header
-        className="border-b px-4 sm:px-6 pb-3 sm:pb-3.5 pt-[max(0.75rem,env(safe-area-inset-top))] sm:pt-[max(0.875rem,env(safe-area-inset-top))] flex items-center justify-between gap-3 sm:gap-6 sticky top-0 z-30 shadow-xs min-h-[64px]"
+        className="border-b px-4 lg:px-6 pb-3 sm:pb-3.5 pt-[max(0.75rem,env(safe-area-inset-top))] sm:pt-[max(0.875rem,env(safe-area-inset-top))] flex items-center justify-between gap-3 lg:gap-6 sticky top-0 z-30 shadow-xs min-h-[64px]"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
         {/* LEFT: Logo & Class Switcher Dropdown */}
@@ -134,7 +134,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           >
             <FlowRibbonLogo size={28} showWordmark={false} />
             <span
-              className="font-extrabold tracking-tight text-lg group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors hidden sm:inline"
+              className="font-extrabold tracking-tight text-lg group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors hidden xl:inline"
               style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}
             >
               Gradus21
@@ -144,20 +144,22 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           {/* Compact Unified Class Switcher */}
           <div
             data-tour="header-class-switcher"
-            className="flex items-center gap-1.5 p-1 rounded-xl border min-w-0 shadow-2xs"
+            className="flex items-center gap-1.5 p-1 rounded-xl border min-w-0 shrink-0 shadow-2xs"
             style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
           >
             <ClassSwitcher
               datasets={datasets}
               activeDataset={activeDataset}
               setActiveClassId={setActiveClassId}
+              onEditClass={onOpenClassManager}
+              onCreateClass={onOpenClassWizard}
             />
-            <span className="w-px h-6 mx-0.5" style={{ backgroundColor: 'var(--border-subtle)' }} />
+            <span className="hidden lg:block w-px h-6 mx-0.5" style={{ backgroundColor: 'var(--border-subtle)' }} />
 
             <button
               onClick={onOpenClassManager}
               data-tour="header-class-manager-btn"
-              className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition hover:bg-black/5 dark:hover:bg-white/10 active:scale-95"
+              className="hidden lg:flex w-8 h-8 rounded-lg items-center justify-center shrink-0 transition hover:bg-black/5 dark:hover:bg-white/10 active:scale-95"
               title="Aktuelle Klasse bearbeiten (Schüler, Kategorien, Prüfungen)"
               aria-label="Klasse bearbeiten"
             >
@@ -167,7 +169,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             <button
               onClick={onOpenClassWizard}
               data-tour="header-class-wizard-btn"
-              className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition hover:bg-black/5 dark:hover:bg-white/10 active:scale-95"
+              className="hidden lg:flex w-8 h-8 rounded-lg items-center justify-center shrink-0 transition hover:bg-black/5 dark:hover:bg-white/10 active:scale-95"
               style={{ color: 'var(--text-secondary)' }}
               title="Neue Klasse erstellen oder .xlsx Excel-Datei importieren"
               aria-label="Neue Klasse"
@@ -229,10 +231,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   color: active ? '#FFFFFF' : 'var(--text-secondary)',
                 }}
                 title={`${tab.full} (${getModifierKey()}+${tab.num})`}
+                aria-label={tab.full}
               >
                 <Icon className="w-3.5 h-3.5 shrink-0 opacity-80" />
-                <span className="hidden lg:inline">{tab.full}</span>
-                <span className="lg:hidden">{tab.label}</span>
+                <span className="hidden xl:inline">{tab.full}</span>
+                <span className="hidden lg:inline xl:hidden">{tab.label}</span>
               </button>
             );
           })}
