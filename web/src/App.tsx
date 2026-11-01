@@ -95,20 +95,28 @@ export const App: React.FC = () => {
 
   // Navigation & Workspace State
   const legalConfig = useLegalConfig();
-  const [mode, setMode] = useState<WorkspaceMode>(() => {
-    const hash = window.location.hash.replace('#', '');
-    if (['matrix', 'speed', 'student360', 'config'].includes(hash)) {
-      return hash as WorkspaceMode;
-    }
+
+  const isScreenshotMode = typeof window !== 'undefined' && (
+    window.location.search.includes('demo=1') ||
+    window.location.hash.startsWith('#matrix') ||
+    window.location.hash.startsWith('#speed') ||
+    window.location.hash.startsWith('#student')
+  );
+
+  const resolveModeFromHash = (): WorkspaceMode => {
+    if (typeof window === 'undefined') return 'matrix';
+    const hash = window.location.hash.replace('#', '').toLowerCase();
+    if (hash.includes('speed')) return 'speed_grading';
+    if (hash.includes('student') || hash.includes('360')) return 'student_360';
+    if (hash.includes('config')) return 'configurator';
     return 'matrix';
-  });
+  };
+
+  const [mode, setMode] = useState<WorkspaceMode>(resolveModeFromHash);
 
   useEffect(() => {
     const handleHash = () => {
-      const hash = window.location.hash.replace('#', '');
-      if (['matrix', 'speed', 'student360', 'config'].includes(hash)) {
-        setMode(hash as WorkspaceMode);
-      }
+      setMode(resolveModeFromHash());
     };
     window.addEventListener('hashchange', handleHash);
     return () => window.removeEventListener('hashchange', handleHash);
@@ -168,7 +176,7 @@ export const App: React.FC = () => {
 
   // Erstaufruf: Klares Onboarding / Setup-Modal zum Noten-Speicherort (§ 241 Abs. 2 BGB)
   useEffect(() => {
-    if (!isVaultLocked && wasmReady && syncStatus === 'local_only') {
+    if (!isVaultLocked && wasmReady && syncStatus === 'local_only' && !isScreenshotMode) {
       const ack = localStorage.getItem('gradus21_storage_notice_ack_v1');
       if (!ack) {
         const timer = setTimeout(() => {
@@ -177,7 +185,29 @@ export const App: React.FC = () => {
         return () => clearTimeout(timer);
       }
     }
-  }, [isVaultLocked, wasmReady, syncStatus]);
+  }, [isVaultLocked, wasmReady, syncStatus, isScreenshotMode]);
+
+  // Automatische Demo-Daten-Initialisierung für saubere Store-Screenshots
+  useEffect(() => {
+    if (isScreenshotMode) {
+      const demoClass = INITIAL_CLASS_DATASETS[0];
+      setDatasets((prev) => {
+        const idx = prev.findIndex((d) => d.id === demoClass.id);
+        if (idx >= 0) return prev;
+        return [demoClass, ...prev];
+      });
+      setActiveClassId(demoClass.id);
+      if (demoClass.assessments.length > 0) {
+        setSelectedAssessmentId(demoClass.assessments[0].id);
+        if (demoClass.assessments[0].input_mode) {
+          setSpeedInputMode(demoClass.assessments[0].input_mode);
+        }
+      }
+      if (demoClass.students.length > 0) {
+        setSelectedStudentId(demoClass.students[0].id);
+      }
+    }
+  }, [isScreenshotMode]);
 
   const handleLoadDemoDataset = () => {
     const demoClass = INITIAL_CLASS_DATASETS[0];
@@ -337,7 +367,7 @@ export const App: React.FC = () => {
     userSettings.showCurveEditorInSpeedGrading || showOnDemandCurveEditor;
 
   // Vault Lock Screen (Fullscreen)
-  if (isVaultLocked) {
+  if (isVaultLocked && !isScreenshotMode) {
     return (
       <>
         <VaultLockAndAuthModal

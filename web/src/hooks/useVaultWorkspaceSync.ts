@@ -476,6 +476,15 @@ export function useVaultWorkspaceSync() {
   });
 
   const [isVaultLocked, setIsVaultLocked] = useState<boolean>(() => {
+    if (
+      typeof window !== 'undefined' &&
+      (window.location.search.includes('demo=1') ||
+        window.location.hash.startsWith('#matrix') ||
+        window.location.hash.startsWith('#speed') ||
+        window.location.hash.startsWith('#student'))
+    ) {
+      return false;
+    }
     return (
       (localStorage.getItem(VAULT_LOCKED_STORAGE_KEY) ||
         localStorage.getItem(LEGACY_VAULT_LOCKED_STORAGE_KEY)) === 'true'
@@ -1278,6 +1287,20 @@ export function useVaultWorkspaceSync() {
             // Proceed to lock screen if cache is invalid
           }
         }
+      }
+
+      // Screenshot / Demo-Modus: Behalte vollständige Demo-Klasse mit Noten und Schülern
+      if (
+        typeof window !== 'undefined' &&
+        (window.location.search.includes('demo=1') ||
+          window.location.hash.startsWith('#matrix') ||
+          window.location.hash.startsWith('#speed') ||
+          window.location.hash.startsWith('#student'))
+      ) {
+        setDatasets(INITIAL_CLASS_DATASETS);
+        setActiveClassId(INITIAL_CLASS_DATASETS[0].id);
+        setIsVaultLocked(false);
+        return;
       }
 
       // Keine gespeicherte Sitzung vorhanden (Erstbesuch oder Incognito):
