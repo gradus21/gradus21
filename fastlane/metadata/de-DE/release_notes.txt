@@ -1,0 +1,6 @@
+Neu in Gradus21 Version 1.2.17:
+• Mobiles Redesign für Smartphones: Flüssiges Karten-Karussell für Klassen und Fächer sowie optimierte Einhand-Navigation.
+• Verbesserte Biometrie: Reibungslose Face ID- und Touch ID-Entsperrung auf iPhone und iPad.
+• Individuelle Backups: Freie Auswahl des Speicherorts für lokale Tresor-Sicherungen.
+• Haptisches Feedback bei der Noteneingabe.
+• Fehlerbehebungen und Performance-Optimierungen beim Cloud-Sync.

@@ -1,0 +1,19 @@
+Gradus21 ist die moderne, sichere Notenverwaltung für Lehrkräfte im 21. Jahrhundert. Verabschieden Sie sich von fehleranfälligen Excel-Listen und veralteter Software. Gradus21 kombiniert maximale Zeiteinsparung im Unterrichtsalltag mit kompromisslosem Datenschutz.
+
+🔒 ECHTE ZERO-KNOWLEDGE E2EE-VERSCHLÜSSELUNG
+Schülerdaten und Noten gehören zu den sensibelsten Daten überhaupt. Gradus21 verschlüsselt alle Namen, Noten und Bemerkungen direkt auf Ihrem Endgerät mit modernster AES-256-GCM- und Argon2id-Verschlüsselung, bevor sie synchronisiert werden. 
+Selbst wir als Betreiber können Ihre Daten zu keinem Zeitpunkt einsehen. 100 % DSGVO-konform und rechtssicher.
+
+⚡ 100 % OFFLINE-FÄHIG MIT RUST/WASM ENGINE
+Kein WLAN im Fachraum oder Schulkeller? Kein Problem! Der deterministische Rechenkern läuft direkt auf Ihrem iPhone, iPad oder Mac. Alle Notenschnitte, Gewichtungen, Rundungsregeln und Streichnoten werden in Millisekunden offline berechnet.
+
+🎯 FEATURES FÜR IHREN SCHULALLTAG:
+• Speed-Grading: Noten und Punkte von Klassenarbeiten und Tests in Rekordzeit über die Tastatur erfassen.
+• Schüler-360°-Akte: Alle Leistungsstände, Trends und Notenverläufe auf einen Blick – ideal für Elterngespräche.
+• Was-wäre-wenn-Simulator: Berechnen Sie live, welche Note in der nächsten Arbeit für das Erreichen der Wunsch-Zeugnisnote erforderlich ist.
+• Beamer-Schutzmodus: Blendet Schülernamen im Klassenzimmer mit einem Klick aus, um Notenspiegel gefahrlos an die Wand zu projizieren.
+• Binnendifferenzierung & Kurssysteme: Volle Unterstützung für G/M/E-Niveaus und MSS-Oberstufenpunkte.
+• Excel-Import: Bestehende Schüler- und Notenlisten in Sekunden per Drag & Drop importieren.
+• Nahtlose Synchronisation: Automatische Ende-zu-Ende-verschlüsselte Synchronisation zwischen iPhone, iPad und Mac.
+
+Entwickelt für Gymnasien, Gesamtschulen, Realschulen, Grundschulen und Berufskollegs aller Bundesländer.

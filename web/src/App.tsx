@@ -95,7 +95,24 @@ export const App: React.FC = () => {
 
   // Navigation & Workspace State
   const legalConfig = useLegalConfig();
-  const [mode, setMode] = useState<WorkspaceMode>('matrix');
+  const [mode, setMode] = useState<WorkspaceMode>(() => {
+    const hash = window.location.hash.replace('#', '');
+    if (['matrix', 'speed', 'student360', 'config'].includes(hash)) {
+      return hash as WorkspaceMode;
+    }
+    return 'matrix';
+  });
+
+  useEffect(() => {
+    const handleHash = () => {
+      const hash = window.location.hash.replace('#', '');
+      if (['matrix', 'speed', 'student360', 'config'].includes(hash)) {
+        setMode(hash as WorkspaceMode);
+      }
+    };
+    window.addEventListener('hashchange', handleHash);
+    return () => window.removeEventListener('hashchange', handleHash);
+  }, []);
   const [activeTerm, setActiveTerm] = useState<TermFilterId>('hj1');
   const [selectedAssessmentId, setSelectedAssessmentId] = useState<string>('');
   const [selectedStudentId, setSelectedStudentId] = useState<string>('');
