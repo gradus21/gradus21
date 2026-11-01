@@ -83,7 +83,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         content:
           'Hier hast du alle Schüler:innen im Blick. Noten werden live mit Rust berechnet. Du siehst sofort Kategorie-Schnittstellen (z. B. Ø LNW, Ø Mündlich, Ø Tests) und kannst Zeugnisnoten-Overrides direkt eintragen.',
         targetId: 'matrix-table',
-        placement: 'top',
+        placement: 'bottom',
         targetMode: 'matrix',
         badge: 'Live-Schnitt',
         tip: 'Klicke auf den Namen eines Schülers für die 360°-Akte oder auf den Spaltenkopf einer Prüfung für Speed-Grading.',
@@ -94,7 +94,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         content:
           'Klassenarbeit korrigiert? Im Speed-Grading trägst du Noten im Sekundentakt per Ziffernblock ein. Mit Pfeiltasten navigieren, mit `K` entschuldigen. Ein Live-Notenspiegel zeigt dir sofort den Klassenschnitt!',
         targetId: 'speed-grading-table',
-        placement: 'top',
+        placement: 'bottom',
         targetMode: 'speed_grading',
         badge: 'Tastatur-optimiert',
         tip: 'Mit der K-Taste werden kranke Schüler neutral ausgeklammert – ohne Null-Punkte-Fehler!',
@@ -105,7 +105,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         content:
           'Perfekt vorbereitet für das Elterngespräch: Sieh Stärken und Schwächen im Vergleich zum Klassenschnitt. Der **Was-wäre-wenn-Simulator** berechnet exakt per WASM, welche Note in der nächsten Arbeit nötig ist, um das Ziel zu erreichen.',
         targetId: 'student360-container',
-        placement: 'top',
+        placement: 'bottom',
         targetMode: 'student_360',
         badge: 'Elterngespräch & Was-wäre-wenn',
       },
@@ -115,7 +115,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         content:
           'Definiere Notenschlüssel, Kategorien (z. B. 50 % LNW, 30 % Mündlich, 20 % Tests), Streichnoten und Binnendifferenzierung (`G` / `M` / `E`) ganz intuitiv mit Schiebereglern – mathematisch fehlerfrei.',
         targetId: 'configurator-container',
-        placement: 'top',
+        placement: 'bottom',
         targetMode: 'configurator',
         badge: 'Individuelle Didaktik',
       },
@@ -247,7 +247,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         content:
           'Willkommen im didaktischen Herzstück! Hier bestimmst du, wie Noten für dieses Fach berechnet werden. Das Beste: Du musst keine Formeln schreiben – Gradus21 kümmert sich um die mathematisch korrekte Verrechnung.',
         targetId: 'configurator-container',
-        placement: 'top',
+        placement: 'bottom',
         targetMode: 'configurator',
         badge: 'Konfigurator',
       },
@@ -343,7 +343,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
           '- **Navigation**: Mit `Enter` oder Pfeiltasten sofort zur nächsten Zeile springen\n' +
           '- **Attest/Krank**: Taste `K` klammert kranke Schüler neutral aus – ohne Null-Punkte-Fehler!',
         targetId: 'speed-grading-table',
-        placement: 'top',
+        placement: 'bottom',
         targetMode: 'speed_grading',
         badge: 'Schnelltasten',
         tip: 'Ein "K" verfälscht weder die Summe noch den Klassenschnitt, sondern wird neutral ausgeklammert.',
@@ -377,7 +377,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         content:
           'Hier steht die einzelne Schülerin bzw. der einzelne Schüler im Mittelpunkt. Du siehst alle Teilleistungen, den Gesamtverlauf und den Vergleich zum Klassenschnitt.',
         targetId: 'student360-container',
-        placement: 'top',
+        placement: 'bottom',
         targetMode: 'student_360',
         badge: 'Schüler-Diagnostik',
       },

@@ -109,4 +109,35 @@ describe('InteractiveDemoGuide - Action Execution & Feedback', () => {
     expect(handleExecuteAction).toHaveBeenCalledWith('load_demo_dataset', undefined);
     expect(screen.getByText(/erfolgreich geladen/i)).toBeDefined();
   });
+
+  it('guarantees popover card structure with flex-col and scrollable content to prevent viewport cutoff', () => {
+    const { container } = render(
+      <InteractiveDemoGuide
+        isOpen={true}
+        chapterId="overview_all"
+        stepIndex={0}
+        onClose={vi.fn()}
+        onStepChange={vi.fn()}
+        onChapterChange={vi.fn()}
+        onOpenChapterSelect={vi.fn()}
+        setMode={vi.fn()}
+        onChapterCompleted={vi.fn()}
+      />
+    );
+
+    // Find the floating card
+    const card = container.querySelector('.rounded-2xl, .rounded-3xl');
+    expect(card).toBeDefined();
+    expect(card?.className).toContain('flex');
+    expect(card?.className).toContain('flex-col');
+
+    // Find the scrollable body
+    const scrollableBody = card?.querySelector('.overflow-y-auto');
+    expect(scrollableBody).toBeDefined();
+    expect(scrollableBody?.className).toContain('min-h-0');
+
+    // Next button and step dots are rendered in the pinned footer
+    const nextBtn = screen.getByRole('button', { name: /weiter/i });
+    expect(nextBtn).toBeDefined();
+  });
 });

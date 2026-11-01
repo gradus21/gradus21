@@ -344,6 +344,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             <button
               onClick={() => setIsStoragePopoverOpen((o) => !o)}
               data-tour="header-storage-indicator"
+              data-tour-alias="header-sync-status"
               className="header-icon-btn"
               style={{ color: 'var(--text-muted)' }}
               title={

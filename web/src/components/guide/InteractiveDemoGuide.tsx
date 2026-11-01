@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -175,6 +175,10 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
   const [isAutoPlaying, setIsAutoPlaying] = useState<boolean>(false);
   const [autoPlayProgress, setAutoPlayProgress] = useState<number>(0);
   const [demoLoadedSuccess, setDemoLoadedSuccess] = useState<boolean>(false);
+  const [measuredSize, setMeasuredSize] = useState<{ width: number; height: number }>({
+    width: 440,
+    height: 380,
+  });
   const popoverRef = useRef<HTMLDivElement>(null);
 
   const currentChapter: GuideChapter | undefined = GUIDE_CHAPTERS.find(
@@ -194,6 +198,41 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
     }
   }, [isOpen, currentStep, setMode]);
 
+  // Dynamically measure actual popover dimensions to prevent any viewport clipping
+  useLayoutEffect(() => {
+    if (!isOpen || !popoverRef.current) return;
+    const updateSize = () => {
+      if (popoverRef.current) {
+        const rect = popoverRef.current.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          setMeasuredSize((prev) => {
+            if (
+              Math.abs(prev.width - rect.width) > 2 ||
+              Math.abs(prev.height - rect.height) > 2
+            ) {
+              return { width: Math.round(rect.width), height: Math.round(rect.height) };
+            }
+            return prev;
+          });
+        }
+      }
+    };
+
+    updateSize();
+    const timer = setTimeout(updateSize, 40);
+
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && popoverRef.current) {
+      observer = new ResizeObserver(updateSize);
+      observer.observe(popoverRef.current);
+    }
+
+    return () => {
+      clearTimeout(timer);
+      if (observer) observer.disconnect();
+    };
+  }, [isOpen, stepIndex, chapterId]);
+
   // Find target element coordinates and scroll into view smoothly
   const updateTargetPosition = useCallback(() => {
     if (!isOpen || !currentStep || !currentStep.targetId) {
@@ -201,37 +240,58 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
       return;
     }
 
-    let el = document.querySelector(`[data-tour="${currentStep.targetId}"]`);
+    let selector = `[data-tour="${currentStep.targetId}"]`;
+    if (currentStep.targetId === 'header-sync-status') {
+      selector = '[data-tour="header-sync-status"], [data-tour="header-storage-indicator"]';
+    }
+
+    let el = document.querySelector(selector) as HTMLElement | null;
+
+    // Fallback for class setup/manager buttons when collapsed into class switcher on screens < 1024px
+    if (
+      (!el || el.getBoundingClientRect().width === 0 || el.getBoundingClientRect().height === 0) &&
+      (currentStep.targetId === 'header-class-wizard-btn' || currentStep.targetId === 'header-class-manager-btn')
+    ) {
+      el = document.querySelector('[data-tour="header-class-switcher"]');
+    }
+
+    // Fallback for matrix table on mobile
     if (
       el &&
       currentStep.targetId === 'matrix-table' &&
       el.getBoundingClientRect().width === 0
     ) {
-      const mobileCarousel = document.querySelector('[data-tour="matrix-mobile-carousel"]');
+      const mobileCarousel = document.querySelector('[data-tour="matrix-mobile-carousel"]') as HTMLElement | null;
       if (mobileCarousel) el = mobileCarousel;
     }
+
     if (el) {
       const rect = el.getBoundingClientRect();
-      setTargetRect({
-        top: rect.top,
-        left: rect.left,
-        width: rect.width,
-        height: rect.height,
-      });
+      if (rect.width > 0 && rect.height > 0) {
+        setTargetRect({
+          top: rect.top,
+          left: rect.left,
+          width: rect.width,
+          height: rect.height,
+        });
 
-      // Scroll smoothly if element is out of viewport
-      const isInView =
-        rect.top >= 0 &&
-        rect.left >= 0 &&
-        rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
-        rect.right <= (window.innerWidth || document.documentElement.clientWidth);
+        // Scroll smoothly ONLY if element is completely out of visible viewport
+        const viewportH = window.innerHeight || document.documentElement.clientHeight;
+        const viewportW = window.innerWidth || document.documentElement.clientWidth;
+        const isCompletelyOutOfView =
+          rect.bottom < 60 ||
+          rect.top > viewportH - 60 ||
+          rect.right < 0 ||
+          rect.left > viewportW;
 
-      if (!isInView) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (isCompletelyOutOfView && rect.height < viewportH * 1.5) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        return;
       }
-    } else {
-      setTargetRect(null);
     }
+
+    setTargetRect(null);
   }, [isOpen, currentStep]);
 
   // Update target on step change or resize/scroll
@@ -341,58 +401,84 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
   const padding = currentStep.highlightPadding ?? 8;
   const isCentered = !targetRect || currentStep.placement === 'center';
 
+  const windowW = typeof window !== 'undefined' ? window.innerWidth : 1200;
+  const windowH = typeof window !== 'undefined' ? window.innerHeight : 800;
+
+  const topReserve = 16;
+  const bottomReserve = windowW < 768 ? 76 : 16;
+  const gap = 14;
+
+  const cardWidth = Math.min(460, Math.max(280, windowW - 24));
+  const maxAvailableCardHeight = Math.max(220, windowH - topReserve - bottomReserve);
+  const cardHeight = Math.min(measuredSize.height || 380, maxAvailableCardHeight);
+
   let popoverStyle: React.CSSProperties = {};
+
   if (isCentered) {
     popoverStyle = {
       position: 'fixed',
       top: '50%',
       left: '50%',
       transform: 'translate(-50%, -50%)',
-      zIndex: 60,
+      width: `${cardWidth}px`,
+      maxHeight: `${maxAvailableCardHeight}px`,
+      zIndex: 70,
     };
   } else if (targetRect) {
-    const windowW = window.innerWidth;
-    const windowH = window.innerHeight;
-    const cardWidth = Math.min(440, Math.max(280, windowW - 32));
-    const cardEstimatedHeight = 280;
-    const gap = 16;
-
-    let placement = currentStep.placement || 'bottom';
-
-    // Auto-adjust if not enough room
-    if (placement === 'bottom' && targetRect.top + targetRect.height + gap + cardEstimatedHeight > windowH) {
-      placement = 'top';
-    } else if (placement === 'top' && targetRect.top - gap - cardEstimatedHeight < 0) {
-      placement = 'bottom';
-    }
+    // If the target element is very large (spans > 45% of viewport height like full matrix table or views)
+    const isTargetHuge = targetRect.height > windowH * 0.45;
 
     let top = 0;
     let left = 0;
 
-    if (placement === 'bottom') {
-      top = targetRect.top + targetRect.height + gap;
-      left = targetRect.left + targetRect.width / 2 - cardWidth / 2;
-    } else if (placement === 'top') {
-      top = targetRect.top - cardEstimatedHeight - gap;
-      left = targetRect.left + targetRect.width / 2 - cardWidth / 2;
-    } else if (placement === 'left') {
-      top = targetRect.top + targetRect.height / 2 - cardEstimatedHeight / 2;
-      left = targetRect.left - cardWidth - gap;
-    } else if (placement === 'right') {
-      top = targetRect.top + targetRect.height / 2 - cardEstimatedHeight / 2;
-      left = targetRect.left + targetRect.width + gap;
+    if (isTargetHuge) {
+      // Float docked cleanly in the bottom portion of viewport with ample breathing room
+      top = windowH - cardHeight - bottomReserve - 12;
+      left = targetRect.left + (targetRect.width - cardWidth) / 2;
+    } else {
+      let preferredPlacement = currentStep.placement || 'bottom';
+
+      // Check available space
+      const roomBelow = windowH - (targetRect.top + targetRect.height + gap) - bottomReserve;
+      const roomAbove = targetRect.top - gap - topReserve;
+
+      let placement = preferredPlacement;
+      if (placement === 'bottom' && roomBelow < cardHeight && roomAbove >= cardHeight) {
+        placement = 'top';
+      } else if (placement === 'top' && roomAbove < cardHeight && roomBelow >= cardHeight) {
+        placement = 'bottom';
+      }
+
+      if (placement === 'bottom') {
+        top = targetRect.top + targetRect.height + gap;
+        left = targetRect.left + targetRect.width / 2 - cardWidth / 2;
+      } else if (placement === 'top') {
+        top = targetRect.top - cardHeight - gap;
+        left = targetRect.left + targetRect.width / 2 - cardWidth / 2;
+      } else if (placement === 'left') {
+        top = targetRect.top + targetRect.height / 2 - cardHeight / 2;
+        left = targetRect.left - cardWidth - gap;
+      } else if (placement === 'right') {
+        top = targetRect.top + targetRect.height / 2 - cardHeight / 2;
+        left = targetRect.left + targetRect.width + gap;
+      }
     }
 
-    // Keep within viewport bounds (reserving space for mobile bottom tab bar on phones)
-    const bottomReserve = windowW < 768 ? 76 : 16;
-    left = Math.max(12, Math.min(left, windowW - cardWidth - 12));
-    top = Math.max(16, Math.min(top, windowH - cardEstimatedHeight - bottomReserve));
+    // Strict boundary clamping so the card is ALWAYS 100% visible
+    const minTop = topReserve;
+    const maxTop = Math.max(minTop, windowH - cardHeight - bottomReserve);
+    top = Math.max(minTop, Math.min(top, maxTop));
+
+    const minLeft = 12;
+    const maxLeft = Math.max(minLeft, windowW - cardWidth - 12);
+    left = Math.max(minLeft, Math.min(left, maxLeft));
 
     popoverStyle = {
       position: 'fixed',
-      top: `${top}px`,
-      left: `${left}px`,
+      top: `${Math.round(top)}px`,
+      left: `${Math.round(left)}px`,
       width: `${cardWidth}px`,
+      maxHeight: `${maxAvailableCardHeight}px`,
       zIndex: 70,
     };
   }
@@ -432,10 +518,10 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
         />
       </svg>
 
-      {/* PULSING HIGHLIGHT HALO AROUND TARGET ELEMENT */}
+      {/* REFINED FOCUS RING AROUND TARGET ELEMENT */}
       {targetRect && (
         <div
-          className="fixed pointer-events-none rounded-2xl ring-4 ring-teal-400 dark:ring-teal-300 shadow-[0_0_25px_rgba(20,184,166,0.6)] animate-pulse transition-all duration-300 ease-out"
+          className="fixed pointer-events-none rounded-2xl ring-2 ring-teal-500/80 dark:ring-teal-400/80 shadow-[0_0_20px_rgba(20,184,166,0.3)] transition-all duration-300 ease-out"
           style={{
             top: `${Math.max(0, targetRect.top - padding)}px`,
             left: `${Math.max(0, targetRect.left - padding)}px`,
@@ -449,7 +535,8 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
       {/* FLOATING INTERACTIVE CARD */}
       <div
         ref={popoverRef}
-        className="w-full max-w-[calc(100vw-32px)] sm:max-w-[480px] rounded-3xl border shadow-2xl overflow-hidden transition-all duration-300 ease-out animate-scale-up pointer-events-auto"
+        data-guide-card="true"
+        className="rounded-2xl md:rounded-3xl border shadow-2xl overflow-hidden flex flex-col pointer-events-auto transition-[top,left,width,max-height] duration-200 ease-out animate-scale-up"
         style={{
           ...popoverStyle,
           backgroundColor: 'var(--bg-surface)',
@@ -458,7 +545,7 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
         }}
       >
         {/* TOP PROGRESS BAR */}
-        <div className="h-1.5 w-full bg-slate-200 dark:bg-slate-800 overflow-hidden relative">
+        <div className="shrink-0 h-1.5 w-full bg-slate-200 dark:bg-slate-800 overflow-hidden relative">
           <div
             className="h-full bg-teal-500 transition-all duration-300"
             style={{ width: `${stepProgress}%` }}
@@ -473,7 +560,7 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
 
         {/* CARD HEADER */}
         <div
-          className="px-5 py-3.5 border-b flex items-center justify-between gap-3 text-xs"
+          className="shrink-0 px-5 py-3.5 border-b flex items-center justify-between gap-3 text-xs"
           style={{
             backgroundColor: 'var(--bg-subtle)',
             borderColor: 'var(--border-subtle)',
@@ -561,7 +648,7 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
         </div>
 
         {/* CARD CONTENT */}
-        <div className="p-5 space-y-3">
+        <div className="flex-1 min-h-0 p-5 space-y-3 overflow-y-auto overscroll-contain matrix-scroll">
           <div className="flex items-start justify-between gap-3">
             <h3 className="text-base font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
               {currentStep.title}
@@ -657,14 +744,14 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
 
         {/* CARD FOOTER & CONTROLS */}
         <div
-          className="px-5 py-3.5 border-t flex items-center justify-between gap-3"
+          className="shrink-0 px-5 py-3.5 border-t flex items-center justify-between gap-3"
           style={{
             backgroundColor: 'var(--bg-subtle)',
             borderColor: 'var(--border-subtle)',
           }}
         >
           {/* STEP DOTS */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 overflow-x-auto py-1 max-w-[140px] sm:max-w-none shrink-0">
             {currentChapter.steps.map((_, i) => (
               <button
                 key={i}
@@ -672,7 +759,7 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
                   onStepChange(i);
                   setAutoPlayProgress(0);
                 }}
-                className={`step-dot compact-touch h-2 rounded-full transition-all ${
+                className={`step-dot compact-touch h-2 rounded-full transition-all shrink-0 ${
                   i === stepIndex
                     ? 'w-6 bg-teal-500'
                     : i < stepIndex
@@ -685,7 +772,7 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
           </div>
 
           {/* NAVIGATION BUTTONS */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {!isFirstStep && (
               <button
                 onClick={handlePrev}
