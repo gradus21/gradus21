@@ -205,12 +205,48 @@ jobs:
             /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$PLIST" 2>/dev/null || true
           fi
 
-          # Embed Provisioning Profile if available
+          # Embed Provisioning Profile for Mac App Store
+          VALID_MAC_PROFILE=false
           if [ -n "$APPLE_MAC_PROVISIONING_PROFILE" ]; then
-            echo "Embedding Mac App Store Provisioning Profile..."
             echo "$APPLE_MAC_PROVISIONING_PROFILE" | base64 --decode > "$MAS_APP_DIR/Contents/embedded.provisionprofile"
-          else
-            echo "::notice::APPLE_MAC_PROVISIONING_PROFILE secret not set. Skipping profile embedding."
+            if grep -q "<string>OSX</string>" "$MAS_APP_DIR/Contents/embedded.provisionprofile" 2>/dev/null || grep -q "<string>Mac</string>" "$MAS_APP_DIR/Contents/embedded.provisionprofile" 2>/dev/null; then
+              echo "Valid macOS provisioning profile found in secrets."
+              VALID_MAC_PROFILE=true
+            else
+              echo "Notice: Configured profile in secrets is for iOS/visionOS. Will attempt automated fetch via fastlane sigh."
+              rm -f "$MAS_APP_DIR/Contents/embedded.provisionprofile"
+            fi
+          fi
+
+          if [ "$VALID_MAC_PROFILE" = "false" ]; then
+            echo "Attempting to auto-generate or download native macOS profile via fastlane sigh..."
+            gem install fastlane --no-document --quiet || true
+            ruby -r fastlane -e '
+              begin
+                key = Fastlane::Actions::AppStoreConnectApiKeyAction.run(
+                  key_id: ENV["KEY_ID"],
+                  issuer_id: ENV["ISSUER_ID"],
+                  key_content: ENV["API_KEY_P8"]
+                )
+                Fastlane::Actions::SighAction.run(
+                  api_key: key,
+                  platform: "macos",
+                  app_identifier: "de.gradus21.app",
+                  type: "appstore",
+                  output_path: ENV["RUNNER_TEMP"],
+                  filename: "embedded.provisionprofile",
+                  skip_install: true
+                )
+              rescue => e
+                puts "Fastlane sigh warning: #{e.message}"
+              end
+            ' || true
+
+            if [ -f "$RUNNER_TEMP/embedded.provisionprofile" ]; then
+              cp "$RUNNER_TEMP/embedded.provisionprofile" "$MAS_APP_DIR/Contents/embedded.provisionprofile"
+              echo "Successfully embedded freshly fetched macOS profile!"
+              VALID_MAC_PROFILE=true
+            fi
           fi
 
           # Re-sign app bundle for Mac App Store with Sandbox Entitlements
