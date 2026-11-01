@@ -22,16 +22,13 @@ if (-not $PublisherDisplayName) {
 
 if (-not $Version) {
     $tauriConf = Get-Content -Raw "src-tauri/tauri.conf.json" | ConvertFrom-Json
-    $baseVer = $tauriConf.version # e.g. "1.2.4"
+    $baseVer = $tauriConf.version # e.g. "1.2.17"
     $parts = $baseVer.Split(".")
     # Microsoft Store strictly requires the 4th version component (Revision) to be 0 (Major.Minor.Build.0)
-    if ($parts.Count -eq 3) {
-        $Version = "$($parts[0]).$($parts[1]).$($parts[2]).0"
-    } elseif ($parts.Count -ge 4) {
-        $Version = "$($parts[0]).$($parts[1]).$($parts[2]).0"
-    } else {
-        $Version = "$baseVer.0.0"
-    }
+    # To prevent duplicate package name conflicts in Partner Center on repeated CI runs,
+    # use GITHUB_RUN_NUMBER for the build component if available.
+    $buildNum = if ($env:GITHUB_RUN_NUMBER) { $env:GITHUB_RUN_NUMBER } elseif ($parts.Count -ge 3) { $parts[2] } else { 0 }
+    $Version = "$($parts[0]).$($parts[1]).$buildNum.0"
 }
 
 Write-Host "==> Packaging MSIX Version: $Version with PackageName: $PackageName, Publisher: $Publisher, PublisherDisplayName: $PublisherDisplayName"
