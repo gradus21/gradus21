@@ -1,0 +1,1 @@
+Gradus21 nutzt eine lokale Zero-Knowledge Architektur. Zur Prüfung ist kein externer Server-Account notwendig: Sie können direkt im Assistenten einen neuen lokalen Tresor anlegen oder den Offline-Modus nutzen.
