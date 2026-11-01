@@ -62,6 +62,8 @@ jobs:
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_INSTALLER_CERTIFICATE_P12: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_P12 }}
+          APPLE_INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_PASSWORD }}
         run: |
           if [ -z "$APPLE_CERTIFICATE_P12" ]; then
             echo "Notice: APPLE_CERTIFICATE_P12 secret not configured. Skipping keychain import."
@@ -75,10 +77,18 @@ jobs:
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           
-          # Import p12 certificate
+          # Import primary distribution p12 certificate
           CERT_FILE=$RUNNER_TEMP/cert.p12
           echo "$APPLE_CERTIFICATE_P12" | base64 --decode > "$CERT_FILE"
-          security import "$CERT_FILE" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security import "$CERT_FILE" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
+          
+          # Import Mac Installer Distribution p12 certificate (if configured)
+          if [ -n "$APPLE_INSTALLER_CERTIFICATE_P12" ]; then
+            INSTALLER_CERT_FILE=$RUNNER_TEMP/installer_cert.p12
+            echo "$APPLE_INSTALLER_CERTIFICATE_P12" | base64 --decode > "$INSTALLER_CERT_FILE"
+            security import "$INSTALLER_CERT_FILE" -k "$KEYCHAIN_PATH" -P "${APPLE_INSTALLER_CERTIFICATE_PASSWORD:-$APPLE_CERTIFICATE_PASSWORD}" -T /usr/bin/codesign -T /usr/bin/productbuild
+          fi
+
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           
           # Add to keychain search list
@@ -143,6 +153,105 @@ jobs:
             gh release upload "${{ github.ref_name }}" $dmg_files $tar_files --clobber || true
           fi
           node scripts/update-updater-manifest.mjs "${{ github.ref_name }}" macos || true
+
+      - name: Package & Upload Mac App Store (.pkg)
+        if: ${{ github.event_name == 'push' || inputs.upload_testflight }}
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_KEY }}
+          APPLE_MAC_PROVISIONING_PROFILE: ${{ secrets.APPLE_MAC_PROVISIONING_PROFILE }}
+        run: |
+          if [ -z "$KEY_ID" ] || [ -z "$API_KEY_P8" ]; then
+            echo "::notice::App Store Connect API key not configured. Skipping Mac App Store upload."
+            exit 0
+          fi
+
+          # Find Apple Distribution certificate in keychain
+          DIST_IDENTITY=$(security find-identity -v -p codesigning "$RUNNER_TEMP/build.keychain" 2>/dev/null \
+            | grep "Apple Distribution" | head -n 1 | sed -E 's/.*"(.*)".*/\1/')
+          if [ -z "$DIST_IDENTITY" ]; then
+            DIST_IDENTITY=$(security find-identity -v -p codesigning "$RUNNER_TEMP/build.keychain" 2>/dev/null \
+              | grep -E "(3rd Party Mac Developer Application|Apple Development)" | head -n 1 | sed -E 's/.*"(.*)".*/\1/')
+          fi
+
+          # Find Mac Installer Distribution certificate in keychain
+          INSTALLER_IDENTITY=$(security find-identity -v "$RUNNER_TEMP/build.keychain" 2>/dev/null \
+            | grep -E "(3rd Party Mac Developer Installer|Mac Installer Distribution)" | head -n 1 | sed -E 's/.*"(.*)".*/\1/')
+
+          echo "App Signing Identity: ${DIST_IDENTITY:-NONE}"
+          echo "Installer Signing Identity: ${INSTALLER_IDENTITY:-NONE}"
+
+          # Locate built .app bundle
+          APP_PATH=$(find target -name "Gradus21.app" -type d | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: Gradus21.app not found in target directory!"
+            exit 1
+          fi
+          echo "Using app bundle: $APP_PATH"
+
+          # Prepare dedicated MAS app bundle directory
+          MAS_APP_DIR="$RUNNER_TEMP/mas/Gradus21.app"
+          mkdir -p "$(dirname "$MAS_APP_DIR")"
+          rm -rf "$MAS_APP_DIR"
+          cp -R "$APP_PATH" "$MAS_APP_DIR"
+
+          # Embed CFBundleVersion = GITHUB_RUN_NUMBER and ITSAppUsesNonExemptEncryption = false
+          PLIST="$MAS_APP_DIR/Contents/Info.plist"
+          if [ -f "$PLIST" ]; then
+            /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $GITHUB_RUN_NUMBER" "$PLIST" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $GITHUB_RUN_NUMBER" "$PLIST" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$PLIST" 2>/dev/null || true
+          fi
+
+          # Embed Provisioning Profile if available
+          if [ -n "$APPLE_MAC_PROVISIONING_PROFILE" ]; then
+            echo "Embedding Mac App Store Provisioning Profile..."
+            echo "$APPLE_MAC_PROVISIONING_PROFILE" | base64 --decode > "$MAS_APP_DIR/Contents/embedded.provisionprofile"
+          else
+            echo "::notice::APPLE_MAC_PROVISIONING_PROFILE secret not set. Skipping profile embedding."
+          fi
+
+          # Re-sign app bundle for Mac App Store with Sandbox Entitlements
+          if [ -n "$DIST_IDENTITY" ]; then
+            echo "Codesigning MAS bundle with $DIST_IDENTITY..."
+            codesign --deep --force --options runtime \
+              --entitlements src-tauri/Entitlements.mas.plist \
+              --sign "$DIST_IDENTITY" \
+              "$MAS_APP_DIR"
+          fi
+
+          # Package as .pkg with productbuild
+          PKG_PATH="$RUNNER_TEMP/Gradus21-macOS.pkg"
+          if [ -n "$INSTALLER_IDENTITY" ]; then
+            echo "Building signed .pkg with $INSTALLER_IDENTITY..."
+            productbuild --component "$MAS_APP_DIR" /Applications --sign "$INSTALLER_IDENTITY" "$PKG_PATH"
+          else
+            echo "::notice::No Mac Installer Distribution certificate found in keychain. Attempting unsigned package build..."
+            productbuild --component "$MAS_APP_DIR" /Applications "$PKG_PATH"
+          fi
+
+          # Upload to App Store Connect
+          if [ -f "$PKG_PATH" ]; then
+            mkdir -p ~/.appstoreconnect/private_keys
+            echo "$API_KEY_P8" > ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8
+            echo "Uploading $PKG_PATH to App Store Connect (platform osx)..."
+            xcrun altool --upload-package "$PKG_PATH" \
+              --type macos \
+              --apiKey "$KEY_ID" \
+              --apiIssuer "$ISSUER_ID" || echo "::warning::Mac App Store package upload encountered an error. Check certificate and profile requirements."
+            rm -rf ~/.appstoreconnect/private_keys
+            mkdir -p target
+            cp "$PKG_PATH" target/Gradus21-macOS.pkg 2>/dev/null || true
+          fi
+
+      - name: Upload Mac App Store PKG artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: gradus21-macos-mas-pkg
+          path: target/Gradus21-macOS.pkg
+          if-no-files-found: warn
 
 
   build-ios:

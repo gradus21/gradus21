@@ -17,7 +17,8 @@ export type DownloadProgressCallback = (percent: number, downloaded: number, tot
  * Safely resolves with `{ available: false }` if running on Web, Mobile or offline.
  */
 export async function checkForAppUpdate(): Promise<UpdateInfo> {
-  if (!isDesktopTauri()) {
+  // In App Store builds (Mac App Store & iOS), Apple manages all updates; skip internal updater
+  if (!isDesktopTauri() || import.meta.env.VITE_APP_STORE === 'true') {
     return { available: false, currentVersion: APP_VERSION };
   }
 
@@ -52,7 +53,7 @@ export async function checkForAppUpdate(): Promise<UpdateInfo> {
  * Downloads and installs the pending update, then relaunches or prompts for restart.
  */
 export async function installAppUpdate(onProgress?: DownloadProgressCallback): Promise<boolean> {
-  if (!isDesktopTauri()) return false;
+  if (!isDesktopTauri() || import.meta.env.VITE_APP_STORE === 'true') return false;
 
   try {
     const { check } = await import('@tauri-apps/plugin-updater');
