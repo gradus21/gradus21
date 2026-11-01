@@ -414,7 +414,9 @@ export const App: React.FC = () => {
 
   return (
     <div
-      className="min-h-screen flex flex-col transition-colors duration-200"
+      className={`min-h-screen flex flex-col transition-colors duration-200 ${
+        mode === 'matrix' ? 'md:h-dvh md:min-h-0 md:overflow-hidden' : ''
+      }`}
       style={{ backgroundColor: 'var(--bg-canvas)' }}
     >
       <AppHeader
@@ -477,7 +479,9 @@ export const App: React.FC = () => {
       {/* MAIN WORKSPACE CONTENT */}
       <main
         className={`flex-1 p-2 sm:p-4 md:p-6 w-full mx-auto transition pb-24 md:pb-safe ${
-          mode === 'matrix' ? 'max-w-none px-2 sm:px-4 lg:px-6' : 'max-w-[1600px]'
+          mode === 'matrix'
+            ? 'max-w-none px-2 sm:px-4 lg:px-6 md:min-h-0 md:flex md:flex-col md:!pb-5'
+            : 'max-w-[1600px]'
         } ${privacyBlur ? 'privacy-blur-active' : ''}`}
       >
         {syncConflictNotice && (
@@ -508,6 +512,10 @@ export const App: React.FC = () => {
         )}
 
         <ErrorBoundary onReset={() => setMode('matrix')}>
+          <div
+            key={mode}
+            className={`animate-fade-up ${mode === 'matrix' ? 'md:flex md:flex-col md:flex-1 md:min-h-0' : ''}`}
+          >
           {mode === 'matrix' && (
             <ClassMatrixView
               activeDataset={activeDataset}
@@ -636,6 +644,7 @@ export const App: React.FC = () => {
               summaryByStudentId={summaryByStudentId}
             />
           )}
+          </div>
         </ErrorBoundary>
       </main>
 

@@ -300,8 +300,8 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
     : '';
 
   return (
-    <div className="space-y-3 sm:space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3">
+    <div className="space-y-3 sm:space-y-4 md:flex md:flex-col md:flex-1 md:min-h-0">
+      <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 md:shrink-0">
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           <div
             className="hidden md:inline-flex items-center gap-1 p-0.5 rounded-xl border"
@@ -1024,10 +1024,10 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
       {/* Desktop & Large Tablet Matrix Table (Hidden on small displays < md) */}
       <div
         data-tour="matrix-table"
-        className="hidden md:block rounded-2xl border shadow-sm overflow-hidden"
+        className="hidden md:flex md:flex-col md:flex-1 md:min-h-0 rounded-2xl border overflow-hidden matrix-surface"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
-        <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-160px)] min-h-[500px]">
+        <div className="flex-1 min-h-0 overflow-auto overscroll-contain scroll-smooth matrix-scroll">
           <table className="w-full text-left border-collapse">
             <thead className="sticky top-0 z-20 shadow-xs">
               <tr

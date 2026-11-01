@@ -420,3 +420,41 @@ input[type="range"]::-moz-range-track {
 
 
 
+
+/* ── Motion & surface polish (UI simplification branch) ───────────────────── */
+@keyframes g21-pop-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes g21-fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-pop-in { animation: g21-pop-in 160ms cubic-bezier(0.32, 0.72, 0, 1) both; }
+.animate-fade-up { animation: g21-fade-up 260ms cubic-bezier(0.32, 0.72, 0, 1) backwards; }
+
+/* Slim, theme-aware scrollbar for the matrix (single scroll container) */
+.matrix-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-subtle) transparent;
+}
+.matrix-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.matrix-scroll::-webkit-scrollbar-track { background: transparent; }
+.matrix-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--border-subtle);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.matrix-scroll::-webkit-scrollbar-thumb:hover { background-color: var(--text-muted); }
+.matrix-scroll::-webkit-scrollbar-corner { background: transparent; }
+
+/* Row focus: highlight the whole row while hovering or editing a cell */
+.matrix-scroll tbody tr { transition: background-color 120ms ease; }
+.matrix-scroll tbody tr:hover,
+.matrix-scroll tbody tr:focus-within { background-color: color-mix(in srgb, var(--primary-500) 6%, transparent); }
+.matrix-scroll tbody tr:focus-within > td:first-child { box-shadow: inset 2px 0 0 var(--primary-500); }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pop-in, .animate-fade-up { animation: none; }
+}

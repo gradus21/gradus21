@@ -59,10 +59,10 @@ describe('ClassMatrixView Mobile Pupil Card Slider & Haptics', () => {
     expect(slider).toBeInTheDocument();
     expect(slider.className).toContain('md:hidden');
 
-    // Desktop matrix table is strictly hidden on small screens (hidden md:block)
+    // Desktop matrix table is strictly hidden on small screens (hidden md:flex)
     const desktopTable = container.querySelector('[data-tour="matrix-table"]');
     expect(desktopTable).not.toBeNull();
-    expect(desktopTable?.className).toContain('hidden md:block');
+    expect(desktopTable?.className).toContain('hidden md:flex');
 
     const firstStudent = mockDataset.students[0];
     expect(screen.getAllByText(firstStudent.name).length).toBeGreaterThan(0);

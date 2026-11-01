@@ -1,9 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import {
   AlertTriangle,
   Calendar,
   CheckCircle2,
-  ChevronDown,
   ChevronRight,
   Cloud,
   Columns,
@@ -25,6 +24,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { FlowRibbonLogo } from './FlowRibbonLogo';
+import { ClassSwitcher } from './ClassSwitcher';
 import { ClassroomSubjectDataset, TermFilterId } from '../data/demoClasses';
 import { ClassCalculationReport, WorkspaceMode } from '../types/workspace';
 import { SettingsSection } from './SettingsModal';
@@ -86,6 +86,22 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   setMode,
 }) => {
   const [isStoragePopoverOpen, setIsStoragePopoverOpen] = useState(false);
+  const tabsNavRef = useRef<HTMLElement>(null);
+  const [tabIndicator, setTabIndicator] = useState({ left: 0, width: 0 });
+
+  useLayoutEffect(() => {
+    const nav = tabsNavRef.current;
+    if (!nav) return;
+    const measure = () => {
+      const btn = nav.querySelector<HTMLElement>(`[data-mode-tab="${mode}"]`);
+      setTabIndicator(btn ? { left: btn.offsetLeft, width: btn.offsetWidth } : { left: 0, width: 0 });
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(nav);
+    return () => ro.disconnect();
+  }, [mode]);
   const storagePopoverRef = useRef<HTMLDivElement>(null);
   const storageInfo = getStorageLocationInfo();
 
@@ -104,7 +120,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     <>
       {/* UNIFIED SINGLE HEADER BAR */}
       <header
-        className="border-b px-4 sm:px-6 py-3 sm:py-3.5 pt-safe flex items-center justify-between gap-3 sm:gap-6 sticky top-0 z-30 shadow-xs min-h-[64px]"
+        className="border-b px-4 sm:px-6 pb-3 sm:pb-3.5 pt-[max(0.75rem,env(safe-area-inset-top))] sm:pt-[max(0.875rem,env(safe-area-inset-top))] flex items-center justify-between gap-3 sm:gap-6 sticky top-0 z-30 shadow-xs min-h-[64px]"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
         {/* LEFT: Logo & Class Switcher Dropdown */}
@@ -131,25 +147,12 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             className="flex items-center gap-1.5 p-1 rounded-xl border min-w-0 shadow-2xs"
             style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
           >
-            <div className="relative min-w-0">
-              <select
-                value={activeDataset.id}
-                onChange={(e) => setActiveClassId(e.target.value)}
-                className="text-xs font-bold rounded-lg border-0 bg-transparent py-1.5 pl-2.5 pr-7 max-w-[140px] sm:max-w-[200px] md:max-w-[240px] truncate focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
-                style={{ color: 'var(--text-primary)' }}
-                aria-label="Klasse auswählen"
-              >
-                {datasets.map((ds) => (
-                  <option key={ds.id} value={ds.id} className="text-slate-900 dark:text-slate-100 bg-white dark:bg-zinc-800">
-                    {ds.className} · {ds.subjectName}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                className="w-3.5 h-3.5 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-60"
-                style={{ color: 'var(--text-secondary)' }}
-              />
-            </div>
+            <ClassSwitcher
+              datasets={datasets}
+              activeDataset={activeDataset}
+              setActiveClassId={setActiveClassId}
+            />
+            <span className="w-px h-6 mx-0.5" style={{ backgroundColor: 'var(--border-subtle)' }} />
 
             <button
               onClick={onOpenClassManager}
@@ -158,17 +161,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               title="Aktuelle Klasse bearbeiten (Schüler, Kategorien, Prüfungen)"
               aria-label="Klasse bearbeiten"
             >
-              <Edit3 className="w-3.5 h-3.5" style={{ color: 'var(--primary-500)' }} />
+              <Edit3 className="w-3.5 h-3.5" style={{ color: 'var(--text-secondary)' }} />
             </button>
 
             <button
               onClick={onOpenClassWizard}
               data-tour="header-class-wizard-btn"
-              className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition active:scale-95"
-              style={{
-                backgroundColor: 'var(--primary-soft)',
-                color: 'var(--primary-text)',
-              }}
+              className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition hover:bg-black/5 dark:hover:bg-white/10 active:scale-95"
+              style={{ color: 'var(--text-secondary)' }}
               title="Neue Klasse erstellen oder .xlsx Excel-Datei importieren"
               aria-label="Neue Klasse"
             >
@@ -181,9 +181,22 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         <nav
           data-tour="header-mode-tabs"
           aria-label="Arbeitsmodi"
-          className="hidden md:flex items-center gap-1 p-1 rounded-xl border shrink-0 shadow-2xs"
+          ref={tabsNavRef}
+          className="relative hidden md:flex items-center gap-1 p-1 rounded-xl border shrink-0"
           style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
         >
+          {/* Sliding active indicator */}
+          <span
+            aria-hidden
+            className="absolute top-1 bottom-1 rounded-lg shadow-sm pointer-events-none transition-[transform,width,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+            style={{
+              backgroundColor: 'var(--primary-500)',
+              width: tabIndicator.width,
+              transform: `translateX(${tabIndicator.left}px)`,
+              opacity: tabIndicator.width ? 1 : 0,
+              left: 0,
+            }}
+          />
           {(
             [
               { id: 'matrix', label: 'Matrix', full: 'Klassen-Matrix', icon: Columns, num: '1' },
@@ -207,13 +220,12 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 key={tab.id}
                 onClick={() => setMode(tab.id)}
                 data-tour={tourId}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 shrink-0 ${
-                  active
-                    ? 'shadow-xs font-bold text-white'
-                    : 'opacity-70 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5'
+                data-mode-tab={tab.id}
+                aria-current={active ? 'page' : undefined}
+                className={`relative z-10 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors duration-200 flex items-center gap-2 shrink-0 ${
+                  active ? 'text-white' : 'hover:text-[var(--text-primary)]'
                 }`}
                 style={{
-                  backgroundColor: active ? 'var(--primary-500)' : 'transparent',
                   color: active ? '#FFFFFF' : 'var(--text-secondary)',
                 }}
                 title={`${tab.full} (${getModifierKey()}+${tab.num})`}
