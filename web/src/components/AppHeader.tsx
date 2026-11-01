@@ -88,6 +88,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 }) => {
   const [isStoragePopoverOpen, setIsStoragePopoverOpen] = useState(false);
   const [modifierHeld, setModifierHeld] = useState(false);
+  const [altHeld, setAltHeld] = useState(false);
   const tabsNavRef = useRef<HTMLElement>(null);
   const [tabIndicator, setTabIndicator] = useState({ left: 0, width: 0 });
 
@@ -106,22 +107,39 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     return () => ro.disconnect();
   }, [mode]);
 
-  // ── Modifier key (Ctrl / ⌘) held → show shortcut badges on tabs ──────
+  // ── Modifier key (Ctrl / ⌘ / Alt) held → show interactive shortcut badges ──
   useEffect(() => {
-    const down = (e: KeyboardEvent) => {
-      if (e.key === 'Control' || e.key === 'Meta') setModifierHeld(true);
+    const handleKey = (e: KeyboardEvent) => {
+      const isMod = e.ctrlKey || e.metaKey || e.key === 'Control' || e.key === 'Meta';
+      const isAlt = e.altKey || e.key === 'Alt';
+      setModifierHeld(isMod);
+      setAltHeld(isAlt);
     };
-    const up = (e: KeyboardEvent) => {
-      if (e.key === 'Control' || e.key === 'Meta') setModifierHeld(false);
+    const handleUp = (e: KeyboardEvent) => {
+      if (e.key === 'Control' || e.key === 'Meta' || (!e.ctrlKey && !e.metaKey)) {
+        setModifierHeld(false);
+      }
+      if (e.key === 'Alt' || !e.altKey) {
+        setAltHeld(false);
+      }
     };
-    const blur = () => setModifierHeld(false);
-    window.addEventListener('keydown', down);
-    window.addEventListener('keyup', up);
-    window.addEventListener('blur', blur);
+    const handlePointer = (e: MouseEvent) => {
+      setModifierHeld(e.ctrlKey || e.metaKey);
+      setAltHeld(e.altKey);
+    };
+    const handleBlur = () => {
+      setModifierHeld(false);
+      setAltHeld(false);
+    };
+    window.addEventListener('keydown', handleKey);
+    window.addEventListener('keyup', handleUp);
+    window.addEventListener('mousemove', handlePointer);
+    window.addEventListener('blur', handleBlur);
     return () => {
-      window.removeEventListener('keydown', down);
-      window.removeEventListener('keyup', up);
-      window.removeEventListener('blur', blur);
+      window.removeEventListener('keydown', handleKey);
+      window.removeEventListener('keyup', handleUp);
+      window.removeEventListener('mousemove', handlePointer);
+      window.removeEventListener('blur', handleBlur);
     };
   }, []);
 
@@ -255,9 +273,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 {/* Keyboard shortcut badge — appears while Ctrl/⌘ held */}
                 {modifierHeld && (
                   <kbd
-                    className="absolute -top-1.5 -right-1 text-[9px] leading-none font-mono font-bold px-1 py-0.5 rounded bg-black/80 dark:bg-white/90 text-white dark:text-black shadow-sm animate-pop-in pointer-events-none"
+                    className="absolute -top-2 -right-1.5 text-[9px] leading-tight font-mono font-bold px-1.5 py-0.5 rounded shadow-sm bg-teal-600 text-white dark:bg-teal-400 dark:text-teal-950 ring-1 ring-black/10 animate-pop-in pointer-events-none z-30"
                   >
-                    {tab.num}
+                    {modKey === '⌘' ? '⌘' : '^'}{tab.num}
                   </kbd>
                 )}
               </button>
@@ -518,20 +536,27 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           </div>
 
           {/* Privacy Blur */}
-          <button
-            onClick={() => setPrivacyBlur((b) => !b)}
-            data-tour="header-privacy-blur"
-            className={`header-icon-btn ${
-              privacyBlur ? 'ring-2 ring-amber-500 bg-amber-500/10 text-amber-600' : ''
-            }`}
-            style={
-              !privacyBlur ? { color: 'var(--text-muted)' } : undefined
-            }
-            title={privacyBlur ? 'Namen & Noten einblenden (Alt+P)' : 'Namen & Noten unscharf schalten (Alt+P)'}
-            aria-label="Datenschutz Unschärfe umschalten"
-          >
-            {privacyBlur ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => setPrivacyBlur((b) => !b)}
+              data-tour="header-privacy-blur"
+              className={`header-icon-btn ${
+                privacyBlur ? 'ring-2 ring-amber-500 bg-amber-500/10 text-amber-600' : ''
+              }`}
+              style={
+                !privacyBlur ? { color: 'var(--text-muted)' } : undefined
+              }
+              title={privacyBlur ? 'Namen & Noten einblenden (Alt+P)' : 'Namen & Noten unscharf schalten (Alt+P)'}
+              aria-label="Datenschutz Unschärfe umschalten"
+            >
+              {privacyBlur ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+            </button>
+            {altHeld && (
+              <kbd className="absolute -top-2 -right-1 text-[9px] leading-tight font-mono font-bold px-1 py-0.5 rounded shadow-sm bg-amber-600 text-white ring-1 ring-black/10 animate-pop-in pointer-events-none z-30">
+                ⌥P
+              </kbd>
+            )}
+          </div>
 
           {/* Settings */}
           <button

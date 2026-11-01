@@ -222,15 +222,21 @@ nav,
   }
 }
 
-/* Garantiert absolut zentrierte Ausrichtung für Buttons, die nur Icons enthalten
-   oder deren Text auf mobilen Displays/Tablets ausgeblendet ist */
-button:has(> svg:only-child),
-button:has(> svg.shrink-0:only-child),
-.icon-btn {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
+/* Garantiert zentrierte Ausrichtung für reine Icon-Buttons (ohne .hidden zu überschreiben) */
+button:has(> svg:only-child):not(.hidden):not([hidden]),
+button:has(> svg.shrink-0:only-child):not(.hidden):not([hidden]),
+.icon-btn:not(.hidden):not([hidden]) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
+
+/* Visibility utilities: ensure hidden cannot be overridden by element defaults */
+.hidden { display: none !important; }
+@media (max-width: 639px) { .sm\:hidden { display: none !important; } }
+@media (max-width: 767px) { .md\:hidden { display: none !important; } }
+@media (max-width: 1023px) { .lg\:hidden { display: none !important; } }
+@media (max-width: 1279px) { .xl\:hidden { display: none !important; } }
 
 @media (max-width: 640px) {
   button:has(> [class*="hidden sm:inline"]),
