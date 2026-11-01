@@ -13,7 +13,7 @@ platform :ios do
       first_name: "Julian",
       last_name: "Kallidat",
       phone_number: "+49 176 12345678",
-      email_address: "julian.kallidat@campus.tu-berlin.de",
+      email_address: "julian@gradus21.de",
       notes: "Gradus21 nutzt eine lokale Zero-Knowledge Architektur. Zur Prüfung ist kein externer Server-Account notwendig: Sie können direkt im Assistenten einen neuen lokalen Tresor anlegen oder den Offline-Modus nutzen."
     }
 
