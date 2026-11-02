@@ -3,6 +3,8 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
+#[cfg(desktop)]
+use tauri::Manager;
 
 #[derive(serde::Deserialize)]
 struct CallbackBody {
