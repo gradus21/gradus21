@@ -475,8 +475,12 @@ input[type="range"]::-moz-range-track {
   .header-icon-btn { width: auto; padding: 0 0.5rem; }
 }
 
-/* ── Header bar refinement ────────────────────────────────────────────────── */
+/* ── Header bar refinement & iOS Safe-Area support ────────────────────────── */
 .header-bar {
   /* Remove heavy shadow; use a 1px hairline border only */
   box-shadow: none !important;
+  /* iOS Safe-Area support (Dynamic Island, Camera Notch, Status Bar) */
+  padding-top: max(0.625rem, calc(env(safe-area-inset-top, 0px) + 0.375rem)) !important;
+  padding-left: max(0.75rem, calc(env(safe-area-inset-left, 0px) + 0.5rem));
+  padding-right: max(0.75rem, calc(env(safe-area-inset-right, 0px) + 0.5rem));
 }

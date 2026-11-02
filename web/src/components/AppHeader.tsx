@@ -163,7 +163,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     <>
       {/* ── HEADER BAR ──────────────────────────────────────────────────── */}
       <header
-        className="header-bar border-b px-3 md:px-5 py-2.5 flex items-center gap-2 md:gap-4 sticky top-0 z-30"
+        className="header-bar border-b px-3 md:px-5 pb-2.5 flex items-center gap-2 md:gap-4 sticky top-0 z-30"
         style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
       >
         {/* LEFT: Logo + Class Switcher */}
