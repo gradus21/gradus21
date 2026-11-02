@@ -64,7 +64,7 @@ export interface VaultLockAndAuthModalProps {
   onCloseInspector?: () => void;
   cloudSyncEnabled?: boolean;
   onToggleCloudSync?: (enable: boolean) => void | Promise<void | boolean>;
-  onPurgeCloudData?: () => void | Promise<void | boolean>;
+  onPurgeCloudData?: () => void | Promise<any>;
   onImportEncryptedBackup?: (file: File) => void | Promise<void>;
   onUpdateVaultEmail?: (newEmail: string) => Promise<boolean | void> | boolean | void;
 }

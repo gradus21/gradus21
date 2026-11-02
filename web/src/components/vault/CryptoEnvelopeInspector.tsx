@@ -115,6 +115,7 @@ export const CryptoEnvelopeInspector: React.FC<CryptoEnvelopeInspectorProps> = (
   const [legalTab, setLegalTab] = useState<LegalTab>('impressum');
   const [isTogglingSync, setIsTogglingSync] = useState(false);
   const [isPurgingCloud, setIsPurgingCloud] = useState(false);
+  const [confirmDeleteCloud, setConfirmDeleteCloud] = useState(false);
   const legalConfig = useLegalConfig();
 
   const isPasskeyActive = userPasskeys.length > 0 || Boolean(localPasskeyForEmail);
@@ -925,23 +926,58 @@ export const CryptoEnvelopeInspector: React.FC<CryptoEnvelopeInspectorProps> = (
               </button>
 
               {cloudSyncEnabled && onPurgeCloudData && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (window.confirm('Möchtest du wirklich alle verschlüsselten Noten-Backups aus der Cloud löschen?')) {
-                      setIsPurgingCloud(true);
-                      Promise.resolve(onPurgeCloudData())
-                        .then(() => setStatusMsg('Cloud-Daten erfolgreich bereinigt.'))
-                        .catch((e) => setErrorMsg(String(e)))
-                        .finally(() => setIsPurgingCloud(false));
-                    }
-                  }}
-                  disabled={isPurgingCloud}
-                  className="px-3 py-2 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 border border-rose-200 transition flex items-center gap-1"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Cloud-Daten löschen</span>
-                </button>
+                confirmDeleteCloud ? (
+                  <div className="flex items-center gap-1.5 animate-in fade-in duration-150">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsPurgingCloud(true);
+                        Promise.resolve(onPurgeCloudData())
+                          .then((res: any) => {
+                            const msg =
+                              typeof res === 'object' && res && 'message' in res
+                                ? res.message
+                                : 'Cloud-Daten erfolgreich bereinigt.';
+                            setStatusMsg(msg);
+                            setConfirmDeleteCloud(false);
+                          })
+                          .catch((e) => {
+                            setErrorMsg(String(e?.message || e));
+                            setConfirmDeleteCloud(false);
+                          })
+                          .finally(() => setIsPurgingCloud(false));
+                      }}
+                      disabled={isPurgingCloud}
+                      className="px-2.5 py-2 rounded-xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700 transition flex items-center gap-1 shadow-sm"
+                    >
+                      {isPurgingCloud ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-3.5 h-3.5" />
+                      )}
+                      <span>Wirklich löschen?</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteCloud(false)}
+                      disabled={isPurgingCloud}
+                      className="p-2 rounded-xl text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 border border-zinc-200 dark:border-zinc-700"
+                      title="Abbrechen"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteCloud(true)}
+                    disabled={isPurgingCloud}
+                    className="px-3 py-2 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 border border-rose-200 transition flex items-center gap-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Cloud-Daten löschen</span>
+                  </button>
+                )
               )}
             </div>
           </div>

@@ -97,6 +97,43 @@ describe('SettingsModal Navigation & Account Security Architecture', () => {
     expect(screen.queryByRole('button', { name: /e-mail ändern/i })).toBeNull();
   });
 
+  it('opens in-app confirmation modal and triggers onPurgeCloudData when clicking "Cloud-Kopie jetzt löschen"', async () => {
+    const onPurgeCloudData = vi.fn().mockResolvedValue({
+      ok: true,
+      user_deleted: true,
+      message: 'Alle Cloud-Daten und dein Benutzerkonto wurden gelöscht.',
+    });
+
+    render(
+      <SettingsModal
+        settings={{ ...dummySettings, cloudSyncEnabled: true }}
+        onUpdateSettings={vi.fn()}
+        onClose={vi.fn()}
+        session={dummySession}
+        initialSection="storage"
+        onPurgeCloudData={onPurgeCloudData}
+      />
+    );
+
+    const purgeBtn = screen.getByRole('button', { name: /cloud-kopie jetzt löschen/i });
+    expect(purgeBtn).toBeDefined();
+
+    // 1. Clicking opens confirmation modal without calling onPurgeCloudData yet
+    fireEvent.click(purgeBtn);
+    expect(screen.getByText(/cloud-kopie & serverkonto unwiderruflich löschen\?/i)).toBeDefined();
+    expect(onPurgeCloudData).not.toHaveBeenCalled();
+
+    // 2. Confirm in modal
+    const confirmBtn = screen.getByRole('button', { name: /ja, jetzt unwiderruflich löschen/i });
+    fireEvent.click(confirmBtn);
+
+    expect(onPurgeCloudData).toHaveBeenCalledTimes(1);
+
+    // 3. Feedback message is displayed
+    const feedback = await screen.findByText(/alle cloud-daten und dein benutzerkonto wurden gelöscht\./i);
+    expect(feedback).toBeDefined();
+  });
+
   it('displays native separate backup path configuration on native clients instead of Chromium File System API warning', async () => {
     (window as any).__TAURI__ = {};
     try {

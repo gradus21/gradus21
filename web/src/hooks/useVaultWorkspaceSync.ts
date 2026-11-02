@@ -2693,44 +2693,92 @@ export function useVaultWorkspaceSync() {
     setIsReconciliationOpen(true);
   };
 
-  const handlePurgeCloudData = async () => {
-    if (!vaultSession?.token) {
+  const handlePurgeCloudData = async (): Promise<{
+    ok: boolean;
+    user_deleted?: boolean;
+    message: string;
+  }> => {
+    // 1. Resolve active token (from state, local storage, or silent re-auth)
+    let effectiveToken =
+      vaultSession?.token ||
+      (vaultSession?.userId ? getStoredToken(vaultSession.userId) : '') ||
+      '';
+
+    if (!effectiveToken && vaultSession?.userId && vaultSession?.authKeyB64) {
+      const renewed = await renewTokenIfNeeded(
+        vaultSession.userId,
+        vaultSession.email,
+        vaultSession.authKeyB64,
+        vaultSession.totpSecretBase32
+      );
+      if (renewed) {
+        effectiveToken = renewed;
+        setVaultSession((prev) => (prev ? { ...prev, token: renewed } : null));
+        persistEncryptedSessionCredentialsToCache({ ...vaultSession, token: renewed });
+      }
+    }
+
+    // If there is no token/authKey at all (pure local offline vault), simply turn off cloudSync in settings
+    if (!effectiveToken) {
       setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: false }));
       setSyncStatus('local_only');
-      alert('Cloud-Sync wurde deaktiviert. Alle Daten bleiben rein lokal gespeichert.');
-      return;
+      return {
+        ok: true,
+        user_deleted: false,
+        message: 'Cloud-Sync wurde deaktiviert. Alle Daten bleiben rein lokal gespeichert.',
+      };
     }
-    const confirmed = window.confirm(
-      isTauri()
-        ? 'Möchtest du wirklich alle verschlüsselten Datensätze vom Server löschen?\n\nDeine lokalen Daten auf diesem Gerät bleiben vollständig erhalten. Gradus21 arbeitet danach zu 100% lokal offline.'
-        : 'Möchtest du wirklich alle verschlüsselten Datensätze vom Server löschen?\n\nDeine lokalen Daten im Browser bleiben vollständig erhalten. Gradus21 arbeitet danach zu 100% lokal offline.'
-    );
-    if (!confirmed) return;
 
     try {
-      const res = await fetch(apiUrl('/api/envelopes'), {
+      let res = await fetch(apiUrl('/api/envelopes'), {
         method: 'DELETE',
         headers: {
-          Authorization: `Bearer ${vaultSession.token}`,
+          Authorization: `Bearer ${effectiveToken}`,
         },
       });
+
+      // Handle 401 token expiry by renewing token and retrying once
+      if (res.status === 401 && vaultSession?.userId && vaultSession?.authKeyB64) {
+        const refreshedToken = await renewTokenIfNeeded(
+          vaultSession.userId,
+          vaultSession.email,
+          vaultSession.authKeyB64,
+          vaultSession.totpSecretBase32
+        );
+        if (refreshedToken) {
+          effectiveToken = refreshedToken;
+          setVaultSession((prev) => (prev ? { ...prev, token: refreshedToken } : null));
+          persistEncryptedSessionCredentialsToCache({ ...vaultSession, token: refreshedToken });
+          res = await fetch(apiUrl('/api/envelopes'), {
+            method: 'DELETE',
+            headers: {
+              Authorization: `Bearer ${refreshedToken}`,
+            },
+          });
+        }
+      }
+
       if (res.ok || res.status === 204) {
         const body = await res.json().catch(() => null);
         envelopeVersionsRef.current.clear();
         setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: false }));
         setSyncStatus('local_only');
         setIsEmailVerified(false);
+
         if (body?.user_deleted) {
           // Account completely purged from server (GDPR Art. 17) — scrub server token while keeping local offline vault keys
-          if (vaultSession.email) {
+          if (vaultSession?.email) {
             localStorage.removeItem(`gradus21_email_verified_${vaultSession.email}`);
           }
-          removeStoredToken(vaultSession.userId);
+          if (vaultSession?.userId) {
+            removeStoredToken(vaultSession.userId);
+            removeStoredAuthKey(vaultSession.userId);
+          }
           const updatedSession: ActiveVaultSession = {
             ...vaultSession,
             token: '',
             isAdmin: false,
-          };
+          } as ActiveVaultSession;
           persistEncryptedSessionCredentialsToCache(updatedSession);
           setVaultSession((prev) =>
             prev
@@ -2741,18 +2789,26 @@ export function useVaultWorkspaceSync() {
                 }
               : null
           );
-          alert(
-            'Alle Cloud-Daten und dein Benutzerkonto wurden gemäß DSGVO Art. 17 vollständig vom Server gelöscht.\n\nDein Tresor bleibt auf diesem Gerät uneingeschränkt lokal nutzbar.'
-          );
+          return {
+            ok: true,
+            user_deleted: true,
+            message:
+              'Alle Cloud-Daten und dein Benutzerkonto wurden gemäß DSGVO Art. 17 vollständig vom Server gelöscht. Dein Tresor bleibt auf diesem Gerät lokal nutzbar.',
+          };
         } else {
-          alert('Alle Server-Kopien deiner Datensätze wurden unwiderruflich gelöscht. Dein Admin-Konto bleibt erhalten.');
+          return {
+            ok: true,
+            user_deleted: false,
+            message: 'Alle Server-Kopien deiner Datensätze wurden unwiderruflich gelöscht.',
+          };
         }
       } else {
-        alert('Serverfehler beim Löschen der Cloud-Kopien.');
+        const errText = await res.text().catch(() => '');
+        throw new Error(errText || `Serverfehler beim Löschen der Cloud-Kopien (${res.status})`);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Fehler beim Löschen der Server-Daten:', e);
-      alert('Der Server konnte nicht erreicht werden.');
+      throw e;
     }
   };
 

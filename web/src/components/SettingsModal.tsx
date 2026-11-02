@@ -98,7 +98,7 @@ interface SettingsModalProps {
   onOpenInteractiveGuide?: () => void;
   onOpenSchoolGuide?: () => void;
   onToggleCloudSync?: (enabled: boolean) => void;
-  onPurgeCloudData?: () => void;
+  onPurgeCloudData?: () => void | Promise<any>;
   onExportEncryptedBackup?: () => void;
   onImportEncryptedBackup?: (file: File) => void;
   connectedBackupDirName?: string | null;
@@ -240,6 +240,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   }, [initialSection]);
   const [showAvvConfirmation, setShowAvvConfirmation] = useState(false);
+  const [showPurgeConfirmation, setShowPurgeConfirmation] = useState(false);
+  const [isPurgingCloud, setIsPurgingCloud] = useState(false);
+  const [purgeFeedback, setPurgeFeedback] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
+  const handleConfirmPurge = async () => {
+    if (!onPurgeCloudData) return;
+    try {
+      setIsPurgingCloud(true);
+      const res = (await onPurgeCloudData()) as any;
+      setShowPurgeConfirmation(false);
+      const msg =
+        typeof res === 'object' && res && 'message' in res
+          ? res.message
+          : 'Cloud-Kopie und Server-Daten wurden erfolgreich gelöscht.';
+      setPurgeFeedback({ type: 'success', message: msg });
+      triggerSaved();
+    } catch (err: any) {
+      setPurgeFeedback({
+        type: 'error',
+        message: err?.message || 'Fehler beim Löschen der Server-Daten.',
+      });
+    } finally {
+      setIsPurgingCloud(false);
+    }
+  };
   const [copiedPath, setCopiedPath] = useState(false);
   const [copiedBackupPath, setCopiedBackupPath] = useState(false);
   const storageInfo = getStorageLocationInfo();
@@ -1209,11 +1237,40 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </span>
                     <button
                       type="button"
-                      onClick={onPurgeCloudData}
+                      onClick={() => {
+                        setPurgeFeedback(null);
+                        setShowPurgeConfirmation(true);
+                      }}
                       className="px-3 py-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-600 font-bold hover:bg-rose-500/20 transition flex items-center gap-1.5 shrink-0"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       <span>Cloud-Kopie jetzt löschen</span>
+                    </button>
+                  </div>
+                )}
+
+                {purgeFeedback && (
+                  <div
+                    className={`p-3 rounded-xl border text-xs flex items-center justify-between gap-2 animate-in fade-in duration-150 ${
+                      purgeFeedback.type === 'success'
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-300'
+                        : 'bg-rose-500/10 border-rose-500/30 text-rose-800 dark:text-rose-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {purgeFeedback.type === 'success' ? (
+                        <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
+                      )}
+                      <span>{purgeFeedback.message}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPurgeFeedback(null)}
+                      className="text-xs opacity-60 hover:opacity-100 px-1.5 py-0.5"
+                    >
+                      ✕
                     </button>
                   </div>
                 )}
@@ -1959,6 +2016,65 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 <span>Ja, AVV liegt vor / genehmigt</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cloud Purge & Server Account Deletion Confirmation Modal */}
+      {showPurgeConfirmation && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div
+            className="max-w-md w-full rounded-2xl border p-6 shadow-2xl space-y-4 animate-scale-up"
+            style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
+          >
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+                  Cloud-Kopie &amp; Serverkonto unwiderruflich löschen?
+                </h4>
+                <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                  Möchtest du alle auf dem Server liegenden verschlüsselten Noten-Datensätze und dein Benutzerkonto gemäß Art. 17 DSGVO unwiderruflich löschen?
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-800 dark:text-emerald-300 leading-relaxed">
+              <strong>Wichtig:</strong> Deine lokalen Daten auf diesem Endgerät bleiben zu 100% erhalten. Gradus21 arbeitet danach rein lokal offline weiter.
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isPurgingCloud}
+                onClick={() => setShowPurgeConfirmation(false)}
+                className="px-3.5 py-2 rounded-xl border text-xs font-semibold hover:opacity-80 transition"
+                style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
+              >
+                Abbrechen
+              </button>
+
+              <button
+                type="button"
+                disabled={isPurgingCloud}
+                onClick={handleConfirmPurge}
+                className="px-3.5 py-2 rounded-xl bg-rose-600 text-white text-xs font-bold hover:bg-rose-700 transition flex items-center justify-center gap-1.5 shadow-sm"
+              >
+                {isPurgingCloud ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Lösche vom Server...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Ja, jetzt unwiderruflich löschen</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
