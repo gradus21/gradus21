@@ -210,12 +210,7 @@ describe('ExportAndPrintHelpers - SchILD-NRW and Standard Presets', () => {
   });
 });
 
-describe('ExportAndPrintHelpers - Document Printing and Export Sheet', () => {
-  afterEach(() => {
-    const root = document.getElementById('gradus21-print-sheet-root');
-    if (root) root.remove();
-  });
-
+describe('ExportAndPrintHelpers - Document Printing and Native Share Dialog', () => {
   it('strips inline print scripts from html content', () => {
     const raw = '<html><body><h1>Test</h1><script>window.print();</script></body></html>';
     const clean = stripInlinePrintScripts(raw);
@@ -223,27 +218,41 @@ describe('ExportAndPrintHelpers - Document Printing and Export Sheet', () => {
     expect(clean).toContain('<h1>Test</h1>');
   });
 
-  it('renders interactive print sheet when window.open returns null or in mobile environment', () => {
-    // In jsdom, window.open returns null or can be mocked
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+  it('directly opens native share dialog on mobile/Tauri without stuck in-app iframe overlays', async () => {
+    const shareMock = vi.fn().mockResolvedValue(undefined);
+    const canShareMock = vi.fn().mockReturnValue(true);
 
-    printHtmlDocument('<h1>Schüler-Akte</h1>', 'Elterngesprächs-Bogen – Max');
+    const originalNavigator = global.navigator;
+    Object.defineProperty(global, 'navigator', {
+      value: {
+        ...originalNavigator,
+        share: shareMock,
+        canShare: canShareMock,
+        userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8)',
+        maxTouchPoints: 5,
+      },
+      configurable: true,
+      writable: true,
+    });
 
-    const sheetRoot = document.getElementById('gradus21-print-sheet-root');
-    expect(sheetRoot).not.toBeNull();
-    expect(sheetRoot?.textContent).toContain('Elterngesprächs-Bogen – Max');
-    expect(sheetRoot?.textContent).toContain('Teilen / Sichern');
+    await printHtmlDocument('<h1>Schüler-Akte</h1>', 'Elterngesprächs-Bogen – Max');
 
-    const iframe = sheetRoot?.querySelector('iframe') as HTMLIFrameElement;
-    expect(iframe).not.toBeNull();
-    expect(iframe.srcdoc).toContain('<h1>Schüler-Akte</h1>');
+    // Asserts navigator.share was directly invoked with file
+    expect(canShareMock).toHaveBeenCalled();
+    expect(shareMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Elterngesprächs-Bogen – Max',
+      })
+    );
 
-    // Clicking close button removes the sheet
-    const closeBtn = sheetRoot?.querySelector('#gradus21-sheet-close-top') as HTMLButtonElement;
-    closeBtn.click();
+    // Asserts no stuck DOM overlay was created
     expect(document.getElementById('gradus21-print-sheet-root')).toBeNull();
 
-    openSpy.mockRestore();
+    Object.defineProperty(global, 'navigator', {
+      value: originalNavigator,
+      configurable: true,
+      writable: true,
+    });
   });
 
   it('triggerFileDownload delegates to navigator.share when available and supported', async () => {

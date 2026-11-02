@@ -519,165 +519,83 @@ export function stripInlinePrintScripts(html: string): string {
 /**
  * Universal print and document export helper.
  * Supports:
- * - Desktop browsers: Standard window.print()
- * - Mobile devices (iOS/iPadOS/Android) & Tauri: In-app modal viewer with Print and Web Share API ("Save to Files", AirDrop, etc.)
+ * - Mobile devices (Android, iOS) & native Tauri: Directly opens native system Share/Print dialog (Save to Files, AirPrint, Drive, etc.)
+ * - Desktop browsers: Directly triggers the browser's native print/PDF dialog via offscreen iframe without popup blockers or stuck overlays.
  */
-export function printHtmlDocument(htmlContent: string, title: string = 'Dokument'): void {
+export async function printHtmlDocument(htmlContent: string, title: string = 'Dokument'): Promise<void> {
   const cleanHtml = stripInlinePrintScripts(htmlContent);
 
-  // 1. On standard desktop browsers (not mobile and not Tauri native app),
-  // try standard window.open printing first.
-  if (!isAppleTouchDevice() && !isMobileDevice() && !isTauri()) {
-    try {
-      const win = window.open('', '_blank', 'width=900,height=800');
-      if (win && win.document) {
-        win.document.open();
-        win.document.write(cleanHtml);
-        win.document.close();
-        win.focus();
-        setTimeout(() => {
-          try {
-            win?.print();
-          } catch (e) {
-            console.warn('[Print] Native window.print failed:', e);
-          }
-        }, 300);
-        return;
+  // 1. Mobile touch devices / native apps (iOS, Android, Tauri):
+  // Directly open the native system Share/Print sheet so the user can tap "Drucken",
+  // "In Dateien sichern" / "In Google Drive speichern", AirDrop, etc.
+  if (isMobileDevice() || isAppleTouchDevice() || isTauri()) {
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      try {
+        const cleanFilename = (title.replace(/[^a-zA-Z0-9äöüÄÖÜß_-]/g, '_') || 'Dokument') + '.html';
+        const blob = new Blob([cleanHtml], { type: 'text/html;charset=utf-8' });
+        const file = new File([blob], cleanFilename, { type: 'text/html;charset=utf-8' });
+
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: title,
+          });
+          return;
+        }
+      } catch (shareErr: any) {
+        if (shareErr?.name === 'AbortError') {
+          // User intentionally closed/dismissed the native dialog
+          return;
+        }
+        console.warn('[Print] Native share dialog failed, falling back to print:', shareErr);
       }
-    } catch (e) {
-      console.warn('[Print] window.open failed, displaying interactive document preview:', e);
     }
   }
 
-  // 2. On Mobile (iOS / iPadOS / Android), Tauri native webview, or if window.open was blocked:
-  // Render an interactive in-app Document Print & Share sheet.
-  showDocumentPrintSheet(cleanHtml, title);
-}
-
-/**
- * Displays an interactive in-app modal sheet rendering the document with options
- * to trigger native AirPrint/Print or share/save via the native Web Share API (Save to Files / AirDrop).
- */
-export function showDocumentPrintSheet(cleanHtml: string, title: string): void {
-  if (typeof document === 'undefined') return;
-
-  // Remove existing sheet if open
-  const oldRoot = document.getElementById('gradus21-print-sheet-root');
-  if (oldRoot) oldRoot.remove();
-
-  const root = document.createElement('div');
-  root.id = 'gradus21-print-sheet-root';
-  root.className = 'fixed inset-0 z-[9999] flex flex-col bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-150 select-none';
-
-  const modal = document.createElement('div');
-  modal.className = 'relative flex-1 flex flex-col w-full max-w-4xl mx-auto my-0 sm:my-6 bg-white dark:bg-slate-900 sm:rounded-3xl shadow-2xl overflow-hidden border-0 sm:border border-slate-200 dark:border-slate-800';
-
-  // Safe header
-  const header = document.createElement('div');
-  header.className = 'px-4 sm:px-6 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/95 dark:bg-slate-900/95 shrink-0';
-  header.style.paddingTop = 'max(0.75rem, env(safe-area-inset-top, 0px))';
-
-  header.innerHTML = `
-    <div class="flex flex-col min-w-0 pr-2">
-      <span class="text-xs font-semibold text-teal-600 dark:text-teal-400 uppercase tracking-wider">Druckvorschau & Export</span>
-      <h3 class="text-sm sm:text-base font-bold text-slate-900 dark:text-white truncate">${escapeHtml(title)}</h3>
-    </div>
-    <div class="flex items-center gap-2 shrink-0">
-      <button id="gradus21-sheet-share-top" class="px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition active:scale-[0.98]">
-        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-        <span>Teilen / Sichern</span>
-      </button>
-      <button id="gradus21-sheet-print-top" class="hidden sm:flex px-3 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold items-center gap-1.5 transition active:scale-[0.98]">
-        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>
-        <span>Drucken</span>
-      </button>
-      <button id="gradus21-sheet-close-top" class="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition" aria-label="Schließen">
-        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
-      </button>
-    </div>
-  `;
-
-  // Body with Iframe
-  const body = document.createElement('div');
-  body.className = 'flex-1 w-full bg-slate-100 dark:bg-slate-950 p-2 sm:p-4 overflow-hidden flex flex-col items-center justify-center';
-
-  const iframe = document.createElement('iframe');
-  iframe.id = 'gradus21-sheet-iframe';
-  iframe.className = 'w-full h-full bg-white rounded-xl shadow border border-slate-200 dark:border-slate-800';
-  iframe.srcdoc = cleanHtml;
-  body.appendChild(iframe);
-
-  // Footer for mobile & quick action
-  const footer = document.createElement('div');
-  footer.className = 'p-3 sm:p-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0';
-  footer.style.paddingBottom = 'max(0.75rem, env(safe-area-inset-bottom, 0px))';
-
-  footer.innerHTML = `
-    <p class="text-[11px] text-slate-500 text-center sm:text-left leading-normal">
-      Tipp: Über <strong>„Teilen / Sichern“</strong> kannst du das Dokument per AirDrop versenden, drucken oder in <strong>Apple Dateien / Google Drive</strong> sichern.
-    </p>
-    <div class="flex items-center gap-2 w-full sm:w-auto">
-      <button id="gradus21-sheet-print-bottom" class="sm:hidden flex-1 px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-[0.98]">
-        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>
-        <span>Drucken</span>
-      </button>
-      <button id="gradus21-sheet-share-bottom" class="sm:hidden flex-1 px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition active:scale-[0.98]">
-        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-        <span>Teilen / Sichern</span>
-      </button>
-      <button id="gradus21-sheet-close-bottom" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium transition">
-        Schließen
-      </button>
-    </div>
-  `;
-
-  modal.appendChild(header);
-  modal.appendChild(body);
-  modal.appendChild(footer);
-  root.appendChild(modal);
-  document.body.appendChild(root);
-
-  // Handlers
-  const close = () => {
-    document.removeEventListener('keydown', handleKey);
-    root.remove();
-  };
-
-  const handleKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') close();
-  };
-  document.addEventListener('keydown', handleKey);
-
-  const triggerPrint = () => {
+  // 2. Desktop browsers or fallback where Web Share with files is unavailable:
+  // Directly trigger the system print preview dialog via an offscreen iframe.
+  if (typeof document !== 'undefined') {
     try {
-      if (iframe.contentWindow) {
-        iframe.contentWindow.focus();
-        iframe.contentWindow.print();
-      } else {
-        window.print();
-      }
+      const iframe = document.createElement('iframe');
+      iframe.setAttribute(
+        'style',
+        'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0.01;pointer-events:none;border:none;'
+      );
+      iframe.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(iframe);
+
+      const cleanup = () => {
+        setTimeout(() => {
+          if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+        }, 2000);
+      };
+
+      iframe.onload = () => {
+        setTimeout(() => {
+          try {
+            iframe.contentWindow?.focus();
+            iframe.contentWindow?.print();
+          } catch (err) {
+            console.warn('[Print] iframe print failed:', err);
+            window.print();
+          } finally {
+            cleanup();
+          }
+        }, 250);
+      };
+
+      iframe.srcdoc = cleanHtml;
+      return;
     } catch (err) {
-      console.warn('[Print] iframe print failed:', err);
+      console.warn('[Print] Fallback to direct window.print:', err);
       window.print();
     }
-  };
-
-  const triggerShare = async () => {
-    const filename = (title.replace(/[^a-zA-Z0-9äöüÄÖÜß_-]/g, '_') || 'Dokument') + '.html';
-    await triggerFileDownload(cleanHtml, filename, 'text/html;charset=utf-8');
-  };
-
-  // Wire buttons
-  root.querySelector('#gradus21-sheet-close-top')?.addEventListener('click', close);
-  root.querySelector('#gradus21-sheet-close-bottom')?.addEventListener('click', close);
-  root.querySelector('#gradus21-sheet-print-top')?.addEventListener('click', triggerPrint);
-  root.querySelector('#gradus21-sheet-print-bottom')?.addEventListener('click', triggerPrint);
-  root.querySelector('#gradus21-sheet-share-top')?.addEventListener('click', triggerShare);
-  root.querySelector('#gradus21-sheet-share-bottom')?.addEventListener('click', triggerShare);
+  }
 }
 
 /**
- * Opens a clean, privacy-safe single-student report for Elterngespräche (Print / Save as PDF)
+ * Opens a clean, privacy-safe single-student report for Elterngespräche (Print / Save as PDF).
+ * Fully optimized for DIN A4 Portrait.
  */
 export function printStudentParentReport(
   dataset: ClassroomSubjectDataset,
@@ -728,16 +646,143 @@ export function printStudentParentReport(
         <meta charset="utf-8" />
         <title>Elterngesprächs-Bogen – ${escapeHtml(student.name)}</title>
         <style>
-          @page { size: A4; margin: 15mm; }
-          body { font-family: system-ui, -apple-system, sans-serif; padding: 24px; color: #0f1d22; }
-          .header { display: flex; justify-content: space-between; border-bottom: 2px solid #0d9488; padding-bottom: 16px; }
-          .badge { background: #ccfbf1; color: #0f766e; padding: 4px 10px; border-radius: 99px; font-size: 12px; font-weight: bold; }
-          .summary-box { display: flex; gap: 16px; margin: 20px 0; }
-          .card { flex: 1; border: 1px solid #dce7e7; border-radius: 12px; padding: 14px; background: #f8fafa; }
-          table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
-          th, td { border-bottom: 1px solid #dce7e7; padding: 9px 8px; text-align: left; }
-          th { background: #eef5f5; color: #4a636b; }
-          .sig { margin-top: 48px; display: flex; justify-content: space-between; font-size: 12px; color: #4a636b; }
+          @page {
+            size: A4 portrait;
+            margin: 12mm 15mm;
+          }
+          * {
+            box-sizing: border-box;
+          }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #0f172a;
+            background: #ffffff;
+            margin: 0;
+            padding: 0;
+            font-size: 12px;
+            line-height: 1.45;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 2px solid #0d9488;
+            padding-bottom: 12px;
+          }
+          .badge {
+            background: #ccfbf1;
+            color: #0f766e;
+            padding: 3px 8px;
+            border-radius: 9999px;
+            font-size: 10px;
+            font-weight: 700;
+            display: inline-block;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+          }
+          .student-name {
+            margin: 6px 0 2px;
+            font-size: 20px;
+            font-weight: 800;
+            color: #0f172a;
+          }
+          .meta-sub {
+            color: #475569;
+            font-size: 11.5px;
+          }
+          .grade-box {
+            text-align: right;
+            background: #f0fdfa;
+            border: 1px solid #ccfbf1;
+            border-radius: 10px;
+            padding: 6px 12px;
+          }
+          .grade-label {
+            font-size: 10px;
+            color: #64748b;
+            font-weight: 600;
+          }
+          .grade-value {
+            font-size: 22px;
+            font-weight: 800;
+            color: #0d9488;
+            margin-top: 2px;
+          }
+          .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 10px;
+            margin: 14px 0;
+          }
+          .card {
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 10px 12px;
+            background: #f8fafc;
+          }
+          .card-label {
+            font-size: 11px;
+            color: #64748b;
+            font-weight: 600;
+          }
+          .card-val {
+            font-size: 16px;
+            font-weight: 700;
+            color: #0f172a;
+            margin-top: 3px;
+          }
+          h3 {
+            font-size: 13.5px;
+            font-weight: 700;
+            margin: 16px 0 6px;
+            color: #0f172a;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 6px;
+            font-size: 11.5px;
+          }
+          tr {
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+          th, td {
+            border-bottom: 1px solid #e2e8f0;
+            padding: 7px 8px;
+            text-align: left;
+          }
+          th {
+            background: #f1f5f9;
+            color: #334155;
+            font-size: 10.5px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+          }
+          tbody tr:nth-child(even) td {
+            background-color: #fafafa;
+          }
+          .notes-box {
+            margin-top: 16px;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 12px;
+            background: #f8fafc;
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+          .sig-section {
+            margin-top: 36px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #475569;
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
           @media print {
             body { padding: 0; }
           }
@@ -747,30 +792,30 @@ export function printStudentParentReport(
         <div class="header">
           <div>
             <span class="badge">Datenschutzkonformer Einzelbogen (Schüler:innen-360°-Akte)</span>
-            <h1 style="margin: 8px 0 4px; font-size: 22px;">${escapeHtml(student.name)} ${
+            <div class="student-name">${escapeHtml(student.name)} ${
     student.level ? `(Niveau ${escapeHtml(student.level)})` : ''
-  }</h1>
-            <div style="color:#4a636b; font-size:13px;">
+  }</div>
+            <div class="meta-sub">
               ${escapeHtml(dataset.schoolName)} · ${escapeHtml(dataset.className)} · Fach: <strong>${escapeHtml(
     dataset.subjectName
   )}</strong> · ${escapeHtml(termLabel)} (${escapeHtml(dataset.schoolYear)})
             </div>
           </div>
-          <div style="text-align:right;">
-            <div style="font-size:12px; color:#4a636b;">Berechneter Stand / Zeugnisnote</div>
-            <div style="font-size:26px; font-weight:800; color:#0d9488;">
+          <div class="grade-box">
+            <div class="grade-label">Berechneter Stand / Note</div>
+            <div class="grade-value">
               ${summary?.overall_percent != null ? `${escapeHtml(summary.overall_percent)}%` : ''} · Note ${escapeHtml(zeugnisNote)}
             </div>
           </div>
         </div>
 
-        <div class="summary-box">
+        <div class="summary-grid">
           ${(summary?.category_results || [])
             .map(
               (cr) => `
             <div class="card">
-              <div style="font-size:12px; color:#4a636b;">${escapeHtml(cr.category_name)} (Gewicht ${escapeHtml(cr.effective_weight_percent)}%)</div>
-              <div style="font-size:18px; font-weight:bold; margin-top:4px;">
+              <div class="card-label">${escapeHtml(cr.category_name)} (${escapeHtml(cr.effective_weight_percent)}%)</div>
+              <div class="card-val">
                 ${cr.average_percent != null ? `${escapeHtml(cr.average_percent)}% · Note ${escapeHtml(cr.display_grade)}` : '—'}
               </div>
             </div>`
@@ -778,7 +823,7 @@ export function printStudentParentReport(
             .join('')}
         </div>
 
-        <h3 style="font-size:15px; margin-top:20px;">Einzelleistungen (${escapeHtml(termLabel)})</h3>
+        <h3>Einzelleistungen (${escapeHtml(termLabel)})</h3>
         <table>
           <thead>
             <tr><th>Leistungsnachweis</th><th>Kategorie</th><th>Ergebnis</th></tr>
@@ -786,25 +831,26 @@ export function printStudentParentReport(
           <tbody>${studentGradesRows}</tbody>
         </table>
 
-        <div class="card" style="margin-top:20px;">
+        <div class="notes-box">
           <strong>Pädagogische Bemerkungen & Förderhinweise:</strong>
-          <p style="margin:6px 0 0; font-size:13px;">
-            ${escapeHtml(override?.reason || student.notes || 'Keine besonderen Vermerke.')}
+          <p style="margin: 6px 0 0; font-size: 12px; color: #334155;">
+            ${escapeHtml(override?.reason || student.notes || 'Keine besonderen Vermerke hinterlegt.')}
           </p>
         </div>
 
-        <div class="sig">
+        <div class="sig-section">
           <div>________________________________________<br/>Datum, Unterschrift Lehrkraft</div>
           <div>________________________________________<br/>Kenntnisnahme Erziehungsberechtigte/r</div>
         </div>
       </body>
     </html>`;
 
-  printHtmlDocument(docHtml, `Elterngesprächs-Bogen – ${student.name}`);
+  void printHtmlDocument(docHtml, `Elterngesprächs-Bogen – ${student.name}`);
 }
 
 /**
- * Opens a print-ready Zeugniskonferenz-Liste (Print / Save as PDF)
+ * Opens a print-ready Zeugniskonferenz-Liste (Print / Save as PDF).
+ * Fully optimized for DIN A4 Portrait.
  */
 export function printClassConferenceReport(
   dataset: ClassroomSubjectDataset,
@@ -832,26 +878,26 @@ export function printClassConferenceReport(
         '—';
 
       return `<tr>
-        <td>${idx + 1}</td>
-        <td><strong>${escapeHtml(stu.name)}</strong></td>
-        ${dataset.config.enable_student_levels ? `<td>${escapeHtml(stu.level || 'M')}</td>` : ''}
+        <td class="col-num">${idx + 1}</td>
+        <td class="col-name">${escapeHtml(stu.name)}</td>
+        ${dataset.config.enable_student_levels ? `<td class="col-level">${escapeHtml(stu.level || 'M')}</td>` : ''}
         ${dataset.categories
           .map((c) => {
             const cr = sum?.category_results.find((r) => r.category_id === c.id);
-            return `<td>${
+            return `<td class="col-cat">${
               cr?.average_percent != null
                 ? `${escapeHtml(cr.average_percent)}% (${escapeHtml(cr.display_grade)})`
                 : '—'
             }</td>`;
           })
           .join('')}
-        <td>${
+        <td class="col-calc">${
           sum?.overall_percent != null
             ? `${escapeHtml(sum.overall_percent)}% (${escapeHtml(sum.overall_display_grade)})`
             : '—'
         }</td>
-        <td><strong style="color:#0f766e;">${escapeHtml(zeugnisNote)}</strong></td>
-        <td style="font-size:11px; color:#4a636b;">${escapeHtml(override?.reason || stu.notes || '')}</td>
+        <td class="col-grade">${escapeHtml(zeugnisNote)}</td>
+        <td class="col-notes">${escapeHtml(override?.reason || stu.notes || '')}</td>
       </tr>`;
     })
     .join('');
@@ -862,46 +908,180 @@ export function printClassConferenceReport(
         <meta charset="utf-8" />
         <title>Zeugniskonferenz-Liste – ${escapeHtml(dataset.className)} ${escapeHtml(dataset.subjectName)}</title>
         <style>
-          @page { size: A4 landscape; margin: 12mm; }
-          body { font-family: system-ui, sans-serif; padding: 24px; color: #0f1d22; }
-          h1 { margin: 0 0 4px; font-size: 18px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 12px; }
-          th, td { border-bottom: 1px solid #dce7e7; padding: 6px 5px; text-align: left; }
-          th { background: #eef5f5; color: #0f1d22; font-weight: 700; }
+          @page {
+            size: A4 portrait;
+            margin: 10mm 12mm 12mm 12mm;
+          }
+          * {
+            box-sizing: border-box;
+          }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #0f172a;
+            background: #ffffff;
+            margin: 0;
+            padding: 0;
+            font-size: 11px;
+            line-height: 1.35;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          .header-box {
+            border-bottom: 2px solid #0d9488;
+            padding-bottom: 8px;
+            margin-bottom: 8px;
+          }
+          .header-title {
+            margin: 0 0 4px;
+            font-size: 16px;
+            font-weight: 800;
+            color: #0f172a;
+            letter-spacing: -0.3px;
+          }
+          .meta-info {
+            font-size: 11px;
+            color: #475569;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 6px;
+          }
+          .meta-pill {
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            padding: 2px 7px;
+            border-radius: 6px;
+            font-weight: 600;
+            color: #1e293b;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 6px;
+            font-size: 10.5px;
+            table-layout: auto;
+          }
+          thead {
+            display: table-header-group;
+          }
+          tr {
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+          th, td {
+            border-bottom: 1px solid #e2e8f0;
+            padding: 5px 4px;
+            text-align: left;
+            vertical-align: middle;
+          }
+          th {
+            background: #f8fafc;
+            color: #334155;
+            font-size: 10px;
+            font-weight: 700;
+            border-top: 1px solid #cbd5e1;
+            border-bottom: 1.5px solid #94a3b8;
+            white-space: nowrap;
+          }
+          tbody tr:nth-child(even) td {
+            background-color: #f8fafc;
+          }
+          .col-num {
+            width: 22px;
+            text-align: center;
+            color: #64748b;
+            font-size: 9.5px;
+          }
+          .col-name {
+            font-weight: 700;
+            color: #0f172a;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 140px;
+          }
+          .col-level {
+            width: 32px;
+            text-align: center;
+            font-weight: 600;
+            color: #0284c7;
+          }
+          .col-cat {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            font-size: 10px;
+            color: #334155;
+            white-space: nowrap;
+          }
+          .col-calc {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            font-size: 10px;
+            color: #475569;
+            white-space: nowrap;
+          }
+          .col-grade {
+            text-align: center;
+            font-weight: 800;
+            font-size: 12px;
+            color: #0f766e;
+            background: #f0fdfa !important;
+            border-left: 1px solid #ccfbf1;
+            border-right: 1px solid #ccfbf1;
+          }
+          .col-notes {
+            font-size: 9.5px;
+            color: #64748b;
+            word-break: break-word;
+            max-width: 130px;
+          }
+          .footer-sig {
+            margin-top: 28px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 10.5px;
+            color: #64748b;
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
           @media print {
             body { padding: 0; }
           }
         </style>
       </head>
       <body>
-        <h1>Zeugniskonferenz-Bogen: ${escapeHtml(dataset.className)} – ${escapeHtml(dataset.subjectName)} (${escapeHtml(termLabel)} ${escapeHtml(
-    dataset.schoolYear
-  )})</h1>
-        <div style="font-size:12px; color:#4a636b; margin-bottom: 12px;">
-          ${escapeHtml(dataset.schoolName)} · Klassenschnitt: <strong>${escapeHtml(
-    report?.class_average_percent ?? '—'
-  )}% (Ø ${escapeHtml(report?.class_display_grade ?? '—')})</strong> · Notenspiegel (1–6): [${(
-    report?.distribution_buckets || [0, 0, 0, 0, 0, 0]
-  )
-    .map((n) => escapeHtml(n))
-    .join(' / ')}]
+        <div class="header-box">
+          <div class="header-title">Zeugniskonferenz-Bogen: ${escapeHtml(dataset.className)} – ${escapeHtml(dataset.subjectName)}</div>
+          <div class="meta-info">
+            <span>${escapeHtml(dataset.schoolName)} · Schuljahr: ${escapeHtml(dataset.schoolYear)} · <strong>${escapeHtml(termLabel)}</strong></span>
+            <span class="meta-pill">Klassenschnitt: ${escapeHtml(report?.class_average_percent ?? '—')}% (Ø ${escapeHtml(report?.class_display_grade ?? '—')})</span>
+          </div>
+          <div style="font-size: 10px; color: #64748b; margin-top: 4px;">
+            Notenspiegel (1–6): [${(report?.distribution_buckets || [0, 0, 0, 0, 0, 0]).map((n) => escapeHtml(n)).join(' / ')}]
+          </div>
         </div>
+
         <table>
           <thead>
             <tr>
-              <th>#</th>
+              <th class="col-num">#</th>
               <th>Name</th>
-              ${dataset.config.enable_student_levels ? '<th>Niveau</th>' : ''}
-              ${dataset.categories.map((c) => `<th>Ø ${escapeHtml(c.short_code)}</th>`).join('')}
-              <th>Berechnet</th>
-              <th>Zeugnisnote</th>
-              <th>Bemerkung / Begründung</th>
+              ${dataset.config.enable_student_levels ? '<th class="col-level">Niv.</th>' : ''}
+              ${dataset.categories.map((c) => `<th class="col-cat">Ø ${escapeHtml(c.short_code)}</th>`).join('')}
+              <th class="col-calc">Berechnet</th>
+              <th class="col-grade">Zeugnis</th>
+              <th class="col-notes">Bemerkung / Begründung</th>
             </tr>
           </thead>
           <tbody>${rowsHtml}</tbody>
         </table>
+
+        <div class="footer-sig">
+          <div>________________________________________<br/>Datum, Leitung Zeugniskonferenz</div>
+          <div>________________________________________<br/>Klassenleitung / Protokoll</div>
+        </div>
       </body>
     </html>`;
 
-  printHtmlDocument(docHtml, `Zeugniskonferenz – ${dataset.className} ${dataset.subjectName}`);
+  void printHtmlDocument(docHtml, `Zeugniskonferenz – ${dataset.className} ${dataset.subjectName}`);
 }

@@ -10,14 +10,17 @@ export function printRecoverySheetDocument(targetEmail: string, formattedKey: st
         <meta charset="utf-8" />
         <title>Gradus21 – Persönliches Notfallblatt</title>
         <style>
-          @page { size: A4; margin: 20mm; }
+          @page { size: A4 portrait; margin: 15mm 20mm; }
+          * { box-sizing: border-box; }
           body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             color: #0f172a;
             line-height: 1.5;
-            padding: 24px;
-            max-width: 720px;
+            padding: 0;
+            max-width: 680px;
             margin: 0 auto;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
           }
           .header {
             display: flex;

@@ -72,15 +72,19 @@ export const LegalModal: React.FC<LegalModalProps> = ({
     <meta charset="utf-8" />
     <title>Gradus21 – AVV-Mustervertrag (Art. 28 DSGVO)</title>
     <style>
-      @page { size: A4; margin: 15mm; }
+      @page { size: A4 portrait; margin: 15mm; }
+      * { box-sizing: border-box; }
       body {
-        font-family: system-ui, -apple-system, sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         color: #0f172a;
-        line-height: 1.5;
-        font-size: 12px;
-        padding: 24px;
-        max-width: 800px;
+        background: #ffffff;
+        line-height: 1.45;
+        font-size: 11px;
+        padding: 0;
+        max-width: 720px;
         margin: 0 auto;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
       }
       h4 { margin: 14px 0 6px; font-size: 13px; font-weight: bold; }
       p { margin: 6px 0; }
