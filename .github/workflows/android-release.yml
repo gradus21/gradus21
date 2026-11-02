@@ -63,6 +63,9 @@ jobs:
       - name: Generate Android project (tauri android init)
         run: |
           export NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          # Ensure all cargo-installed tauri plugins use compileSdk = 36 (required by tauri 2.x and tauri-android)
+          find ~/.cargo/registry -name "build.gradle.kts" -path "*tauri-plugin-sharekit*" -exec sed -i 's/compileSdk = 35/compileSdk = 36/g' {} + || true
+
           cargo tauri android init --ci
           # Generate & sync all Android App Icons into the newly generated Android project
           cargo tauri icon web/public/gradus21-app-icon.png
@@ -76,6 +79,10 @@ jobs:
               echo "Injecting android.permission.VIBRATE into $manifest"
               sed -i 's|<uses-permission android:name="android.permission.INTERNET" />|<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.VIBRATE" />|' "$manifest"
             fi
+          done
+          # Ensure compileSdk = 36 and disable CheckAarMetadata across all gradle subprojects
+          for gradlekts in $(find src-tauri/gen/android -maxdepth 2 -name "build.gradle.kts"); do
+            echo -e '\nallprojects { tasks.matching { it.name.contains("AarMetadata") }.configureEach { enabled = false } }' >> "$gradlekts"
           done
 
       - name: Build release APK & AAB

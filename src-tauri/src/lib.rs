@@ -227,8 +227,12 @@ pub fn run() {
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_biometric::init())
-        .plugin(tauri_plugin_sharekit::init());
+        .plugin(tauri_plugin_biometric::init());
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        builder = builder.plugin(tauri_plugin_sharekit::init());
+    }
 
     #[cfg(desktop)]
     {
