@@ -327,4 +327,24 @@ export const getStorageLocationInfo = (): StorageLocationInfo => {
   };
 };
 
+/**
+ * Opens an external web URL safely across native Tauri (iOS, Android, macOS, Linux, Windows)
+ * and regular web browsers.
+ */
+export const openExternalUrl = async (url: string): Promise<void> => {
+  if (isTauri()) {
+    try {
+      const { openUrl } = await import('@tauri-apps/plugin-opener');
+      await openUrl(url);
+      return;
+    } catch (e) {
+      console.warn('[Platform] Failed to open URL via Tauri opener plugin:', e);
+    }
+  }
+  if (typeof window !== 'undefined') {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+};
+
+
 

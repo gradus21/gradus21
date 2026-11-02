@@ -12,6 +12,7 @@ import {
   getOperatingSystem,
   getModifierKey,
   getAltKey,
+  openExternalUrl,
 } from './platform';
 
 describe('platform utilities', () => {
@@ -334,6 +335,15 @@ describe('platform utilities', () => {
       expect(getOperatingSystem()).toBe('windows');
       expect(getModifierKey()).toBe('Ctrl');
       expect(getAltKey()).toBe('Alt');
+    });
+  });
+
+  describe('openExternalUrl', () => {
+    it('opens url using window.open in web browser environment', async () => {
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+      await openExternalUrl('https://gradus21.de/downloads/avv.pdf');
+      expect(openSpy).toHaveBeenCalledWith('https://gradus21.de/downloads/avv.pdf', '_blank', 'noopener,noreferrer');
+      openSpy.mockRestore();
     });
   });
 });

@@ -18,6 +18,8 @@ import {
   X,
 } from 'lucide-react';
 import { useLegalConfig, getDisplayDomain, LegalConfigData } from '../utils/legalConfig';
+import { printHtmlDocument } from './ExportAndPrintHelpers';
+import { openExternalUrl } from '../utils/platform';
 
 export type LegalTab = 'impressum' | 'privacy' | 'school_guide' | 'avv';
 
@@ -48,7 +50,54 @@ export const LegalModal: React.FC<LegalModalProps> = ({
   if (!isOpen) return null;
 
   const handlePrint = () => {
-    window.print();
+    const el = document.getElementById('gradus21-avv-document');
+    if (!el) {
+      window.print();
+      return;
+    }
+    const clone = el.cloneNode(true) as HTMLElement;
+    const inputs = clone.querySelectorAll('input');
+    inputs.forEach((input) => {
+      const span = document.createElement('span');
+      span.style.fontWeight = 'bold';
+      span.style.borderBottom = '1px solid #94a3b8';
+      span.style.padding = '0 4px';
+      span.textContent = input.value || input.placeholder || '______________________';
+      input.parentNode?.replaceChild(span, input);
+    });
+
+    const fullHtml = `<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>Gradus21 – AVV-Mustervertrag (Art. 28 DSGVO)</title>
+    <style>
+      @page { size: A4; margin: 15mm; }
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        color: #0f172a;
+        line-height: 1.5;
+        font-size: 12px;
+        padding: 24px;
+        max-width: 800px;
+        margin: 0 auto;
+      }
+      h4 { margin: 14px 0 6px; font-size: 13px; font-weight: bold; }
+      p { margin: 6px 0; }
+      ul { margin: 6px 0; padding-left: 20px; }
+      li { margin: 3px 0; }
+      code { font-family: monospace; background: #f1f5f9; padding: 2px 4px; border-radius: 4px; }
+      @media print {
+        body { padding: 0; }
+      }
+    </style>
+  </head>
+  <body>
+    ${clone.innerHTML}
+  </body>
+</html>`;
+
+    printHtmlDocument(fullHtml, 'Gradus21 – AVV-Mustervertrag (Art. 28 DSGVO)');
   };
 
   const handleCopyAvv = () => {
@@ -547,6 +596,10 @@ export const LegalModal: React.FC<LegalModalProps> = ({
                   <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
                     <a
                       href={config.avv_url || 'https://gradus21.de/avv.html'}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        openExternalUrl(config.avv_url || 'https://gradus21.de/avv.html');
+                      }}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs flex items-center gap-2 transition shadow-sm"
@@ -558,6 +611,10 @@ export const LegalModal: React.FC<LegalModalProps> = ({
                     {config.avv_download_url && (
                       <a
                         href={config.avv_download_url}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          openExternalUrl(config.avv_download_url!);
+                        }}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs flex items-center gap-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-sm"

@@ -3,6 +3,7 @@ import {
   StudentProfile,
   TermFilterId,
 } from '../data/demoClasses';
+import { isAppleTouchDevice, isMobileDevice, isTauri } from '../utils/platform';
 
 export interface StudentSummaryForExport {
   student_id: string;
@@ -406,10 +407,33 @@ export function generateCsvContent(
 }
 
 /**
- * Triggers a client-side file download via Blob and object URL.
+ * Triggers a client-side file download via Web Share API (mobile/touch) or standard Blob download (desktop).
  */
-export function triggerFileDownload(content: BlobPart, filename: string, mimeType: string) {
+export async function triggerFileDownload(content: BlobPart, filename: string, mimeType: string): Promise<void> {
   const blob = new Blob([content], { type: mimeType });
+
+  // 1. Mobile touch devices / platforms with Web Share API:
+  // Allows user to tap "In Dateien sichern" (Save to Files), AirDrop, Mail, iCloud Drive, etc.
+  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+    try {
+      const file = new File([blob], filename, { type: mimeType });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: filename,
+        });
+        return;
+      }
+    } catch (shareErr: any) {
+      if (shareErr?.name === 'AbortError') {
+        // User deliberately cancelled the native share sheet
+        return;
+      }
+      console.warn('[Download] Web Share failed, falling back to <a> tag:', shareErr);
+    }
+  }
+
+  // 2. Fallback: Standard browser download via <a> tag
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -417,33 +441,33 @@ export function triggerFileDownload(content: BlobPart, filename: string, mimeTyp
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /**
- * Exports a configurable CSV or TXT table and triggers an automatic browser download.
+ * Exports a configurable CSV or TXT table and triggers an automatic browser download or share sheet.
  */
-export function exportClassToCsv(
+export async function exportClassToCsv(
   dataset: ClassroomSubjectDataset,
   report: ClassReportForExport | null,
   options: ConfigurableExportOptions
-) {
+): Promise<void> {
   const { headers, rows } = buildExportTableData(dataset, report, options);
   const csvContent = generateCsvContent(headers, rows, options.delimiter, options.includeBom);
   const ext = options.format === 'txt' ? 'txt' : 'csv';
   const mime = options.format === 'txt' ? 'text/plain;charset=utf-8' : 'text/csv;charset=utf-8';
   const filename = `${dataset.subjectName}_${dataset.className}_${options.term.toUpperCase()}_${options.presetId}.${ext}`.replace(/\s+/g, '_');
-  triggerFileDownload(csvContent, filename, mime);
+  await triggerFileDownload(csvContent, filename, mime);
 }
 
 /**
- * Exports a configurable Excel (.xlsx) file using SheetJS and triggers browser download.
+ * Exports a configurable Excel (.xlsx) file using SheetJS and triggers browser download or share sheet.
  */
 export async function exportConfigurableClassToXlsx(
   dataset: ClassroomSubjectDataset,
   report: ClassReportForExport | null,
   options: ConfigurableExportOptions
-) {
+): Promise<void> {
   const XLSX = await import('@e965/xlsx');
   const { headers, rows } = buildExportTableData(dataset, report, options);
 
@@ -453,7 +477,8 @@ export async function exportConfigurableClassToXlsx(
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
 
   const filename = `${dataset.subjectName}_${dataset.className}_${options.term.toUpperCase()}_${options.presetId}.xlsx`.replace(/\s+/g, '_');
-  XLSX.writeFile(wb, filename);
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  await triggerFileDownload(wbout, filename, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 }
 
 /**
@@ -485,6 +510,173 @@ export function escapeHtml(value: unknown): string {
 }
 
 /**
+ * Strips any inline <script>window.print();</script> tags to avoid double triggers or CSP issues.
+ */
+export function stripInlinePrintScripts(html: string): string {
+  return html.replace(/<script[^>]*>\s*window\.print\(\);\s*<\/script>/gi, '');
+}
+
+/**
+ * Universal print and document export helper.
+ * Supports:
+ * - Desktop browsers: Standard window.print()
+ * - Mobile devices (iOS/iPadOS/Android) & Tauri: In-app modal viewer with Print and Web Share API ("Save to Files", AirDrop, etc.)
+ */
+export function printHtmlDocument(htmlContent: string, title: string = 'Dokument'): void {
+  const cleanHtml = stripInlinePrintScripts(htmlContent);
+
+  // 1. On standard desktop browsers (not mobile and not Tauri native app),
+  // try standard window.open printing first.
+  if (!isAppleTouchDevice() && !isMobileDevice() && !isTauri()) {
+    try {
+      const win = window.open('', '_blank', 'width=900,height=800');
+      if (win && win.document) {
+        win.document.open();
+        win.document.write(cleanHtml);
+        win.document.close();
+        win.focus();
+        setTimeout(() => {
+          try {
+            win?.print();
+          } catch (e) {
+            console.warn('[Print] Native window.print failed:', e);
+          }
+        }, 300);
+        return;
+      }
+    } catch (e) {
+      console.warn('[Print] window.open failed, displaying interactive document preview:', e);
+    }
+  }
+
+  // 2. On Mobile (iOS / iPadOS / Android), Tauri native webview, or if window.open was blocked:
+  // Render an interactive in-app Document Print & Share sheet.
+  showDocumentPrintSheet(cleanHtml, title);
+}
+
+/**
+ * Displays an interactive in-app modal sheet rendering the document with options
+ * to trigger native AirPrint/Print or share/save via the native Web Share API (Save to Files / AirDrop).
+ */
+export function showDocumentPrintSheet(cleanHtml: string, title: string): void {
+  if (typeof document === 'undefined') return;
+
+  // Remove existing sheet if open
+  const oldRoot = document.getElementById('gradus21-print-sheet-root');
+  if (oldRoot) oldRoot.remove();
+
+  const root = document.createElement('div');
+  root.id = 'gradus21-print-sheet-root';
+  root.className = 'fixed inset-0 z-[9999] flex flex-col bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-150 select-none';
+
+  const modal = document.createElement('div');
+  modal.className = 'relative flex-1 flex flex-col w-full max-w-4xl mx-auto my-0 sm:my-6 bg-white dark:bg-slate-900 sm:rounded-3xl shadow-2xl overflow-hidden border-0 sm:border border-slate-200 dark:border-slate-800';
+
+  // Safe header
+  const header = document.createElement('div');
+  header.className = 'px-4 sm:px-6 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/95 dark:bg-slate-900/95 shrink-0';
+  header.style.paddingTop = 'max(0.75rem, env(safe-area-inset-top, 0px))';
+
+  header.innerHTML = `
+    <div class="flex flex-col min-w-0 pr-2">
+      <span class="text-xs font-semibold text-teal-600 dark:text-teal-400 uppercase tracking-wider">Druckvorschau & Export</span>
+      <h3 class="text-sm sm:text-base font-bold text-slate-900 dark:text-white truncate">${escapeHtml(title)}</h3>
+    </div>
+    <div class="flex items-center gap-2 shrink-0">
+      <button id="gradus21-sheet-share-top" class="px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition active:scale-[0.98]">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        <span>Teilen / Sichern</span>
+      </button>
+      <button id="gradus21-sheet-print-top" class="hidden sm:flex px-3 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold items-center gap-1.5 transition active:scale-[0.98]">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>
+        <span>Drucken</span>
+      </button>
+      <button id="gradus21-sheet-close-top" class="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition" aria-label="Schließen">
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+  `;
+
+  // Body with Iframe
+  const body = document.createElement('div');
+  body.className = 'flex-1 w-full bg-slate-100 dark:bg-slate-950 p-2 sm:p-4 overflow-hidden flex flex-col items-center justify-center';
+
+  const iframe = document.createElement('iframe');
+  iframe.id = 'gradus21-sheet-iframe';
+  iframe.className = 'w-full h-full bg-white rounded-xl shadow border border-slate-200 dark:border-slate-800';
+  iframe.srcdoc = cleanHtml;
+  body.appendChild(iframe);
+
+  // Footer for mobile & quick action
+  const footer = document.createElement('div');
+  footer.className = 'p-3 sm:p-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0';
+  footer.style.paddingBottom = 'max(0.75rem, env(safe-area-inset-bottom, 0px))';
+
+  footer.innerHTML = `
+    <p class="text-[11px] text-slate-500 text-center sm:text-left leading-normal">
+      Tipp: Über <strong>„Teilen / Sichern“</strong> kannst du das Dokument per AirDrop versenden, drucken oder in <strong>Apple Dateien / Google Drive</strong> sichern.
+    </p>
+    <div class="flex items-center gap-2 w-full sm:w-auto">
+      <button id="gradus21-sheet-print-bottom" class="sm:hidden flex-1 px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-[0.98]">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>
+        <span>Drucken</span>
+      </button>
+      <button id="gradus21-sheet-share-bottom" class="sm:hidden flex-1 px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition active:scale-[0.98]">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        <span>Teilen / Sichern</span>
+      </button>
+      <button id="gradus21-sheet-close-bottom" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium transition">
+        Schließen
+      </button>
+    </div>
+  `;
+
+  modal.appendChild(header);
+  modal.appendChild(body);
+  modal.appendChild(footer);
+  root.appendChild(modal);
+  document.body.appendChild(root);
+
+  // Handlers
+  const close = () => {
+    document.removeEventListener('keydown', handleKey);
+    root.remove();
+  };
+
+  const handleKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') close();
+  };
+  document.addEventListener('keydown', handleKey);
+
+  const triggerPrint = () => {
+    try {
+      if (iframe.contentWindow) {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      } else {
+        window.print();
+      }
+    } catch (err) {
+      console.warn('[Print] iframe print failed:', err);
+      window.print();
+    }
+  };
+
+  const triggerShare = async () => {
+    const filename = (title.replace(/[^a-zA-Z0-9äöüÄÖÜß_-]/g, '_') || 'Dokument') + '.html';
+    await triggerFileDownload(cleanHtml, filename, 'text/html;charset=utf-8');
+  };
+
+  // Wire buttons
+  root.querySelector('#gradus21-sheet-close-top')?.addEventListener('click', close);
+  root.querySelector('#gradus21-sheet-close-bottom')?.addEventListener('click', close);
+  root.querySelector('#gradus21-sheet-print-top')?.addEventListener('click', triggerPrint);
+  root.querySelector('#gradus21-sheet-print-bottom')?.addEventListener('click', triggerPrint);
+  root.querySelector('#gradus21-sheet-share-top')?.addEventListener('click', triggerShare);
+  root.querySelector('#gradus21-sheet-share-bottom')?.addEventListener('click', triggerShare);
+}
+
+/**
  * Opens a clean, privacy-safe single-student report for Elterngespräche (Print / Save as PDF)
  */
 export function printStudentParentReport(
@@ -493,9 +685,6 @@ export function printStudentParentReport(
   summary: StudentSummaryForExport | undefined,
   activeTerm: TermFilterId
 ) {
-  const win = window.open('', '_blank', 'width=860,height=780');
-  if (!win) return;
-
   const termLabel =
     activeTerm === 'hj1'
       ? '1. Halbjahr'
@@ -533,27 +722,32 @@ export function printStudentParentReport(
     })
     .join('');
 
-  win.document.write(`
-    <html>
+  const docHtml = `<!DOCTYPE html>
+    <html lang="de">
       <head>
+        <meta charset="utf-8" />
         <title>Elterngesprächs-Bogen – ${escapeHtml(student.name)}</title>
         <style>
-          body { font-family: system-ui, -apple-system, sans-serif; padding: 36px; color: #0f1d22; }
+          @page { size: A4; margin: 15mm; }
+          body { font-family: system-ui, -apple-system, sans-serif; padding: 24px; color: #0f1d22; }
           .header { display: flex; justify-content: space-between; border-bottom: 2px solid #0d9488; padding-bottom: 16px; }
           .badge { background: #ccfbf1; color: #0f766e; padding: 4px 10px; border-radius: 99px; font-size: 12px; font-weight: bold; }
-          .summary-box { display: flex; gap: 20px; margin: 20px 0; }
-          .card { flex: 1; border: 1px solid #dce7e7; border-radius: 12px; padding: 16px; background: #f8fafa; }
+          .summary-box { display: flex; gap: 16px; margin: 20px 0; }
+          .card { flex: 1; border: 1px solid #dce7e7; border-radius: 12px; padding: 14px; background: #f8fafa; }
           table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
-          th, td { border-bottom: 1px solid #dce7e7; padding: 10px 8px; text-align: left; }
+          th, td { border-bottom: 1px solid #dce7e7; padding: 9px 8px; text-align: left; }
           th { background: #eef5f5; color: #4a636b; }
-          .sig { margin-top: 56px; display: flex; justify-content: space-between; font-size: 12px; color: #4a636b; }
+          .sig { margin-top: 48px; display: flex; justify-content: space-between; font-size: 12px; color: #4a636b; }
+          @media print {
+            body { padding: 0; }
+          }
         </style>
       </head>
       <body>
         <div class="header">
           <div>
             <span class="badge">Datenschutzkonformer Einzelbogen (Schüler:innen-360°-Akte)</span>
-            <h1 style="margin: 8px 0 4px;">${escapeHtml(student.name)} ${
+            <h1 style="margin: 8px 0 4px; font-size: 22px;">${escapeHtml(student.name)} ${
     student.level ? `(Niveau ${escapeHtml(student.level)})` : ''
   }</h1>
             <div style="color:#4a636b; font-size:13px;">
@@ -564,7 +758,7 @@ export function printStudentParentReport(
           </div>
           <div style="text-align:right;">
             <div style="font-size:12px; color:#4a636b;">Berechneter Stand / Zeugnisnote</div>
-            <div style="font-size:28px; font-weight:800; color:#0d9488;">
+            <div style="font-size:26px; font-weight:800; color:#0d9488;">
               ${summary?.overall_percent != null ? `${escapeHtml(summary.overall_percent)}%` : ''} · Note ${escapeHtml(zeugnisNote)}
             </div>
           </div>
@@ -576,7 +770,7 @@ export function printStudentParentReport(
               (cr) => `
             <div class="card">
               <div style="font-size:12px; color:#4a636b;">${escapeHtml(cr.category_name)} (Gewicht ${escapeHtml(cr.effective_weight_percent)}%)</div>
-              <div style="font-size:20px; font-weight:bold; margin-top:4px;">
+              <div style="font-size:18px; font-weight:bold; margin-top:4px;">
                 ${cr.average_percent != null ? `${escapeHtml(cr.average_percent)}% · Note ${escapeHtml(cr.display_grade)}` : '—'}
               </div>
             </div>`
@@ -584,7 +778,7 @@ export function printStudentParentReport(
             .join('')}
         </div>
 
-        <h3>Einzelleistungen (${escapeHtml(termLabel)})</h3>
+        <h3 style="font-size:15px; margin-top:20px;">Einzelleistungen (${escapeHtml(termLabel)})</h3>
         <table>
           <thead>
             <tr><th>Leistungsnachweis</th><th>Kategorie</th><th>Ergebnis</th></tr>
@@ -603,11 +797,10 @@ export function printStudentParentReport(
           <div>________________________________________<br/>Datum, Unterschrift Lehrkraft</div>
           <div>________________________________________<br/>Kenntnisnahme Erziehungsberechtigte/r</div>
         </div>
-        <script>window.print();</script>
       </body>
-    </html>
-  `);
-  win.document.close();
+    </html>`;
+
+  printHtmlDocument(docHtml, `Elterngesprächs-Bogen – ${student.name}`);
 }
 
 /**
@@ -618,9 +811,6 @@ export function printClassConferenceReport(
   report: ClassReportForExport | null,
   activeTerm: TermFilterId
 ) {
-  const win = window.open('', '_blank', 'width=980,height=800');
-  if (!win) return;
-
   const termLabel =
     activeTerm === 'hj1'
       ? '1. Halbjahr'
@@ -666,23 +856,28 @@ export function printClassConferenceReport(
     })
     .join('');
 
-  win.document.write(`
-    <html>
+  const docHtml = `<!DOCTYPE html>
+    <html lang="de">
       <head>
+        <meta charset="utf-8" />
         <title>Zeugniskonferenz-Liste – ${escapeHtml(dataset.className)} ${escapeHtml(dataset.subjectName)}</title>
         <style>
-          body { font-family: system-ui, sans-serif; padding: 30px; color: #0f1d22; }
-          h1 { margin: 0 0 4px; font-size: 20px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 12px; }
-          th, td { border-bottom: 1px solid #dce7e7; padding: 7px 6px; text-align: left; }
-          th { background: #eef5f5; color: #0f1d22; }
+          @page { size: A4 landscape; margin: 12mm; }
+          body { font-family: system-ui, sans-serif; padding: 24px; color: #0f1d22; }
+          h1 { margin: 0 0 4px; font-size: 18px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 12px; }
+          th, td { border-bottom: 1px solid #dce7e7; padding: 6px 5px; text-align: left; }
+          th { background: #eef5f5; color: #0f1d22; font-weight: 700; }
+          @media print {
+            body { padding: 0; }
+          }
         </style>
       </head>
       <body>
         <h1>Zeugniskonferenz-Bogen: ${escapeHtml(dataset.className)} – ${escapeHtml(dataset.subjectName)} (${escapeHtml(termLabel)} ${escapeHtml(
     dataset.schoolYear
   )})</h1>
-        <div style="font-size:13px; color:#4a636b;">
+        <div style="font-size:12px; color:#4a636b; margin-bottom: 12px;">
           ${escapeHtml(dataset.schoolName)} · Klassenschnitt: <strong>${escapeHtml(
     report?.class_average_percent ?? '—'
   )}% (Ø ${escapeHtml(report?.class_display_grade ?? '—')})</strong> · Notenspiegel (1–6): [${(
@@ -705,9 +900,8 @@ export function printClassConferenceReport(
           </thead>
           <tbody>${rowsHtml}</tbody>
         </table>
-        <script>window.print();</script>
       </body>
-    </html>
-  `);
-  win.document.close();
+    </html>`;
+
+  printHtmlDocument(docHtml, `Zeugniskonferenz – ${dataset.className} ${dataset.subjectName}`);
 }

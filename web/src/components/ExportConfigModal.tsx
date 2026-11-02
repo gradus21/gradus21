@@ -153,7 +153,7 @@ export const ExportConfigModal: React.FC<ExportConfigModalProps> = ({
       if (format === 'xlsx') {
         await exportConfigurableClassToXlsx(dataset, report, currentOptions);
       } else {
-        exportClassToCsv(dataset, report, currentOptions);
+        await exportClassToCsv(dataset, report, currentOptions);
       }
       onClose();
     } catch (err) {

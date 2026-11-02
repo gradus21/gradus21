@@ -1,11 +1,9 @@
 import React from 'react';
 import { Printer, Copy, Check } from 'lucide-react';
-import { escapeHtml } from '../ExportAndPrintHelpers';
+import { escapeHtml, printHtmlDocument } from '../ExportAndPrintHelpers';
 
 export function printRecoverySheetDocument(targetEmail: string, formattedKey: string): void {
-  const win = window.open('', '_blank', 'width=800,height=700');
-  if (!win) return;
-  win.document.write(`
+  const html = `
     <!DOCTYPE html>
     <html lang="de">
       <head>
@@ -145,14 +143,10 @@ export function printRecoverySheetDocument(targetEmail: string, formattedKey: st
         <div class="footer">
           Erstellt mit Gradus21 · Lokale kryptografische Schlüsselableitung (Argon2id + AES-256-GCM)
         </div>
-
-        <script>
-          window.print();
-        </script>
       </body>
     </html>
-  `);
-  win.document.close();
+  `;
+  printHtmlDocument(html, 'Gradus21 – Persönliches Notfallblatt');
 }
 
 interface RecoveryKeySheetCardProps {
