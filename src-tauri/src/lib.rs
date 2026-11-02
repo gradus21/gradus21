@@ -1,3 +1,5 @@
+use tauri::Manager;
+
 mod backup_storage;
 mod browser_auth;
 mod keyring_auth;
@@ -67,6 +69,37 @@ async fn native_export_backup_file(
 }
 
 #[tauri::command]
+async fn native_save_file(
+    app: tauri::AppHandle,
+    filename: String,
+    content_base64: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&content_base64)
+            .map_err(|e| format!("Base64-Dekodierung fehlgeschlagen: {}", e))?;
+
+        let dir = app
+            .path()
+            .app_cache_dir()
+            .or_else(|_| app.path().cache_dir())
+            .or_else(|_| app.path().temp_dir())
+            .or_else(|_| app.path().document_dir())
+            .unwrap_or_else(|_| std::path::PathBuf::from("."));
+
+        let _ = std::fs::create_dir_all(&dir);
+        let target_file = dir.join(&filename);
+        std::fs::write(&target_file, bytes)
+            .map_err(|e| format!("Datei '{}' konnte nicht geschrieben werden: {}", target_file.display(), e))?;
+
+        Ok(target_file.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| format!("Speichervorgang abgebrochen: {}", e))?
+}
+
+#[tauri::command]
 fn keyring_is_available() -> bool {
     keyring_auth::is_available()
 }
@@ -126,10 +159,10 @@ async fn start_desktop_browser_auth(
 }
 
 #[tauri::command]
-fn focus_main_window(app: tauri::AppHandle) {
+fn focus_main_window(_app: tauri::AppHandle) {
     #[cfg(desktop)]
     {
-        use tauri::Manager;
+        let app = _app;
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.show();
             let _ = window.set_focus();
@@ -194,7 +227,8 @@ pub fn run() {
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_biometric::init());
+        .plugin(tauri_plugin_biometric::init())
+        .plugin(tauri_plugin_sharekit::init());
 
     #[cfg(desktop)]
     {
@@ -209,6 +243,7 @@ pub fn run() {
             native_pick_backup_dir,
             native_write_vault_backup,
             native_export_backup_file,
+            native_save_file,
             keyring_is_available,
             keyring_save_secret,
             keyring_get_secret,

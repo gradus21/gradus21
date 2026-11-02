@@ -3,7 +3,13 @@ import {
   StudentProfile,
   TermFilterId,
 } from '../data/demoClasses';
-import { isAppleTouchDevice, isMobileDevice, isTauri } from '../utils/platform';
+import {
+  isAppleTouchDevice,
+  isDesktopTauri,
+  isMobileDevice,
+  isMobileTauri,
+  isTauri,
+} from '../utils/platform';
 
 export interface StudentSummaryForExport {
   student_id: string;
@@ -407,33 +413,147 @@ export function generateCsvContent(
 }
 
 /**
- * Triggers a client-side file download via Web Share API (mobile/touch) or standard Blob download (desktop).
+ * Efficiently converts a BlobPart (string, ArrayBuffer, Uint8Array, Blob) to a base64 string.
  */
-export async function triggerFileDownload(content: BlobPart, filename: string, mimeType: string): Promise<void> {
-  const blob = new Blob([content], { type: mimeType });
+export async function blobPartToBase64(content: BlobPart): Promise<string> {
+  if (typeof content === 'string') {
+    if (typeof Buffer !== 'undefined') {
+      return Buffer.from(content, 'utf-8').toString('base64');
+    }
+    return btoa(unescape(encodeURIComponent(content)));
+  }
 
-  // 1. Mobile touch devices / platforms with Web Share API:
-  // Allows user to tap "In Dateien sichern" (Save to Files), AirDrop, Mail, iCloud Drive, etc.
+  if (content instanceof ArrayBuffer) {
+    if (typeof Buffer !== 'undefined') {
+      return Buffer.from(content).toString('base64');
+    }
+    const bytes = new Uint8Array(content);
+    let binary = '';
+    const chunkSize = 8192;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+    }
+    return btoa(binary);
+  }
+
+  if (ArrayBuffer.isView(content)) {
+    if (typeof Buffer !== 'undefined') {
+      return Buffer.from(content.buffer, content.byteOffset, content.byteLength).toString('base64');
+    }
+    const bytes = new Uint8Array(content.buffer, content.byteOffset, content.byteLength);
+    let binary = '';
+    const chunkSize = 8192;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+    }
+    return btoa(binary);
+  }
+
+  const blob = content instanceof Blob ? content : new Blob([content]);
+  if (typeof blob.arrayBuffer === 'function') {
+    const buf = await blob.arrayBuffer();
+    if (typeof Buffer !== 'undefined') {
+      return Buffer.from(buf).toString('base64');
+    }
+    const bytes = new Uint8Array(buf);
+    let binary = '';
+    const chunkSize = 8192;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+    }
+    return btoa(binary);
+  }
+
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const res = reader.result as string;
+      const comma = res.indexOf(',');
+      resolve(comma !== -1 ? res.slice(comma + 1) : res);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Triggers a client-side file download or native share sheet:
+ * - Native Tauri (Android / iOS): Writes file to disk via native_save_file and opens native system Share Sheet (Save to Downloads, Drive, etc.)
+ * - Desktop Tauri: Saves file natively and opens it
+ * - Mobile web browsers: Web Share API if supported
+ * - Desktop browsers: Standard <a> tag download
+ */
+export async function triggerFileDownload(
+  content: BlobPart,
+  filename: string,
+  mimeType: string,
+  title?: string
+): Promise<void> {
+  // 1. Native Tauri application (Android, iOS, Desktop):
+  if (isTauri()) {
+    try {
+      const base64 = await blobPartToBase64(content);
+      const { invoke } = await import('@tauri-apps/api/core');
+      const savedPath = await invoke<string>('native_save_file', {
+        filename,
+        contentBase64: base64,
+      });
+
+      // Mobile Tauri (Android & iOS): directly trigger native system Share Sheet!
+      if (isMobileTauri() || isMobileDevice() || isAppleTouchDevice()) {
+        try {
+          await invoke('plugin:sharekit|share_file', {
+            url: savedPath,
+            mimeType,
+            title: title || filename,
+          });
+          return;
+        } catch (shareErr: any) {
+          const errStr = String(shareErr || '');
+          if (errStr.includes('cancelled') || shareErr?.name === 'AbortError') {
+            return;
+          }
+          console.warn('[Download] Native sharekit failed, attempting opener:', shareErr);
+        }
+      }
+
+      // Desktop Tauri: open the saved file via opener plugin
+      if (isDesktopTauri()) {
+        try {
+          const { openPath } = await import('@tauri-apps/plugin-opener');
+          await openPath(savedPath);
+          return;
+        } catch (openErr) {
+          console.warn('[Download] Opener openPath failed:', openErr);
+        }
+      }
+    } catch (tauriErr) {
+      console.warn('[Download] Tauri native file handling failed, falling back to web download:', tauriErr);
+    }
+  }
+
+  // 2. Web Share API (mobile web browsers supporting file sharing):
+  const blob = new Blob([content], { type: mimeType });
   if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
     try {
       const file = new File([blob], filename, { type: mimeType });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({
           files: [file],
-          title: filename,
+          title: title || filename,
         });
         return;
       }
     } catch (shareErr: any) {
-      if (shareErr?.name === 'AbortError') {
-        // User deliberately cancelled the native share sheet
-        return;
-      }
+      if (shareErr?.name === 'AbortError') return;
       console.warn('[Download] Web Share failed, falling back to <a> tag:', shareErr);
     }
   }
 
-  // 2. Fallback: Standard browser download via <a> tag
+  // 3. Fallback: Standard browser download via <a> tag
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -519,19 +639,52 @@ export function stripInlinePrintScripts(html: string): string {
 /**
  * Universal print and document export helper.
  * Supports:
- * - Mobile devices (Android, iOS) & native Tauri: Directly opens native system Share/Print dialog (Save to Files, AirPrint, Drive, etc.)
- * - Desktop browsers: Directly triggers the browser's native print/PDF dialog via offscreen iframe without popup blockers or stuck overlays.
+ * - Mobile apps (Android, iOS via Tauri):
+ *   Saves HTML document natively and opens the native system Share/Print sheet
+ *   (enabling "Drucken" / AirPrint, "In Dateien sichern", "In Google Drive speichern", etc.)
+ *   without any trapped in-app overlay window!
+ * - Mobile web browsers: Web Share API if supported, or browser window.print()
+ * - Desktop browsers & Desktop Tauri: Directly triggers the browser/OS print preview dialog via an offscreen iframe.
  */
 export async function printHtmlDocument(htmlContent: string, title: string = 'Dokument'): Promise<void> {
   const cleanHtml = stripInlinePrintScripts(htmlContent);
+  const cleanFilename = (title.replace(/[^a-zA-Z0-9äöüÄÖÜß_-]/g, '_') || 'Dokument') + '.html';
 
-  // 1. Mobile touch devices / native apps (iOS, Android, Tauri):
+  // 1. Mobile native apps (Tauri Android / iOS):
   // Directly open the native system Share/Print sheet so the user can tap "Drucken",
   // "In Dateien sichern" / "In Google Drive speichern", AirDrop, etc.
-  if (isMobileDevice() || isAppleTouchDevice() || isTauri()) {
+  if (isTauri() && (isMobileTauri() || isMobileDevice() || isAppleTouchDevice())) {
+    try {
+      const base64 = await blobPartToBase64(cleanHtml);
+      const { invoke } = await import('@tauri-apps/api/core');
+      const savedPath = await invoke<string>('native_save_file', {
+        filename: cleanFilename,
+        contentBase64: base64,
+      });
+
+      try {
+        await invoke('plugin:sharekit|share_file', {
+          url: savedPath,
+          mimeType: 'text/html;charset=utf-8',
+          title: title,
+        });
+        return;
+      } catch (shareErr: any) {
+        const errStr = String(shareErr || '');
+        if (errStr.includes('cancelled') || shareErr?.name === 'AbortError') {
+          return;
+        }
+        console.warn('[Print] Native sharekit failed, falling back to print:', shareErr);
+      }
+    } catch (tauriErr) {
+      console.warn('[Print] Native save/share failed, falling back to web print:', tauriErr);
+    }
+  }
+
+  // 2. Mobile web browsers / devices with Web Share API:
+  if (isMobileDevice() || isAppleTouchDevice()) {
     if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
       try {
-        const cleanFilename = (title.replace(/[^a-zA-Z0-9äöüÄÖÜß_-]/g, '_') || 'Dokument') + '.html';
         const blob = new Blob([cleanHtml], { type: 'text/html;charset=utf-8' });
         const file = new File([blob], cleanFilename, { type: 'text/html;charset=utf-8' });
 
@@ -543,16 +696,13 @@ export async function printHtmlDocument(htmlContent: string, title: string = 'Do
           return;
         }
       } catch (shareErr: any) {
-        if (shareErr?.name === 'AbortError') {
-          // User intentionally closed/dismissed the native dialog
-          return;
-        }
+        if (shareErr?.name === 'AbortError') return;
         console.warn('[Print] Native share dialog failed, falling back to print:', shareErr);
       }
     }
   }
 
-  // 2. Desktop browsers or fallback where Web Share with files is unavailable:
+  // 3. Desktop browsers & Desktop Tauri:
   // Directly trigger the system print preview dialog via an offscreen iframe.
   if (typeof document !== 'undefined') {
     try {

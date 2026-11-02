@@ -2,7 +2,7 @@ use rand::RngCore;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 #[derive(serde::Deserialize)]
 struct CallbackBody {

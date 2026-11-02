@@ -1,5 +1,5 @@
 // Gradus21 Offline Service Worker (Cache-First + Stale-While-Revalidate for WebAssembly and Assets)
-const CACHE_NAME = 'gradus21-app-cache-v1.2.22';
+const CACHE_NAME = 'gradus21-app-cache-v1.2.23';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',

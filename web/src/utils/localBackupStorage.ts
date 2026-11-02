@@ -379,6 +379,24 @@ export async function exportVaultToFileDownload(vaultBundle: any): Promise<void>
       if (isDesktopTauri() && nativeSavedPath) {
         return;
       }
+
+      // On mobile Tauri (Android & iOS): open the native Share Sheet so the teacher can pick where to store the backup!
+      if (isMobileTauri() && nativeSavedPath) {
+        try {
+          await invoke('plugin:sharekit|share_file', {
+            url: nativeSavedPath,
+            mimeType: 'application/octet-stream',
+            title: filename,
+          });
+          return;
+        } catch (shareErr: any) {
+          const errStr = String(shareErr || '');
+          if (errStr.includes('cancelled') || shareErr?.name === 'AbortError') {
+            return;
+          }
+          console.warn('[Backup] Native sharekit failed, attempting fallback:', shareErr);
+        }
+      }
     } catch (err) {
       console.warn('Nativer Datei-Export fehlgeschlagen, nutze Fallback:', err);
     }

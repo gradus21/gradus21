@@ -1,6 +1,6 @@
 [package]
 name = "gradus21-app"
-version = "1.2.22"
+version = "1.2.23"
 description = "Gradus21 — Zero-Knowledge E2EE Notenverwaltung"
 authors = ["Julian Kallidat <julian@gradus21.de>"]
 edition = "2021"
@@ -16,10 +16,12 @@ tauri-build = { version = "2.0.0", features = [] }
 tauri = { version = "2.0.0", features = [] }
 tauri-plugin-opener = "2.0.0"
 tauri-plugin-biometric = "2.5.0"
+tauri-plugin-sharekit = "0.4.0-rc.7"
 serde = { workspace = true }
 serde_json = { workspace = true }
 gradus21-core = { path = "../crates/gradus21-core" }
 rand = { workspace = true }
+base64 = { workspace = true }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2.0.0"

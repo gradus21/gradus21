@@ -3,6 +3,16 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.23] - 2026-11-02
+
+### Nativer Mobile Export & Share-Dialog (Android & iOS)
+- **Natives Datei-Sharing via `tauri-plugin-sharekit`**:
+  - Integration von `tauri-plugin-sharekit` für Android (`Intent.ACTION_SEND` via `FileProvider`) und iOS (`UIActivityViewController`).
+  - Neuer nativer Tauri-Befehl `native_save_file` speichert erzeugte Exportdateien (Excel `.xlsx`, CSV `.csv`, Zeugnis- und Konferenzbögen `.html` sowie Tresor-Backups `.gradus21`) zuverlässig im App-Cache und öffnet direkt das native Teilen-/Drucken-Menü des Betriebssystems.
+  - **Behebung des Android WebView Export-Problems**: Da Android WebView weder `navigator.share` implementiert noch Blob-Downloads über `<a download>` ohne native Schnittstellen ausführt, passierte beim Antippen der Export- und Backup-Buttons in v1.2.22 nichts. Durch die native Tauri-Brücke öffnen sich nun alle Exportfunktionen auf Android und iOS direkt mit dem System-Dialog („In Dateien sichern“, „Google Drive“, „Drucken“, „Quick Share“ / „AirDrop“).
+- **DIN A4 Portrait Druckoptimierung**:
+  - Alle druckbaren HTML-Dokumente (Zeugniskonferenz-Bogen, Elterngesprächs-Bogen, Notfall-Tresorschlüsselblatt und AVV-Vertrag) sind typografisch und layoutseitig auf DIN A4 Hochformat (`@page { size: A4 portrait; margin: 12mm 15mm; }`) mit exakter Farbwiedergabe (`print-color-adjust: exact`) ausgelegt.
+
 ## [1.2.17] - 2026-11-01
 
 ### Mobile UI/UX Overhaul & Smartphone Ergonomics

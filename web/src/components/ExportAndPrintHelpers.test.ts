@@ -284,4 +284,106 @@ describe('ExportAndPrintHelpers - Document Printing and Native Share Dialog', ()
       writable: true,
     });
   });
+
+  it('correctly converts BlobPart to base64 using blobPartToBase64', async () => {
+    const { blobPartToBase64 } = await import('./ExportAndPrintHelpers');
+    const b64 = await blobPartToBase64('Hello Gradus21');
+    expect(btoa('Hello Gradus21')).toBe(b64);
+  });
+
+  it('triggers native_save_file and plugin:sharekit|share_file when running in mobile Tauri', async () => {
+    const invokeMock = vi.fn().mockImplementation((cmd: string) => {
+      if (cmd === 'native_save_file') {
+        return Promise.resolve('/data/user/0/de.gradus21.app/cache/test.xlsx');
+      }
+      if (cmd === 'plugin:sharekit|share_file') {
+        return Promise.resolve();
+      }
+      return Promise.resolve();
+    });
+
+    vi.doMock('@tauri-apps/api/core', () => ({
+      invoke: invokeMock,
+    }));
+
+    (window as any).__TAURI_INTERNALS__ = {};
+
+    const originalNavigator = global.navigator;
+    Object.defineProperty(global, 'navigator', {
+      value: {
+        ...originalNavigator,
+        userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8)',
+        maxTouchPoints: 5,
+      },
+      configurable: true,
+      writable: true,
+    });
+
+    await triggerFileDownload('dummy excel data', 'liste.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
+    expect(invokeMock).toHaveBeenCalledWith('native_save_file', expect.objectContaining({
+      filename: 'liste.xlsx',
+    }));
+    expect(invokeMock).toHaveBeenCalledWith('plugin:sharekit|share_file', {
+      url: '/data/user/0/de.gradus21.app/cache/test.xlsx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      title: 'liste.xlsx',
+    });
+
+    delete (window as any).__TAURI_INTERNALS__;
+    Object.defineProperty(global, 'navigator', {
+      value: originalNavigator,
+      configurable: true,
+      writable: true,
+    });
+    vi.doUnmock('@tauri-apps/api/core');
+  });
+
+  it('triggers native_save_file and plugin:sharekit|share_file when printHtmlDocument runs in mobile Tauri', async () => {
+    const invokeMock = vi.fn().mockImplementation((cmd: string) => {
+      if (cmd === 'native_save_file') {
+        return Promise.resolve('/data/user/0/de.gradus21.app/cache/konferenz.html');
+      }
+      if (cmd === 'plugin:sharekit|share_file') {
+        return Promise.resolve();
+      }
+      return Promise.resolve();
+    });
+
+    vi.doMock('@tauri-apps/api/core', () => ({
+      invoke: invokeMock,
+    }));
+
+    (window as any).__TAURI_INTERNALS__ = {};
+
+    const originalNavigator = global.navigator;
+    Object.defineProperty(global, 'navigator', {
+      value: {
+        ...originalNavigator,
+        userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8)',
+        maxTouchPoints: 5,
+      },
+      configurable: true,
+      writable: true,
+    });
+
+    await printHtmlDocument('<h1>Zeugniskonferenz 6b</h1>', 'Zeugniskonferenz – 6b Deutsch');
+
+    expect(invokeMock).toHaveBeenCalledWith('native_save_file', expect.objectContaining({
+      filename: 'Zeugniskonferenz___6b_Deutsch.html',
+    }));
+    expect(invokeMock).toHaveBeenCalledWith('plugin:sharekit|share_file', {
+      url: '/data/user/0/de.gradus21.app/cache/konferenz.html',
+      mimeType: 'text/html;charset=utf-8',
+      title: 'Zeugniskonferenz – 6b Deutsch',
+    });
+
+    delete (window as any).__TAURI_INTERNALS__;
+    Object.defineProperty(global, 'navigator', {
+      value: originalNavigator,
+      configurable: true,
+      writable: true,
+    });
+    vi.doUnmock('@tauri-apps/api/core');
+  });
 });
