@@ -30,6 +30,7 @@ import { ClassroomSubjectDataset, TermFilterId } from '../data/demoClasses';
 import { ClassCalculationReport, WorkspaceMode } from '../types/workspace';
 import { SettingsSection } from './SettingsModal';
 import { getStorageLocationInfo, getModifierKey } from '../utils/platform';
+import { triggerHapticFeedback } from '../utils/haptics';
 
 export interface AppHeaderProps {
   datasets: ClassroomSubjectDataset[];
@@ -46,7 +47,7 @@ export interface AppHeaderProps {
   syncStatus: 'syncing' | 'synced' | 'offline_local' | 'local_only';
   isPersistentStorage?: boolean;
   lastLocalBackupTime?: string | null;
-  onExportEncryptedBackup?: () => void;
+  onExportEncryptedBackup?: () => void | Promise<any>;
   onOpenStorageNotice?: () => void;
   privacyBlur: boolean;
   setPrivacyBlur: React.Dispatch<React.SetStateAction<boolean>>;
@@ -353,8 +354,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   : syncStatus === 'syncing'
                   ? 'Synchronisiere…'
                   : syncStatus === 'offline_local'
-                  ? 'Lokal gespeichert (offline)'
-                  : 'Nur lokaler Speicher'
+                  ? 'Achtung: Cloud-Konto nicht synchronisiert (offline)'
+                  : 'Lokaler Speicher (auf diesem Gerät) — Vollständig geschützt'
               }
             >
               <span className="relative flex items-center justify-center shrink-0">
@@ -363,9 +364,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 ) : syncStatus === 'synced' ? (
                   <Cloud className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                 ) : syncStatus === 'offline_local' ? (
-                  <HardDrive className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 animate-pulse" />
                 ) : (
-                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                  <Info className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
                 )}
               </span>
               <span className="hidden lg:inline text-[11px] font-medium">
@@ -374,7 +375,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   : syncStatus === 'syncing'
                   ? 'Sync…'
                   : syncStatus === 'offline_local'
-                  ? 'Lokal'
+                  ? 'Offline'
                   : 'Lokal'}
               </span>
             </button>
@@ -397,17 +398,25 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                             ? 'rgba(16, 185, 129, 0.1)'
                             : syncStatus === 'syncing'
                             ? 'rgba(14, 165, 233, 0.1)'
+                            : syncStatus === 'offline_local'
+                            ? 'rgba(245, 158, 11, 0.15)'
                             : 'rgba(245, 158, 11, 0.1)',
                         color:
-                          syncStatus === 'synced' ? '#059669' : syncStatus === 'syncing' ? '#0ea5e9' : '#d97706',
+                          syncStatus === 'synced'
+                            ? '#059669'
+                            : syncStatus === 'syncing'
+                            ? '#0ea5e9'
+                            : syncStatus === 'offline_local'
+                            ? '#d97706'
+                            : '#d97706',
                       }}
                     >
                       {syncStatus === 'synced' || syncStatus === 'syncing' ? (
                         <Cloud className="w-5 h-5" />
                       ) : syncStatus === 'offline_local' ? (
-                        <HardDrive className="w-5 h-5" />
-                      ) : (
                         <AlertTriangle className="w-5 h-5" />
+                      ) : (
+                        <Info className="w-5 h-5" />
                       )}
                     </div>
                     <div>
@@ -418,19 +427,24 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                             : syncStatus === 'syncing'
                             ? 'Synchronisiere…'
                             : syncStatus === 'offline_local'
-                            ? 'Lokaler Speicher'
-                            : 'Nur lokaler Speicher'}
+                            ? 'Cloud-Konto offline'
+                            : 'Lokaler Speicher'}
                         </h4>
                         {syncStatus === 'synced' && (
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                        )}
+                        {syncStatus === 'local_only' && (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-amber-500" />
                         )}
                       </div>
                       <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
                         {syncStatus === 'synced'
                           ? 'Ende-zu-Ende-verschlüsselt über gradus21.de'
+                          : syncStatus === 'syncing'
+                          ? 'Änderungen werden mit dem Server synchronisiert'
                           : syncStatus === 'offline_local'
-                          ? 'Daten liegen nur auf diesem Gerät'
-                          : 'Kein Cloud-Konto verbunden'}
+                          ? 'Achtung: Keine Serververbindung – Daten vorerst nur lokal'
+                          : 'Daten liegen sicher und verschlüsselt auf diesem Gerät'}
                       </p>
                     </div>
                   </div>
@@ -441,6 +455,44 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                     <X className="w-4 h-4" />
                   </button>
                 </div>
+
+                {syncStatus === 'offline_local' && (
+                  <div
+                    className="p-2.5 rounded-lg border text-[11px] leading-relaxed space-y-1"
+                    style={{
+                      backgroundColor: 'rgba(245, 158, 11, 0.08)',
+                      borderColor: 'rgba(245, 158, 11, 0.3)',
+                      color: 'var(--text-primary)',
+                    }}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-amber-700 dark:text-amber-400">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                      <span>Cloud-Konto aktuell nicht synchronisiert</span>
+                    </div>
+                    <p style={{ color: 'var(--text-secondary)' }}>
+                      Deine Änderungen werden auf diesem Gerät zwischengespeichert und automatisch in die Cloud übertragen, sobald wieder eine Internetverbindung besteht.
+                    </p>
+                  </div>
+                )}
+
+                {syncStatus === 'local_only' && (
+                  <div
+                    className="p-2.5 rounded-lg border text-[11px] leading-relaxed space-y-1"
+                    style={{
+                      backgroundColor: 'rgba(245, 158, 11, 0.05)',
+                      borderColor: 'rgba(245, 158, 11, 0.15)',
+                      color: 'var(--text-primary)',
+                    }}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-amber-700 dark:text-amber-400">
+                      <Info className="w-3.5 h-3.5 shrink-0" />
+                      <span>Datenschutzfreundlicher Lokal-Betrieb</span>
+                    </div>
+                    <p style={{ color: 'var(--text-secondary)' }}>
+                      Gradus21 funktioniert vollständig offline und lokal. Deine Daten verlassen dieses Gerät nicht.
+                    </p>
+                  </div>
+                )}
 
                 {syncStatus === 'synced' && (
                   <div
@@ -489,9 +541,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 <div className="pt-1 flex flex-col gap-2">
                   {onExportEncryptedBackup && (
                     <button
-                      onClick={() => {
+                      onClick={async () => {
+                        triggerHapticFeedback('snap');
                         setIsStoragePopoverOpen(false);
-                        onExportEncryptedBackup();
+                        await onExportEncryptedBackup();
                       }}
                       className="w-full py-2 px-3 rounded-lg text-xs font-semibold border flex items-center justify-center gap-2 transition hover:opacity-90"
                       style={{

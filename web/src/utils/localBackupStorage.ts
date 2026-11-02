@@ -8,7 +8,7 @@
  *    - Web Browsers (Chromium): File System Access API + IndexedDB
  */
 
-import { isTauri } from './platform';
+import { isTauri, isDesktopTauri, isMobileTauri } from './platform';
 
 const BACKUP_IDB_NAME = 'gradus21_local_backup_v1';
 const BACKUP_STORE_NAME = 'directory_handles';
@@ -354,31 +354,65 @@ export async function writeVaultToDirectory(
 
 /**
  * Exports the encrypted vault bundle as a file download (for school share or USB).
- * On native Tauri clients, uses native file export / Save dialog for reliable cross-platform saving.
+ * On mobile touch devices (iOS / iPadOS / Android), triggers the native Share Sheet
+ * ("In Dateien sichern" / AirDrop / USB) and writes to the native Documents sandbox.
+ * On native desktop Tauri clients, uses native file export / Save dialog.
+ * In web browsers, triggers standard file download.
  */
 export async function exportVaultToFileDownload(vaultBundle: any): Promise<void> {
   const jsonStr = JSON.stringify(vaultBundle, null, 2);
   const dateStr = new Date().toISOString().slice(0, 10);
   const filename = `gradus21-tresor-backup-${dateStr}.gradus21`;
 
+  // 1. If running natively in Tauri, always save directly into the app Documents sandbox / preferredDir
+  // On iOS, UIFileSharingEnabled allows the file to be accessed in the native Files app ("Auf meinem iPhone -> Gradus21")
+  let nativeSavedPath: string | null = null;
   if (isTauri()) {
     try {
       const { invoke } = await import('@tauri-apps/api/core');
-      const savedPath = await invoke<string | null>('native_export_backup_file', {
+      nativeSavedPath = await invoke<string | null>('native_export_backup_file', {
         filename,
         vaultJson: jsonStr,
         preferredDir: getNativeBackupPath() || undefined,
       });
-      if (savedPath) {
-        alert(`Tresor-Backup wurde erfolgreich gespeichert unter:\n${savedPath}`);
+      // On desktop Tauri (Linux, Windows, macOS), the OS Save dialog already prompted the user
+      if (isDesktopTauri() && nativeSavedPath) {
+        return;
       }
-      return;
     } catch (err) {
-      console.warn('Nativer Datei-Export fehlgeschlagen, nutze Browser-Fallback:', err);
+      console.warn('Nativer Datei-Export fehlgeschlagen, nutze Fallback:', err);
     }
   }
 
-  const blob = new Blob([jsonStr], { type: 'application/json' });
+  const blob = new Blob([jsonStr], { type: 'application/octet-stream' });
+
+  // 2. On Mobile / Touch devices (iOS / iPadOS / Android):
+  // Trigger native Share Sheet so the user can tap "In Dateien sichern" (Save to Files), AirDrop, Mail, iCloud Drive, etc.!
+  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+    try {
+      const file = new File([blob], filename, { type: 'application/octet-stream' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: filename,
+        });
+        return;
+      }
+    } catch (shareErr: any) {
+      if (shareErr?.name === 'AbortError') {
+        // User deliberately closed the share sheet
+        return;
+      }
+      console.warn('Web Share fehlgeschlagen, versuche Download-Fallback:', shareErr);
+    }
+  }
+
+  // If mobile Tauri already saved the file to Documents and Share Sheet wasn't used, we're done
+  if (isMobileTauri() && nativeSavedPath) {
+    return;
+  }
+
+  // 3. Fallback: Standard browser download via <a> tag
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -386,7 +420,7 @@ export async function exportVaultToFileDownload(vaultBundle: any): Promise<void>
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /**

@@ -13,6 +13,7 @@ import {
   Check,
 } from 'lucide-react';
 import { getStorageLocationInfo } from '../utils/platform';
+import { triggerHapticFeedback } from '../utils/haptics';
 
 export interface StorageNoticeModalProps {
   isOpen: boolean;
@@ -20,7 +21,7 @@ export interface StorageNoticeModalProps {
   syncStatus: 'syncing' | 'synced' | 'offline_local' | 'local_only';
   isPersistentStorage?: boolean;
   lastLocalBackupTime?: string | null;
-  onExportBackup?: () => void;
+  onExportBackup?: () => void | Promise<any>;
   onOpenStorageSettings?: () => void;
 }
 
@@ -38,6 +39,9 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
   if (!isOpen) return null;
 
   const isCloudSynced = syncStatus === 'synced';
+  const isCloudOffline = syncStatus === 'offline_local';
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportSuccess, setExportSuccess] = useState(false);
   const storageInfo = getStorageLocationInfo();
 
   const handleCopyPath = () => {
@@ -75,13 +79,17 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
               className={`w-10 h-10 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center shrink-0 ${
                 isCloudSynced
                   ? 'bg-emerald-500/10 text-emerald-600'
+                  : isCloudOffline
+                  ? 'bg-rose-500/10 text-rose-600'
                   : 'bg-amber-500/10 text-amber-600'
               }`}
             >
               {isCloudSynced ? (
                 <Cloud className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.5]" />
+              ) : isCloudOffline ? (
+                <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.5]" />
               ) : (
-                <HardDrive className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.5]" />
+                <Info className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.5]" />
               )}
             </div>
             <div>
@@ -90,11 +98,15 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
                   className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
                     isCloudSynced
                       ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
+                      : isCloudOffline
+                      ? 'bg-rose-500/15 text-rose-700 dark:text-rose-400'
                       : 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
                   }`}
                 >
                   {isCloudSynced
                     ? 'E2EE Cloud aktiv'
+                    : isCloudOffline
+                    ? 'Cloud-Konto offline'
                     : storageInfo.isNative
                     ? `Speicherampel: Nur lokal (${storageInfo.platformName})`
                     : 'Speicherampel: Nur lokal'}
@@ -319,18 +331,36 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
         >
           {onExportBackup && (
             <button
-              onClick={() => {
-                onExportBackup();
+              disabled={isExporting}
+              onClick={async () => {
+                triggerHapticFeedback('snap');
+                setIsExporting(true);
+                try {
+                  await onExportBackup();
+                  setExportSuccess(true);
+                  setTimeout(() => setExportSuccess(false), 3000);
+                } finally {
+                  setIsExporting(false);
+                }
               }}
-              className="px-4 py-2.5 rounded-xl text-xs font-bold border flex items-center justify-center gap-2 transition hover:opacity-90"
+              className="px-4 py-2.5 rounded-xl text-xs font-bold border flex items-center justify-center gap-2 transition hover:opacity-90 cursor-pointer"
               style={{
-                backgroundColor: 'var(--bg-subtle)',
-                borderColor: 'var(--border-subtle)',
-                color: 'var(--text-primary)',
+                backgroundColor: exportSuccess ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-subtle)',
+                borderColor: exportSuccess ? '#059669' : 'var(--border-subtle)',
+                color: exportSuccess ? '#059669' : 'var(--text-primary)',
               }}
             >
-              <Download className="w-4 h-4 text-teal-600" />
-              <span>Backup jetzt sichern (.gradus21)</span>
+              {exportSuccess ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>Backup bereitgestellt!</span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4 text-teal-600" />
+                  <span>{isExporting ? 'Backup wird vorbereitet…' : 'Backup jetzt sichern (.gradus21)'}</span>
+                </>
+              )}
             </button>
           )}
 

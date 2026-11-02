@@ -2812,27 +2812,125 @@ export function useVaultWorkspaceSync() {
     }
   };
 
-  const handleExportEncryptedBackup = () => {
-    if (!vaultSession?.userId) return;
-    const userCacheKey = getUserEncryptedCacheKey(vaultSession.userId);
-    const cachedRaw = localStorage.getItem(userCacheKey);
-    if (!cachedRaw) {
-      alert('Kein lokaler Datensatz zum Sichern gefunden.');
-      return;
-    }
+  const handleExportEncryptedBackup = async (): Promise<boolean> => {
     try {
-      const parsed = JSON.parse(cachedRaw);
-      // [HIGH-4] Never export encryptedSessionCredentials into downloadable .gradus21 backup files
-      delete parsed.encryptedSessionCredentials;
-      if (vaultSession.kdfParams) {
-        parsed.kdfParams = vaultSession.kdfParams;
-        if (parsed.session) {
-          parsed.session.kdfParams = vaultSession.kdfParams;
+      const effectiveUserId =
+        vaultSession?.userId ||
+        localStorage.getItem(ACTIVE_USER_ID_STORAGE_KEY) ||
+        localStorage.getItem(LEGACY_ACTIVE_USER_ID_STORAGE_KEY) ||
+        DEMO_OWNER_USER_ID;
+
+      const userCacheKey = getUserEncryptedCacheKey(effectiveUserId);
+      const legacyUserCacheKey = getLegacyUserEncryptedCacheKey(effectiveUserId);
+      let cachedRaw =
+        localStorage.getItem(userCacheKey) ||
+        localStorage.getItem(legacyUserCacheKey);
+
+      if (!cachedRaw) {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (
+            key &&
+            (key.startsWith('gradus21_e2ee_user_vault_v3_') ||
+              key.startsWith('bte_notenflow_e2ee_user_vault_v3_'))
+          ) {
+            cachedRaw = localStorage.getItem(key);
+            if (cachedRaw) break;
+          }
         }
       }
-      exportVaultToFileDownload(parsed);
+
+      let backupBundle: any = null;
+      if (cachedRaw) {
+        try {
+          backupBundle = JSON.parse(cachedRaw);
+        } catch {
+          backupBundle = null;
+        }
+      }
+
+      // If no bundle is found in local storage, synthesize a valid bundle from in-memory workspace
+      if (!backupBundle && datasets.length > 0) {
+        if (vaultSession?.dekB64 && wasmReady) {
+          const classEnvelopes: Record<string, string> = {};
+          for (const ds of datasets) {
+            classEnvelopes[ds.id] = wasm_encrypt_envelope(
+              vaultSession.dekB64,
+              vaultSession.userId,
+              `class_${ds.id}`,
+              JSON.stringify(ds)
+            );
+          }
+          const serializedSettings = JSON.stringify(userSettings);
+          const encryptedSettingsEnvelope = wasm_encrypt_envelope(
+            vaultSession.dekB64,
+            vaultSession.userId,
+            'user_sync_settings_v1',
+            serializedSettings
+          );
+          backupBundle = {
+            userId: effectiveUserId,
+            session: {
+              ...vaultSession,
+              dekB64: '',
+              token: '',
+              authKeyB64: undefined,
+              totpSecretBase32: undefined,
+              recoveryKeyFormatted: undefined,
+            },
+            kdfParams: vaultSession.kdfParams
+              ? normalizeKdfParams(vaultSession.kdfParams)
+              : { memory_kib: 19456, iterations: 2, parallelism: 1 },
+            classEnvelopes,
+            encryptedSettingsEnvelope,
+            isLocked: false,
+            updatedAt: new Date().toISOString(),
+          };
+          try {
+            localStorage.setItem(userCacheKey, JSON.stringify(backupBundle));
+          } catch {
+            // ignore
+          }
+        } else {
+          backupBundle = {
+            userId: effectiveUserId,
+            session: vaultSession
+              ? {
+                  ...vaultSession,
+                  dekB64: '',
+                  token: '',
+                  authKeyB64: undefined,
+                  totpSecretBase32: undefined,
+                  recoveryKeyFormatted: undefined,
+                }
+              : undefined,
+            datasets,
+            settings: userSettings,
+            isLocked: false,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+      }
+
+      if (!backupBundle) {
+        console.warn('Kein Datensatz zum Sichern vorhanden.');
+        return false;
+      }
+
+      // [HIGH-4] Never export encryptedSessionCredentials into downloadable .gradus21 backup files
+      delete backupBundle.encryptedSessionCredentials;
+      if (vaultSession?.kdfParams) {
+        backupBundle.kdfParams = vaultSession.kdfParams;
+        if (backupBundle.session) {
+          backupBundle.session.kdfParams = vaultSession.kdfParams;
+        }
+      }
+
+      await exportVaultToFileDownload(backupBundle);
+      return true;
     } catch (e) {
       console.error('Fehler beim Exportieren des Backups:', e);
+      return false;
     }
   };
 

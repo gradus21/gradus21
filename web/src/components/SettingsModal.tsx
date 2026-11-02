@@ -99,7 +99,7 @@ interface SettingsModalProps {
   onOpenSchoolGuide?: () => void;
   onToggleCloudSync?: (enabled: boolean) => void;
   onPurgeCloudData?: () => void | Promise<any>;
-  onExportEncryptedBackup?: () => void;
+  onExportEncryptedBackup?: () => void | Promise<any>;
   onImportEncryptedBackup?: (file: File) => void;
   connectedBackupDirName?: string | null;
   lastLocalBackupTime?: string | null;
@@ -280,6 +280,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     type: 'success' | 'error';
     message: string;
   } | null>(null);
+  const [isExportingBackup, setIsExportingBackup] = useState(false);
+  const [exportBackupSuccess, setExportBackupSuccess] = useState(false);
 
   useEffect(() => {
     setCustomBackupPathInput(connectedBackupDirName || '');
@@ -1377,12 +1379,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   {onExportEncryptedBackup && (
                     <button
                       type="button"
-                      onClick={onExportEncryptedBackup}
-                      className="px-4 py-2.5 rounded-xl text-xs font-bold text-white flex items-center gap-2 transition hover:opacity-95 shadow-sm"
-                      style={{ backgroundColor: 'var(--primary-500)' }}
+                      disabled={isExportingBackup}
+                      onClick={async () => {
+                        triggerHapticFeedback('snap');
+                        setIsExportingBackup(true);
+                        try {
+                          await onExportEncryptedBackup();
+                          setExportBackupSuccess(true);
+                          setTimeout(() => setExportBackupSuccess(false), 3500);
+                        } finally {
+                          setIsExportingBackup(false);
+                        }
+                      }}
+                      className="px-4 py-2.5 rounded-xl text-xs font-bold text-white flex items-center gap-2 transition hover:opacity-95 shadow-sm cursor-pointer"
+                      style={{
+                        backgroundColor: exportBackupSuccess ? '#059669' : 'var(--primary-500)',
+                      }}
                     >
-                      <Download className="w-4 h-4" />
-                      <span>Tresor-Backup herunterladen (.gradus21)</span>
+                      {exportBackupSuccess ? (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Backup erfolgreich bereitgestellt!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-4 h-4" />
+                          <span>
+                            {isExportingBackup
+                              ? 'Backup wird vorbereitet…'
+                              : 'Tresor-Backup herunterladen (.gradus21)'}
+                          </span>
+                        </>
+                      )}
                     </button>
                   )}
 
