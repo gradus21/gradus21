@@ -3,6 +3,18 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.25] - 2026-11-03
+
+### PDF-Öffnungsfehler & 0-Byte-Dateikürzung auf Android behoben
+- **Behebung der 0-Byte-Dateikürzung im nativen Android Share-Plugin (`tauri-plugin-sharekit`)**:
+  - Ursache: Das native Android-Plugin `tauri-plugin-sharekit` kopiert übergebene Dateien vor dem Aufruf von `FileProvider` in das App-Cache-Verzeichnis (`activity.cacheDir`). Wurde die Datei von `native_save_file` bereits direkt im Cache-Verzeichnis abgelegt, öffnete das Plugin einen `FileOutputStream` auf denselben Pfad. Dies führte über das Betriebssystem-Flag `O_TRUNC` zur sofortigen Kürzung der Datei auf **0 Bytes**, wodurch PDF-Viewer (Google Drive, Adobe Acrobat, Samsung Print) die Datei als beschädigt oder unlesbar ablehnten.
+  - **Lösung 1 (Rust-Backend)**: `native_save_file` legt Exportdateien nun in einem dedizierten Unterordner (`gradus21_exports/`) ab, wodurch Quell- und Zielpfad niemals kollidieren.
+  - **Lösung 2 (CI Android-Build-Patch)**: `SharePlugin.kt` wird im CI-Workflow automatisch mit einer Schutzabfrage versehen (`if (sourceFile.canonicalPath != tempFile.canonicalPath)`), die Selbstdurchschreibungen verhindert.
+- **Zuverlässiges HTML-zu-PDF Layout-Rendering (`htmlToPdfBlob`)**:
+  - Umstellung von Offscreen-Iframes auf unsichtbare In-Viewport-Container (`z-index: -99999; opacity: 0.01; top: 0; left: 0`). Dies verhindert, dass `html2canvas` durch negative Koordinaten leere oder fehlerhafte Canvas-Renderings erzeugt.
+  - Absicherung der Base64-Konvertierung über native `FileReader.readAsDataURL`-Streams für verlustfreien Transfer binärer PDF-Blobs.
+  - Schutzüberprüfung auf Mindestgröße (`> 200 Bytes`) mit automatischem Text-Fallback für 100%ige Lesbarkeit.
+
 ## [1.2.24] - 2026-11-03
 
 ### Echte native DIN A4 PDF-Generierung & Teilen auf Android & iOS

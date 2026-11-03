@@ -66,6 +66,20 @@ jobs:
           # Fetch crates and align all tauri plugin build.gradle.kts compileSdk to 36 (required by tauri-android 2.x)
           cargo fetch --manifest-path src-tauri/Cargo.toml
           find ~/.cargo/registry -name "build.gradle.kts" -exec sed -i 's/compileSdk = 35/compileSdk = 36/g' {} + || true
+          # Patch tauri-plugin-sharekit SharePlugin.kt to prevent 0-byte file truncation when copying file to itself
+          python3 -c "
+          import glob
+          for p in glob.glob('/home/runner/.cargo/registry/**/SharePlugin.kt', recursive=True) + glob.glob('/root/.cargo/registry/**/SharePlugin.kt', recursive=True):
+              with open(p, 'r') as f:
+                  c = f.read()
+              old = 'sourceFile.inputStream().use { input ->'
+              new = 'if (sourceFile.canonicalPath != tempFile.canonicalPath) { sourceFile.inputStream().use { input ->'
+              if old in c and new not in c:
+                  c = c.replace(old, new).replace('input.copyTo(output)\n            }\n        }', 'input.copyTo(output)\n            }\n        }\n        }')
+                  with open(p, 'w') as f:
+                      f.write(c)
+                  print('Patched SharePlugin.kt at', p)
+          " || true
 
           cargo tauri android init --ci
           # Generate & sync all Android App Icons into the newly generated Android project
@@ -85,8 +99,21 @@ jobs:
       - name: Build release APK & AAB
         run: |
           export NDK_HOME="$ANDROID_NDK_LATEST_HOME"
-          # Double check all plugin gradle files use compileSdk = 36
+          # Double check all plugin gradle files use compileSdk = 36 and SharePlugin is patched
           find ~/.cargo/registry -name "build.gradle.kts" -exec sed -i 's/compileSdk = 35/compileSdk = 36/g' {} + || true
+          python3 -c "
+          import glob
+          for p in glob.glob('/home/runner/.cargo/registry/**/SharePlugin.kt', recursive=True) + glob.glob('/root/.cargo/registry/**/SharePlugin.kt', recursive=True):
+              with open(p, 'r') as f:
+                  c = f.read()
+              old = 'sourceFile.inputStream().use { input ->'
+              new = 'if (sourceFile.canonicalPath != tempFile.canonicalPath) { sourceFile.inputStream().use { input ->'
+              if old in c and new not in c:
+                  c = c.replace(old, new).replace('input.copyTo(output)\n            }\n        }', 'input.copyTo(output)\n            }\n        }\n        }')
+                  with open(p, 'w') as f:
+                      f.write(c)
+                  print('Patched SharePlugin.kt at', p)
+          " || true
           # Frontend already built above; versionCode must grow with every upload.
           CONFIG='{"build":{"beforeBuildCommand":""},"bundle":{"android":{"versionCode":'"$GITHUB_RUN_NUMBER"'}}}'
           cargo tauri android build --apk --aab --ci --config "$CONFIG"

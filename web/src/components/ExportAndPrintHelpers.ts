@@ -423,60 +423,38 @@ export async function blobPartToBase64(content: BlobPart): Promise<string> {
     return btoa(unescape(encodeURIComponent(content)));
   }
 
-  if (content instanceof ArrayBuffer) {
-    if (typeof Buffer !== 'undefined') {
-      return Buffer.from(content).toString('base64');
-    }
-    const bytes = new Uint8Array(content);
-    let binary = '';
-    const chunkSize = 8192;
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-      const chunk = bytes.subarray(i, i + chunkSize);
-      binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
-    }
-    return btoa(binary);
-  }
-
-  if (ArrayBuffer.isView(content)) {
-    if (typeof Buffer !== 'undefined') {
-      return Buffer.from(content.buffer, content.byteOffset, content.byteLength).toString('base64');
-    }
-    const bytes = new Uint8Array(content.buffer, content.byteOffset, content.byteLength);
-    let binary = '';
-    const chunkSize = 8192;
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-      const chunk = bytes.subarray(i, i + chunkSize);
-      binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
-    }
-    return btoa(binary);
-  }
-
   const blob = content instanceof Blob ? content : new Blob([content]);
-  if (typeof blob.arrayBuffer === 'function') {
-    const buf = await blob.arrayBuffer();
-    if (typeof Buffer !== 'undefined') {
-      return Buffer.from(buf).toString('base64');
-    }
-    const bytes = new Uint8Array(buf);
-    let binary = '';
-    const chunkSize = 8192;
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-      const chunk = bytes.subarray(i, i + chunkSize);
-      binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
-    }
-    return btoa(binary);
+
+  // Standard browser environment: use native FileReader.readAsDataURL (handles any binary Blob safely)
+  if (typeof FileReader !== 'undefined') {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const res = reader.result as string;
+        const comma = res.indexOf(',');
+        resolve(comma !== -1 ? res.slice(comma + 1) : res);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
   }
 
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const res = reader.result as string;
-      const comma = res.indexOf(',');
-      resolve(comma !== -1 ? res.slice(comma + 1) : res);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
+  // Node.js test environment
+  if (typeof Buffer !== 'undefined') {
+    const buf = await blob.arrayBuffer();
+    return Buffer.from(buf).toString('base64');
+  }
+
+  // Headless fallback
+  const buf = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+  }
+  return btoa(binary);
 }
 
 /**
@@ -671,26 +649,20 @@ export async function htmlToPdfBlob(htmlContent: string, title?: string): Promis
     return doc.output('blob');
   }
 
-  // Create an offscreen iframe to isolate styles and compute exact layout
-  const iframe = document.createElement('iframe');
-  iframe.setAttribute(
+  // Use a DOM container positioned inside the viewport coordinates (top: 0, left: 0)
+  // but completely invisible to the user (z-index: -99999, opacity: 0.01) so that
+  // html2canvas accurately computes positive bounding coordinates, fonts, and styles.
+  const container = document.createElement('div');
+  container.setAttribute(
     'style',
-    'position:fixed;top:-10000px;left:-10000px;width:794px;min-height:1123px;opacity:0.01;pointer-events:none;border:none;'
+    'position:fixed;top:0;left:0;width:794px;min-height:1123px;z-index:-99999;opacity:0.01;pointer-events:none;background:#ffffff;color:#0f172a;overflow:visible;'
   );
-  iframe.setAttribute('aria-hidden', 'true');
-  document.body.appendChild(iframe);
+  container.setAttribute('aria-hidden', 'true');
+  container.innerHTML = cleanHtml;
+  document.body.appendChild(container);
 
   try {
-    const doc = iframe.contentDocument || iframe.contentWindow?.document;
-    if (!doc) {
-      throw new Error('Iframe document not accessible');
-    }
-
-    doc.open();
-    doc.write(cleanHtml);
-    doc.close();
-
-    // Give browser layout engine a tick to apply styles, fonts, and table geometries
+    // Small delay to allow the browser layout engine to parse DOM, styles and font metrics
     await new Promise((resolve) => setTimeout(resolve, 80));
 
     const { jsPDF } = await import('jspdf');
@@ -702,8 +674,6 @@ export async function htmlToPdfBlob(htmlContent: string, title?: string): Promis
       format: 'a4',
     });
 
-    const target = doc.body;
-
     let finished = false;
     await new Promise<void>((resolve, reject) => {
       const finish = () => {
@@ -714,10 +684,8 @@ export async function htmlToPdfBlob(htmlContent: string, title?: string): Promis
       };
 
       try {
-        const promiseOrWorker = pdf.html(target, {
+        const promiseOrWorker = pdf.html(container, {
           callback: () => finish(),
-          x: 10,
-          y: 10,
           width: 190,
           windowWidth: 794,
           autoPaging: 'text',
@@ -738,7 +706,11 @@ export async function htmlToPdfBlob(htmlContent: string, title?: string): Promis
       }
     });
 
-    return pdf.output('blob');
+    const pdfBlob = pdf.output('blob');
+    if (pdfBlob && pdfBlob.size > 200) {
+      return pdfBlob;
+    }
+    throw new Error('Generated PDF was empty or too small');
   } catch (err) {
     console.warn('[PDF] HTML-to-PDF rendering failed, fallback to plain text PDF:', err);
     const { jsPDF } = await import('jspdf');
@@ -754,8 +726,8 @@ export async function htmlToPdfBlob(htmlContent: string, title?: string): Promis
     doc.text(plainText, 15, 30, { maxWidth: 180 });
     return doc.output('blob');
   } finally {
-    if (iframe.parentNode) {
-      iframe.parentNode.removeChild(iframe);
+    if (container.parentNode) {
+      container.parentNode.removeChild(container);
     }
   }
 }

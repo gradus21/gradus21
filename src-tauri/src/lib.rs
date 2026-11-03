@@ -80,7 +80,7 @@ async fn native_save_file(
             .decode(&content_base64)
             .map_err(|e| format!("Base64-Dekodierung fehlgeschlagen: {}", e))?;
 
-        let dir = app
+        let base_dir = app
             .path()
             .app_cache_dir()
             .or_else(|_| app.path().cache_dir())
@@ -88,9 +88,13 @@ async fn native_save_file(
             .or_else(|_| app.path().document_dir())
             .unwrap_or_else(|_| std::path::PathBuf::from("."));
 
+        // Save into a dedicated staging subfolder so that Android plugins
+        // that copy sourceFile to activity.cacheDir (such as tauri-plugin-sharekit)
+        // never attempt to copy a file onto itself (which would truncate the file to 0 bytes via O_TRUNC).
+        let dir = base_dir.join("gradus21_exports");
         let _ = std::fs::create_dir_all(&dir);
         let target_file = dir.join(&filename);
-        std::fs::write(&target_file, bytes)
+        std::fs::write(&target_file, &bytes)
             .map_err(|e| format!("Datei '{}' konnte nicht geschrieben werden: {}", target_file.display(), e))?;
 
         Ok(target_file.to_string_lossy().to_string())
