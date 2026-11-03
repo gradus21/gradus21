@@ -1779,7 +1779,7 @@ dependencies = [
 
 [[package]]
 name = "gradus21-app"
-version = "1.2.23"
+version = "1.2.24"
 dependencies = [
  "base64 0.22.1",
  "gradus21-core",

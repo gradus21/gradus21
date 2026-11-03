@@ -3,6 +3,17 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.24] - 2026-11-03
+
+### Echte native DIN A4 PDF-Generierung & Teilen auf Android & iOS
+- **Clientseitige Vektorgenerierung echter `.pdf`-Dateien**:
+  - Integration von `jsPDF` und `html2canvas` für hochauflösende DIN A4 Portrait PDF-Erstellung (High-DPI Skalierung 2x, Auto-Paging nach Text- und Tabellenzeilen, Vermeidung von Zeilenumbrüchen mitten im Schülerdatensatz).
+  - Beim Antippen von „Konferenz-PDF drucken“, „Elterngesprächs-Bogen drucken / PDF“, „AVV als PDF herunterladen“ oder „Notfallblatt drucken“ wird nun eine echte `.pdf`-Datei mit MIME-Type `application/pdf` erzeugt statt wie zuvor ein HTML-Dokument (`.html`).
+- **Natives Teilen & Drucken im Betriebssystem**:
+  - **Android & iOS (Tauri)**: Die generierte PDF-Datei wird im App-Cache abgelegt und öffnet direkt das native System-Share-Sheet (`plugin:sharekit|share_file`). Die Datei heißt nun korrekt z. B. `Zeugniskonferenz_-_6b_Deutsch.pdf` oder `Elterngesprächs-Bogen_-_Max_Mustermann.pdf`. Lehrkräfte können sie sofort in Google Drive oder den lokalen Dateien sichern, per Mail / Messenger weiterleiten oder über installierte Druckdienste (Samsung Print, HP, Brother, AirPrint) drucken.
+  - **Desktop Tauri (macOS, Windows, Linux)**: Die fertige PDF-Datei wird automatisch im Standard-PDF-Programm des Betriebssystems (z. B. Vorschau, Acrobat, Edge) geöffnet.
+  - **Web**: Auf Mobilgeräten wird die PDF-Datei über die Web Share API geteilt oder heruntergeladen; auf Desktop-Browsern öffnet sich wie gewohnt der Druckdialog des Browsers mit Option zum direkten Speichern als PDF.
+
 ## [1.2.23] - 2026-11-02
 
 ### Nativer Mobile Export & Share-Dialog (Android & iOS)

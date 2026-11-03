@@ -637,25 +637,159 @@ export function stripInlinePrintScripts(html: string): string {
 }
 
 /**
+ * Converts an HTML document string to a high-resolution DIN A4 Portrait PDF Blob.
+ * Uses jsPDF and html2canvas with high-DPI (scale: 2) rendering and auto-paging.
+ */
+export async function htmlToPdfBlob(htmlContent: string, title?: string): Promise<Blob> {
+  const cleanHtml = stripInlinePrintScripts(htmlContent);
+
+  // In headless/test environments without full DOM or canvas 2D support
+  const hasCanvasSupport = (() => {
+    try {
+      if (typeof document === 'undefined' || typeof window === 'undefined') return false;
+      if ('_virtualConsole' in window) return false;
+      if (typeof navigator !== 'undefined' && navigator.userAgent.includes('jsdom')) return false;
+      const canvas = document.createElement('canvas');
+      return !!canvas.getContext && !!canvas.getContext('2d');
+    } catch {
+      return false;
+    }
+  })();
+
+  if (!hasCanvasSupport) {
+    const { jsPDF } = await import('jspdf');
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+    });
+    doc.setFontSize(16);
+    doc.text(title || 'Gradus21 Dokument', 15, 20);
+    doc.setFontSize(10);
+    const plainText = cleanHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1500);
+    doc.text(plainText, 15, 30, { maxWidth: 180 });
+    return doc.output('blob');
+  }
+
+  // Create an offscreen iframe to isolate styles and compute exact layout
+  const iframe = document.createElement('iframe');
+  iframe.setAttribute(
+    'style',
+    'position:fixed;top:-10000px;left:-10000px;width:794px;min-height:1123px;opacity:0.01;pointer-events:none;border:none;'
+  );
+  iframe.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(iframe);
+
+  try {
+    const doc = iframe.contentDocument || iframe.contentWindow?.document;
+    if (!doc) {
+      throw new Error('Iframe document not accessible');
+    }
+
+    doc.open();
+    doc.write(cleanHtml);
+    doc.close();
+
+    // Give browser layout engine a tick to apply styles, fonts, and table geometries
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    const { jsPDF } = await import('jspdf');
+    await import('html2canvas');
+
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+    });
+
+    const target = doc.body;
+
+    let finished = false;
+    await new Promise<void>((resolve, reject) => {
+      const finish = () => {
+        if (!finished) {
+          finished = true;
+          resolve();
+        }
+      };
+
+      try {
+        const promiseOrWorker = pdf.html(target, {
+          callback: () => finish(),
+          x: 10,
+          y: 10,
+          width: 190,
+          windowWidth: 794,
+          autoPaging: 'text',
+          margin: [10, 10, 10, 10],
+          html2canvas: {
+            scale: 2,
+            useCORS: true,
+            logging: false,
+            backgroundColor: '#ffffff',
+          },
+        });
+
+        if (promiseOrWorker && typeof (promiseOrWorker as any).then === 'function') {
+          (promiseOrWorker as any).then(finish).catch(reject);
+        }
+      } catch (renderErr) {
+        reject(renderErr);
+      }
+    });
+
+    return pdf.output('blob');
+  } catch (err) {
+    console.warn('[PDF] HTML-to-PDF rendering failed, fallback to plain text PDF:', err);
+    const { jsPDF } = await import('jspdf');
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+    });
+    doc.setFontSize(16);
+    doc.text(title || 'Gradus21 Dokument', 15, 20);
+    doc.setFontSize(10);
+    const plainText = cleanHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1500);
+    doc.text(plainText, 15, 30, { maxWidth: 180 });
+    return doc.output('blob');
+  } finally {
+    if (iframe.parentNode) {
+      iframe.parentNode.removeChild(iframe);
+    }
+  }
+}
+
+/**
+ * Directly exports an HTML document as a downloadable or shareable DIN A4 PDF file.
+ */
+export async function exportPdfDocument(htmlContent: string, title: string = 'Dokument'): Promise<void> {
+  const cleanFilename = (title.replace(/[^a-zA-Z0-9äöüÄÖÜß_-]/g, '_') || 'Dokument') + '.pdf';
+  const pdfBlob = await htmlToPdfBlob(htmlContent, title);
+  await triggerFileDownload(pdfBlob, cleanFilename, 'application/pdf', title);
+}
+
+/**
  * Universal print and document export helper.
- * Supports:
+ * Automatically converts documents to genuine DIN A4 Portrait PDF:
  * - Mobile apps (Android, iOS via Tauri):
- *   Saves HTML document natively and opens the native system Share/Print sheet
- *   (enabling "Drucken" / AirPrint, "In Dateien sichern", "In Google Drive speichern", etc.)
+ *   Generates true PDF, saves natively to cache, and triggers native system Share Sheet
+ *   (enabling "Drucken" / AirPrint / Android Print Service, "In Dateien sichern", "In Google Drive speichern", WhatsApp, Mail)
  *   without any trapped in-app overlay window!
- * - Mobile web browsers: Web Share API if supported, or browser window.print()
- * - Desktop browsers & Desktop Tauri: Directly triggers the browser/OS print preview dialog via an offscreen iframe.
+ * - Desktop Tauri: Saves PDF natively and opens it in default system PDF viewer
+ * - Mobile web browsers: Web Share API if supported with PDF file, or direct PDF download
+ * - Desktop browsers: Directly triggers the browser/OS print preview dialog via an offscreen iframe.
  */
 export async function printHtmlDocument(htmlContent: string, title: string = 'Dokument'): Promise<void> {
   const cleanHtml = stripInlinePrintScripts(htmlContent);
-  const cleanFilename = (title.replace(/[^a-zA-Z0-9äöüÄÖÜß_-]/g, '_') || 'Dokument') + '.html';
+  const cleanFilename = (title.replace(/[^a-zA-Z0-9äöüÄÖÜß_-]/g, '_') || 'Dokument') + '.pdf';
 
   // 1. Mobile native apps (Tauri Android / iOS):
-  // Directly open the native system Share/Print sheet so the user can tap "Drucken",
-  // "In Dateien sichern" / "In Google Drive speichern", AirDrop, etc.
+  // Generate real PDF and directly open native system Share/Print sheet!
   if (isTauri() && (isMobileTauri() || isMobileDevice() || isAppleTouchDevice())) {
     try {
-      const base64 = await blobPartToBase64(cleanHtml);
+      const pdfBlob = await htmlToPdfBlob(cleanHtml, title);
+      const base64 = await blobPartToBase64(pdfBlob);
       const { invoke } = await import('@tauri-apps/api/core');
       const savedPath = await invoke<string>('native_save_file', {
         filename: cleanFilename,
@@ -665,7 +799,7 @@ export async function printHtmlDocument(htmlContent: string, title: string = 'Do
       try {
         await invoke('plugin:sharekit|share_file', {
           url: savedPath,
-          mimeType: 'text/html;charset=utf-8',
+          mimeType: 'application/pdf',
           title: title,
         });
         return;
@@ -677,17 +811,39 @@ export async function printHtmlDocument(htmlContent: string, title: string = 'Do
         console.warn('[Print] Native sharekit failed, falling back to print:', shareErr);
       }
     } catch (tauriErr) {
-      console.warn('[Print] Native save/share failed, falling back to web print:', tauriErr);
+      console.warn('[Print] Native PDF save/share failed, falling back to web print:', tauriErr);
     }
   }
 
-  // 2. Mobile web browsers / devices with Web Share API:
-  if (isMobileDevice() || isAppleTouchDevice()) {
-    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-      try {
-        const blob = new Blob([cleanHtml], { type: 'text/html;charset=utf-8' });
-        const file = new File([blob], cleanFilename, { type: 'text/html;charset=utf-8' });
+  // 2. Desktop Tauri: Save PDF and open in the system default PDF viewer
+  if (isTauri() && isDesktopTauri()) {
+    try {
+      const pdfBlob = await htmlToPdfBlob(cleanHtml, title);
+      const base64 = await blobPartToBase64(pdfBlob);
+      const { invoke } = await import('@tauri-apps/api/core');
+      const savedPath = await invoke<string>('native_save_file', {
+        filename: cleanFilename,
+        contentBase64: base64,
+      });
 
+      try {
+        const { openPath } = await import('@tauri-apps/plugin-opener');
+        await openPath(savedPath);
+        return;
+      } catch (openErr) {
+        console.warn('[Print] Opener openPath failed on desktop Tauri:', openErr);
+      }
+    } catch (tauriErr) {
+      console.warn('[Print] Desktop Tauri PDF generation failed, falling back to browser print:', tauriErr);
+    }
+  }
+
+  // 3. Mobile web browsers / devices with Web Share API:
+  if (isMobileDevice() || isAppleTouchDevice()) {
+    try {
+      const pdfBlob = await htmlToPdfBlob(cleanHtml, title);
+      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+        const file = new File([pdfBlob], cleanFilename, { type: 'application/pdf' });
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
           await navigator.share({
             files: [file],
@@ -695,14 +851,17 @@ export async function printHtmlDocument(htmlContent: string, title: string = 'Do
           });
           return;
         }
-      } catch (shareErr: any) {
-        if (shareErr?.name === 'AbortError') return;
-        console.warn('[Print] Native share dialog failed, falling back to print:', shareErr);
       }
+      // If Web Share API is not available or does not support files, trigger PDF file download
+      await triggerFileDownload(pdfBlob, cleanFilename, 'application/pdf', title);
+      return;
+    } catch (shareErr: any) {
+      if (shareErr?.name === 'AbortError') return;
+      console.warn('[Print] Mobile web PDF share/download failed, falling back to print:', shareErr);
     }
   }
 
-  // 3. Desktop browsers & Desktop Tauri:
+  // 4. Desktop browsers:
   // Directly trigger the system print preview dialog via an offscreen iframe.
   if (typeof document !== 'undefined') {
     try {
@@ -747,12 +906,12 @@ export async function printHtmlDocument(htmlContent: string, title: string = 'Do
  * Opens a clean, privacy-safe single-student report for Elterngespräche (Print / Save as PDF).
  * Fully optimized for DIN A4 Portrait.
  */
-export function printStudentParentReport(
+export async function printStudentParentReport(
   dataset: ClassroomSubjectDataset,
   student: StudentProfile,
   summary: StudentSummaryForExport | undefined,
   activeTerm: TermFilterId
-) {
+): Promise<void> {
   const termLabel =
     activeTerm === 'hj1'
       ? '1. Halbjahr'
@@ -995,18 +1154,18 @@ export function printStudentParentReport(
       </body>
     </html>`;
 
-  void printHtmlDocument(docHtml, `Elterngesprächs-Bogen – ${student.name}`);
+  await printHtmlDocument(docHtml, `Elterngesprächs-Bogen – ${student.name}`);
 }
 
 /**
  * Opens a print-ready Zeugniskonferenz-Liste (Print / Save as PDF).
  * Fully optimized for DIN A4 Portrait.
  */
-export function printClassConferenceReport(
+export async function printClassConferenceReport(
   dataset: ClassroomSubjectDataset,
   report: ClassReportForExport | null,
   activeTerm: TermFilterId
-) {
+): Promise<void> {
   const termLabel =
     activeTerm === 'hj1'
       ? '1. Halbjahr'
@@ -1233,5 +1392,5 @@ export function printClassConferenceReport(
       </body>
     </html>`;
 
-  void printHtmlDocument(docHtml, `Zeugniskonferenz – ${dataset.className} ${dataset.subjectName}`);
+  await printHtmlDocument(docHtml, `Zeugniskonferenz – ${dataset.className} ${dataset.subjectName}`);
 }

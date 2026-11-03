@@ -218,7 +218,7 @@ describe('ExportAndPrintHelpers - Document Printing and Native Share Dialog', ()
     expect(clean).toContain('<h1>Test</h1>');
   });
 
-  it('directly opens native share dialog on mobile/Tauri without stuck in-app iframe overlays', async () => {
+  it('directly opens native share dialog on mobile/Tauri with genuine PDF file', async () => {
     const shareMock = vi.fn().mockResolvedValue(undefined);
     const canShareMock = vi.fn().mockReturnValue(true);
 
@@ -237,13 +237,16 @@ describe('ExportAndPrintHelpers - Document Printing and Native Share Dialog', ()
 
     await printHtmlDocument('<h1>Schüler-Akte</h1>', 'Elterngesprächs-Bogen – Max');
 
-    // Asserts navigator.share was directly invoked with file
+    // Asserts navigator.share was directly invoked with PDF file
     expect(canShareMock).toHaveBeenCalled();
     expect(shareMock).toHaveBeenCalledWith(
       expect.objectContaining({
         title: 'Elterngesprächs-Bogen – Max',
       })
     );
+    const callArgs = shareMock.mock.calls[0][0];
+    expect(callArgs.files[0].name).toMatch(/\.pdf$/);
+    expect(callArgs.files[0].type).toBe('application/pdf');
 
     // Asserts no stuck DOM overlay was created
     expect(document.getElementById('gradus21-print-sheet-root')).toBeNull();
@@ -339,10 +342,10 @@ describe('ExportAndPrintHelpers - Document Printing and Native Share Dialog', ()
     vi.doUnmock('@tauri-apps/api/core');
   });
 
-  it('triggers native_save_file and plugin:sharekit|share_file when printHtmlDocument runs in mobile Tauri', async () => {
+  it('triggers native_save_file and plugin:sharekit|share_file with PDF when printHtmlDocument runs in mobile Tauri', async () => {
     const invokeMock = vi.fn().mockImplementation((cmd: string) => {
       if (cmd === 'native_save_file') {
-        return Promise.resolve('/data/user/0/de.gradus21.app/cache/konferenz.html');
+        return Promise.resolve('/data/user/0/de.gradus21.app/cache/konferenz.pdf');
       }
       if (cmd === 'plugin:sharekit|share_file') {
         return Promise.resolve();
@@ -370,11 +373,11 @@ describe('ExportAndPrintHelpers - Document Printing and Native Share Dialog', ()
     await printHtmlDocument('<h1>Zeugniskonferenz 6b</h1>', 'Zeugniskonferenz – 6b Deutsch');
 
     expect(invokeMock).toHaveBeenCalledWith('native_save_file', expect.objectContaining({
-      filename: 'Zeugniskonferenz___6b_Deutsch.html',
+      filename: 'Zeugniskonferenz___6b_Deutsch.pdf',
     }));
     expect(invokeMock).toHaveBeenCalledWith('plugin:sharekit|share_file', {
-      url: '/data/user/0/de.gradus21.app/cache/konferenz.html',
-      mimeType: 'text/html;charset=utf-8',
+      url: '/data/user/0/de.gradus21.app/cache/konferenz.pdf',
+      mimeType: 'application/pdf',
       title: 'Zeugniskonferenz – 6b Deutsch',
     });
 
@@ -385,5 +388,13 @@ describe('ExportAndPrintHelpers - Document Printing and Native Share Dialog', ()
       writable: true,
     });
     vi.doUnmock('@tauri-apps/api/core');
+  });
+
+  it('converts HTML content to a valid PDF blob using htmlToPdfBlob', async () => {
+    const { htmlToPdfBlob } = await import('./ExportAndPrintHelpers');
+    const blob = await htmlToPdfBlob('<h1>Notenübersicht</h1>', 'Notenübersicht');
+    expect(blob).toBeInstanceOf(Blob);
+    expect(blob.type).toBe('application/pdf');
+    expect(blob.size).toBeGreaterThan(0);
   });
 });
