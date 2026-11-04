@@ -11,8 +11,48 @@ import {
   stripInlinePrintScripts,
   printHtmlDocument,
   triggerFileDownload,
+  generateStudentParentReportPdf,
+  generateClassConferenceReportPdf,
+  generateStudentParentReportHtml,
+  generateClassConferenceReportHtml,
 } from './ExportAndPrintHelpers';
 import { ClassroomSubjectDataset, StudentProfile } from '../data/demoClasses';
+
+const dummyDataset: ClassroomSubjectDataset = {
+  id: 'test_class',
+  schoolName: 'Test School',
+  schoolYear: '2026/2027',
+  className: '6b',
+  subjectName: 'Englisch',
+  shortName: 'EN 6b',
+  subjectCode: 'E',
+  courseType: 'GKM',
+  description: '',
+  config: {
+    scale_id: 'de_classic_1_to_6',
+    weighting_mode: 'category_buckets',
+    scale_empty_categories: true,
+    enable_student_levels: false,
+    level_threshold_offsets: {},
+    custom_thresholds: null,
+  },
+  categories: [],
+  assessments: [],
+  students: [
+    {
+      id: 's1',
+      name: 'Safia Al-Mansoor',
+      birthDate: '2014-04-12',
+      level: null,
+      is_not_graded: false,
+      notes: 'Gute Mitarbeit',
+    },
+  ],
+  grades: [],
+  reportCardOverrides: {
+    s1: { hj1: '2', reason: 'Aufrundung' },
+  },
+};
 
 describe('ExportAndPrintHelpers - escapeHtml', () => {
   it('escapes dangerous HTML characters to prevent XSS in print views', () => {
@@ -125,42 +165,6 @@ describe('ExportAndPrintHelpers - CSV Escaping and Generation', () => {
 });
 
 describe('ExportAndPrintHelpers - SchILD-NRW and Standard Presets', () => {
-  const dummyDataset: ClassroomSubjectDataset = {
-    id: 'test_class',
-    schoolName: 'Test School',
-    schoolYear: '2026/2027',
-    className: '6b',
-    subjectName: 'Englisch',
-    shortName: 'EN 6b',
-    subjectCode: 'E',
-    courseType: 'GKM',
-    description: '',
-    config: {
-      scale_id: 'de_classic_1_to_6',
-      weighting_mode: 'category_buckets',
-      scale_empty_categories: true,
-      enable_student_levels: false,
-      level_threshold_offsets: {},
-      custom_thresholds: null,
-    },
-    categories: [],
-    assessments: [],
-    students: [
-      {
-        id: 's1',
-        name: 'Safia Al-Mansoor',
-        birthDate: '2014-04-12',
-        level: null,
-        is_not_graded: false,
-        notes: 'Gute Mitarbeit',
-      },
-    ],
-    grades: [],
-    reportCardOverrides: {
-      s1: { hj1: '2', reason: 'Aufrundung' },
-    },
-  };
-
   it('builds exact 9 columns for SchILD-NRW preset', () => {
     const { headers, rows } = buildExportTableData(dummyDataset, null, {
       ...DEFAULT_EXPORT_OPTIONS,
@@ -396,5 +400,75 @@ describe('ExportAndPrintHelpers - Document Printing and Native Share Dialog', ()
     expect(blob).toBeInstanceOf(Blob);
     expect(blob.type).toBe('application/pdf');
     expect(blob.size).toBeGreaterThan(0);
+  });
+
+  it('generates a clean 1-page DIN A4 vector PDF for student parent report', () => {
+    const doc = generateStudentParentReportPdf(
+      dummyDataset,
+      dummyDataset.students[0],
+      {
+        student_id: 's1',
+        overall_percent: 85,
+        overall_grade_numeric: 2.0,
+        overall_display_grade: '2',
+        semantic_tier: 2,
+        is_preliminary: false,
+        category_results: [
+          {
+            category_id: 'cat1',
+            category_name: 'Große LNW',
+            average_percent: 85,
+            display_grade: '2',
+            graded_count: 2,
+            effective_weight_percent: 50,
+          },
+        ],
+      },
+      'hj1'
+    );
+
+    expect(doc).toBeDefined();
+    expect(doc.getNumberOfPages()).toBe(1);
+    const pdfBlob = doc.output('blob');
+    expect(pdfBlob.size).toBeGreaterThan(1000);
+  });
+
+  it('generates a clean DIN A4 vector PDF for class conference report', () => {
+    const doc = generateClassConferenceReportPdf(
+      dummyDataset,
+      {
+        student_summaries: [
+          {
+            student_id: 's1',
+            overall_percent: 85,
+            overall_grade_numeric: 2.0,
+            overall_display_grade: '2',
+            semantic_tier: 2,
+            is_preliminary: false,
+            category_results: [],
+          },
+        ],
+        class_average_percent: 78,
+        class_display_grade: '2.4',
+        distribution_buckets: [0, 1, 0, 0, 0, 0],
+      },
+      'hj1'
+    );
+
+    expect(doc).toBeDefined();
+    expect(doc.getNumberOfPages()).toBeGreaterThanOrEqual(1);
+    const pdfBlob = doc.output('blob');
+    expect(pdfBlob.size).toBeGreaterThan(1000);
+  });
+
+  it('generates valid HTML strings for both student parent and conference reports', () => {
+    const stuHtml = generateStudentParentReportHtml(dummyDataset, dummyDataset.students[0], undefined, 'hj1');
+    expect(stuHtml).toContain('Elterngesprächs-Bogen');
+    expect(stuHtml).toContain('Safia Al-Mansoor');
+    expect(stuHtml).toContain('size: A4 portrait');
+
+    const confHtml = generateClassConferenceReportHtml(dummyDataset, null, 'hj1');
+    expect(confHtml).toContain('Zeugniskonferenz-Liste');
+    expect(confHtml).toContain('size: A4 portrait');
   });
 });

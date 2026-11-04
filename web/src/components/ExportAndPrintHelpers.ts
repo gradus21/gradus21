@@ -10,6 +10,8 @@ import {
   isMobileTauri,
   isTauri,
 } from '../utils/platform';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 export interface StudentSummaryForExport {
   student_id: string;
@@ -635,7 +637,6 @@ export async function htmlToPdfBlob(htmlContent: string, title?: string): Promis
   })();
 
   if (!hasCanvasSupport) {
-    const { jsPDF } = await import('jspdf');
     const doc = new jsPDF({
       orientation: 'portrait',
       unit: 'mm',
@@ -655,7 +656,7 @@ export async function htmlToPdfBlob(htmlContent: string, title?: string): Promis
   const container = document.createElement('div');
   container.setAttribute(
     'style',
-    'position:fixed;top:0;left:0;width:794px;min-height:1123px;z-index:-99999;opacity:0.01;pointer-events:none;background:#ffffff;color:#0f172a;overflow:visible;'
+    'position:fixed;top:0;left:0;width:794px;min-width:794px;max-width:794px;min-height:1123px;z-index:-99999;opacity:0.01;pointer-events:none;background:#ffffff;color:#0f172a;overflow:visible;box-sizing:border-box;'
   );
   container.setAttribute('aria-hidden', 'true');
   container.innerHTML = cleanHtml;
@@ -665,7 +666,6 @@ export async function htmlToPdfBlob(htmlContent: string, title?: string): Promis
     // Small delay to allow the browser layout engine to parse DOM, styles and font metrics
     await new Promise((resolve) => setTimeout(resolve, 80));
 
-    const { jsPDF } = await import('jspdf');
     await import('html2canvas');
 
     const pdf = new jsPDF({
@@ -688,13 +688,15 @@ export async function htmlToPdfBlob(htmlContent: string, title?: string): Promis
           callback: () => finish(),
           width: 190,
           windowWidth: 794,
-          autoPaging: 'text',
+          autoPaging: 'slice',
           margin: [10, 10, 10, 10],
           html2canvas: {
             scale: 2,
             useCORS: true,
             logging: false,
             backgroundColor: '#ffffff',
+            windowWidth: 794,
+            width: 794,
           },
         });
 
@@ -713,7 +715,6 @@ export async function htmlToPdfBlob(htmlContent: string, title?: string): Promis
     throw new Error('Generated PDF was empty or too small');
   } catch (err) {
     console.warn('[PDF] HTML-to-PDF rendering failed, fallback to plain text PDF:', err);
-    const { jsPDF } = await import('jspdf');
     const doc = new jsPDF({
       orientation: 'portrait',
       unit: 'mm',
@@ -875,15 +876,119 @@ export async function printHtmlDocument(htmlContent: string, title: string = 'Do
 }
 
 /**
- * Opens a clean, privacy-safe single-student report for Elterngespräche (Print / Save as PDF).
- * Fully optimized for DIN A4 Portrait.
+ * Universal PDF delivery helper.
+ * - Mobile apps (Android, iOS via Tauri):
+ *   Generates genuine DIN A4 vector PDF, saves natively to app cache, and triggers native system Share Sheet
+ *   (enabling "Drucken" / AirPrint / Android Print Service, "In Dateien sichern", "In Google Drive speichern", WhatsApp, Mail)
+ *   without any trapped in-app overlay window!
+ * - Desktop Tauri: Saves PDF natively and opens it in default system PDF viewer
+ * - Mobile web browsers: Web Share API if supported with PDF file, or direct PDF download
+ * - Desktop browsers: Directly triggers the browser/OS print preview dialog via an offscreen iframe if HTML fallback is provided,
+ *   or triggers direct download of the vector PDF file.
  */
-export async function printStudentParentReport(
+export async function deliverPdfDocument(
+  doc: jsPDF,
+  filename: string,
+  title: string,
+  htmlContentFallback?: string
+): Promise<void> {
+  const cleanFilename =
+    (filename.replace(/[^a-zA-Z0-9äöüÄÖÜß_-]/g, '_') || 'Dokument') +
+    (filename.endsWith('.pdf') ? '' : '.pdf');
+  const pdfBlob = doc.output('blob');
+
+  // 1. Mobile native apps (Tauri Android / iOS):
+  if (isTauri() && (isMobileTauri() || isMobileDevice() || isAppleTouchDevice())) {
+    try {
+      const base64 = await blobPartToBase64(pdfBlob);
+      const { invoke } = await import('@tauri-apps/api/core');
+      const savedPath = await invoke<string>('native_save_file', {
+        filename: cleanFilename,
+        contentBase64: base64,
+      });
+
+      try {
+        await invoke('plugin:sharekit|share_file', {
+          url: savedPath,
+          mimeType: 'application/pdf',
+          title: title,
+        });
+        return;
+      } catch (shareErr: any) {
+        const errStr = String(shareErr || '');
+        if (errStr.includes('cancelled') || shareErr?.name === 'AbortError') {
+          return;
+        }
+        console.warn('[Print] Native sharekit failed, falling back to download:', shareErr);
+      }
+    } catch (tauriErr) {
+      console.warn('[Print] Native PDF save/share failed, falling back to web download:', tauriErr);
+    }
+  }
+
+  // 2. Desktop Tauri: Save PDF and open in the system default PDF viewer
+  if (isTauri() && isDesktopTauri()) {
+    try {
+      const base64 = await blobPartToBase64(pdfBlob);
+      const { invoke } = await import('@tauri-apps/api/core');
+      const savedPath = await invoke<string>('native_save_file', {
+        filename: cleanFilename,
+        contentBase64: base64,
+      });
+
+      try {
+        const { openPath } = await import('@tauri-apps/plugin-opener');
+        await openPath(savedPath);
+        return;
+      } catch (openErr) {
+        console.warn('[Print] Opener openPath failed on desktop Tauri:', openErr);
+      }
+    } catch (tauriErr) {
+      console.warn('[Print] Desktop Tauri PDF generation failed, falling back to download:', tauriErr);
+    }
+  }
+
+  // 3. Mobile web browsers / devices with Web Share API:
+  if (isMobileDevice() || isAppleTouchDevice()) {
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+        const file = new File([pdfBlob], cleanFilename, { type: 'application/pdf' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: title,
+          });
+          return;
+        }
+      }
+      await triggerFileDownload(pdfBlob, cleanFilename, 'application/pdf', title);
+      return;
+    } catch (shareErr: any) {
+      if (shareErr?.name === 'AbortError') return;
+      console.warn('[Print] Mobile web PDF share/download failed, falling back to download:', shareErr);
+    }
+  }
+
+  // 4. Desktop browsers:
+  // If htmlContentFallback is provided, trigger the browser print dialog via an offscreen iframe
+  if (htmlContentFallback && typeof document !== 'undefined') {
+    await printHtmlDocument(htmlContentFallback, title);
+    return;
+  }
+
+  // Fallback: direct PDF download
+  await triggerFileDownload(pdfBlob, cleanFilename, 'application/pdf', title);
+}
+
+/**
+ * Builds the HTML markup for single-student report for Elterngespräche (used for desktop browser iframe print).
+ */
+export function generateStudentParentReportHtml(
   dataset: ClassroomSubjectDataset,
   student: StudentProfile,
   summary: StudentSummaryForExport | undefined,
   activeTerm: TermFilterId
-): Promise<void> {
+): string {
   const termLabel =
     activeTerm === 'hj1'
       ? '1. Halbjahr'
@@ -921,7 +1026,7 @@ export async function printStudentParentReport(
     })
     .join('');
 
-  const docHtml = `<!DOCTYPE html>
+  return `<!DOCTYPE html>
     <html lang="de">
       <head>
         <meta charset="utf-8" />
@@ -1125,19 +1230,299 @@ export async function printStudentParentReport(
         </div>
       </body>
     </html>`;
-
-  await printHtmlDocument(docHtml, `Elterngesprächs-Bogen – ${student.name}`);
 }
 
 /**
- * Opens a print-ready Zeugniskonferenz-Liste (Print / Save as PDF).
+ * Directly generates a genuine, high-resolution vector DIN A4 Portrait PDF for the Elterngesprächs-Bogen.
+ * Fits on 1 single DIN A4 page, zero viewport clipping, razor-sharp typography.
+ */
+export function generateStudentParentReportPdf(
+  dataset: ClassroomSubjectDataset,
+  student: StudentProfile,
+  summary: StudentSummaryForExport | undefined,
+  activeTerm: TermFilterId
+): jsPDF {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const pageWidth = 210;
+  const pageHeight = 297;
+  const margin = 14;
+  const contentWidth = pageWidth - margin * 2; // 182mm
+
+  const termLabel =
+    activeTerm === 'hj1'
+      ? '1. Halbjahr'
+      : activeTerm === 'hj2'
+      ? '2. Halbjahr'
+      : 'Gesamtes Schuljahr';
+
+  const override = dataset.reportCardOverrides?.[student.id];
+  const zeugnisNote =
+    (activeTerm === 'hj1'
+      ? override?.hj1
+      : activeTerm === 'hj2'
+      ? override?.hj2
+      : override?.all) ||
+    summary?.overall_display_grade ||
+    '—';
+
+  // 1. Top Header Badge
+  doc.setFillColor(204, 251, 241); // #ccfbf1 light teal
+  doc.roundedRect(margin, 12, 102, 5.5, 1.5, 1.5, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(15, 118, 110); // #0f766e
+  doc.text('DATENSCHUTZKONFORMER EINZELBOGEN (360°-AKTE)', margin + 3, 16);
+
+  // 2. Student Name & Metadata (Left)
+  const studentTitle = `${student.name}${student.level ? ` (Niveau ${student.level})` : ''}`;
+  doc.setFont('helvetica', 'bold');
+  let nameFontSize = 16;
+  doc.setFontSize(nameFontSize);
+  while (nameFontSize > 10 && doc.getTextWidth(studentTitle) > 124) {
+    nameFontSize -= 0.5;
+    doc.setFontSize(nameFontSize);
+  }
+  doc.setTextColor(15, 23, 42); // #0f172a
+  doc.text(studentTitle, margin, 24);
+
+  const metaSubtitle = `${dataset.schoolName} · Klasse ${dataset.className} · Fach: ${dataset.subjectName} · ${termLabel} (${dataset.schoolYear})`;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(71, 85, 105); // #475569
+  const truncatedMeta =
+    doc.getTextWidth(metaSubtitle) > 124
+      ? doc.splitTextToSize(metaSubtitle, 124)[0] + '…'
+      : metaSubtitle;
+  doc.text(truncatedMeta, margin, 29);
+
+  // 3. Grade Box (Top Right)
+  const boxWidth = 50;
+  const boxHeight = 17;
+  const boxX = pageWidth - margin - boxWidth;
+  const boxY = 12.5;
+
+  doc.setFillColor(240, 253, 250); // #f0fdfa
+  doc.setDrawColor(204, 251, 241); // #ccfbf1
+  doc.setLineWidth(0.3);
+  doc.roundedRect(boxX, boxY, boxWidth, boxHeight, 2, 2, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.setTextColor(100, 116, 139); // #64748b
+  doc.text('BERECHNETER STAND / NOTE', boxX + boxWidth / 2, boxY + 4.8, { align: 'center' });
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(13, 148, 136); // #0d9488
+  const gradeStr =
+    summary?.overall_percent != null
+      ? `${summary.overall_percent}% · Note ${zeugnisNote}`
+      : `Note ${zeugnisNote}`;
+  doc.text(gradeStr, boxX + boxWidth / 2, boxY + 12.2, { align: 'center' });
+
+  // 4. Teal Divider Line
+  doc.setDrawColor(13, 148, 136);
+  doc.setLineWidth(0.4);
+  doc.line(margin, 34, pageWidth - margin, 34);
+
+  // 5. Category Summary Cards
+  const catResults = summary?.category_results || [];
+  let nextSectionY = 38;
+
+  if (catResults.length > 0) {
+    const catCardGap = 3;
+    const catCardWidth = (contentWidth - (catResults.length - 1) * catCardGap) / catResults.length;
+    const catCardHeight = 13;
+    const catCardY = 38;
+
+    catResults.forEach((cr, idx) => {
+      const cardX = margin + idx * (catCardWidth + catCardGap);
+      doc.setFillColor(248, 250, 252); // #f8fafc
+      doc.setDrawColor(226, 232, 240); // #e2e8f0
+      doc.setLineWidth(0.2);
+      doc.roundedRect(cardX, catCardY, catCardWidth, catCardHeight, 1.5, 1.5, 'FD');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(100, 116, 139);
+      let catLabel = `${cr.category_name} (${cr.effective_weight_percent}%)`;
+      if (doc.getTextWidth(catLabel) > catCardWidth - 4) {
+        catLabel = `${cr.category_name.slice(0, 12)}… (${cr.effective_weight_percent}%)`;
+      }
+      doc.text(catLabel, cardX + 2.5, catCardY + 4.5);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(15, 23, 42);
+      const valStr =
+        cr.average_percent != null
+          ? `${cr.average_percent}% · Note ${cr.display_grade}`
+          : '—';
+      doc.text(valStr, cardX + 2.5, catCardY + 10);
+    });
+
+    nextSectionY = catCardY + catCardHeight + 5;
+  }
+
+  // 6. Einzelleistungen Section & Table
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(`Einzelleistungen (${termLabel})`, margin, nextSectionY);
+
+  const filteredAssessments = dataset.assessments.filter((a) =>
+    activeTerm === 'all' ? true : a.term_id === activeTerm
+  );
+
+  const tableRows = filteredAssessments.map((a) => {
+    const cat = dataset.categories.find((c) => c.id === a.category_id);
+    const g = dataset.grades.find(
+      (x) => x.student_id === student.id && x.assessment_id === a.id
+    );
+    const valStr =
+      g?.status === 'excused'
+        ? 'Entschuldigt (Attest)'
+        : g?.percent_value != null
+        ? `${g.percent_value}% (${g.raw_points ?? '—'}/${a.max_points ?? 15} Pkt)`
+        : '—';
+    return [a.title || 'Leistungsnachweis', cat?.name || '—', valStr];
+  });
+
+  if (tableRows.length === 0) {
+    tableRows.push(['Keine Leistungsnachweise in diesem Zeitraum eingetragen', '—', '—']);
+  }
+
+  autoTable(doc, {
+    startY: nextSectionY + 2.5,
+    margin: { left: margin, right: margin },
+    head: [['LEISTUNGSNACHWEIS', 'KATEGORIE', 'ERGEBNIS']],
+    body: tableRows,
+    theme: 'plain',
+    headStyles: {
+      fillColor: [241, 245, 249],
+      textColor: [51, 65, 85],
+      fontSize: 7.5,
+      fontStyle: 'bold',
+      cellPadding: { top: 2, bottom: 2, left: 3, right: 3 },
+    },
+    bodyStyles: {
+      textColor: [15, 23, 42],
+      fontSize: 8,
+      cellPadding: { top: 2, bottom: 2, left: 3, right: 3 },
+      lineColor: [226, 232, 240],
+      lineWidth: 0.15,
+    },
+    alternateRowStyles: {
+      fillColor: [250, 250, 250],
+    },
+    columnStyles: {
+      0: { cellWidth: 92 },
+      1: { cellWidth: 45 },
+      2: { cellWidth: 45, halign: 'right', fontStyle: 'bold' },
+    },
+  });
+
+  const finalTableY = (doc as any).lastAutoTable?.finalY ?? nextSectionY + 30;
+
+  // 7. Pedagogical Remarks Box
+  let remarksY = finalTableY + 5;
+  const remarksText =
+    override?.reason ||
+    student.notes ||
+    'Keine besonderen Vermerke hinterlegt.';
+  const splitRemarks = doc.splitTextToSize(remarksText, contentWidth - 6);
+  const remarksBoxHeight = Math.max(14, 7 + splitRemarks.length * 3.8);
+
+  if (remarksY + remarksBoxHeight + 25 > pageHeight - 12) {
+    doc.addPage();
+    remarksY = 14;
+  }
+
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.setLineWidth(0.2);
+  doc.roundedRect(margin, remarksY, contentWidth, remarksBoxHeight, 2, 2, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(15, 23, 42);
+  doc.text('Pädagogische Bemerkungen & Förderhinweise:', margin + 3, remarksY + 4.5);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(51, 65, 85);
+  doc.text(splitRemarks, margin + 3, remarksY + 8.5);
+
+  // 8. Signature Lines
+  const sigBoxY = remarksY + remarksBoxHeight;
+  let sigY = Math.max(sigBoxY + 12, 262);
+  if (sigBoxY + 22 > pageHeight - 14) {
+    doc.addPage();
+    sigY = 262;
+  }
+
+  doc.setDrawColor(148, 163, 184); // #94a3b8
+  doc.setLineWidth(0.3);
+  doc.line(margin, sigY, margin + 65, sigY);
+  doc.line(pageWidth - margin - 65, sigY, pageWidth - margin, sigY);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(71, 85, 105);
+  doc.text('Datum, Unterschrift Lehrkraft', margin, sigY + 4);
+  doc.text('Kenntnisnahme Erziehungsberechtigte/r', pageWidth - margin - 65, sigY + 4);
+
+  // 9. Page Footers (on all pages)
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(148, 163, 184);
+    doc.text(
+      `Seite ${i} von ${totalPages} · Erstellt mit Gradus21 · Datenschutzkonform nach Art. 5 DSGVO`,
+      pageWidth / 2,
+      pageHeight - 7,
+      { align: 'center' }
+    );
+  }
+
+  return doc;
+}
+
+/**
+ * Opens a clean, privacy-safe single-student report for Elterngespräche (Print / Save as PDF).
  * Fully optimized for DIN A4 Portrait.
  */
-export async function printClassConferenceReport(
+export async function printStudentParentReport(
+  dataset: ClassroomSubjectDataset,
+  student: StudentProfile,
+  summary: StudentSummaryForExport | undefined,
+  activeTerm: TermFilterId
+): Promise<void> {
+  const doc = generateStudentParentReportPdf(dataset, student, summary, activeTerm);
+  const docHtml = generateStudentParentReportHtml(dataset, student, summary, activeTerm);
+  await deliverPdfDocument(
+    doc,
+    `Elterngesprächs-Bogen – ${student.name}`,
+    `Elterngesprächs-Bogen – ${student.name}`,
+    docHtml
+  );
+}
+
+/**
+ * Builds the HTML markup for Zeugniskonferenz-Liste (used for desktop browser iframe print).
+ */
+export function generateClassConferenceReportHtml(
   dataset: ClassroomSubjectDataset,
   report: ClassReportForExport | null,
   activeTerm: TermFilterId
-): Promise<void> {
+): string {
   const termLabel =
     activeTerm === 'hj1'
       ? '1. Halbjahr'
@@ -1183,7 +1568,7 @@ export async function printClassConferenceReport(
     })
     .join('');
 
-  const docHtml = `<!DOCTYPE html>
+  return `<!DOCTYPE html>
     <html lang="de">
       <head>
         <meta charset="utf-8" />
@@ -1363,6 +1748,226 @@ export async function printClassConferenceReport(
         </div>
       </body>
     </html>`;
+}
 
-  await printHtmlDocument(docHtml, `Zeugniskonferenz – ${dataset.className} ${dataset.subjectName}`);
+/**
+ * Directly generates a genuine, high-resolution vector DIN A4 Portrait PDF for the Zeugniskonferenz-Liste.
+ * Dynamic column sizing, zebra stripes, repeated headers across pages, razor-sharp typography.
+ */
+export function generateClassConferenceReportPdf(
+  dataset: ClassroomSubjectDataset,
+  report: ClassReportForExport | null,
+  activeTerm: TermFilterId
+): jsPDF {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const pageWidth = 210;
+  const pageHeight = 297;
+  const margin = 12;
+
+  const termLabel =
+    activeTerm === 'hj1'
+      ? '1. Halbjahr'
+      : activeTerm === 'hj2'
+      ? '2. Halbjahr'
+      : 'Gesamtjahr';
+
+  // 1. Header Title
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13.5);
+  doc.setTextColor(15, 23, 42); // #0f172a
+  doc.text(`Zeugniskonferenz: ${dataset.className} – ${dataset.subjectName}`, margin, 14);
+
+  // Subtitle / School Meta
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(71, 85, 105);
+  doc.text(`${dataset.schoolName} · Schuljahr: ${dataset.schoolYear} · ${termLabel}`, margin, 19);
+
+  // Class Stats (Right Aligned)
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(15, 118, 110);
+  const avgStr = `Klassenschnitt: ${report?.class_average_percent ?? '—'}% (Ø ${report?.class_display_grade ?? '—'})`;
+  doc.text(avgStr, pageWidth - margin, 14, { align: 'right' });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 116, 139);
+  const buckets = (report?.distribution_buckets || [0, 0, 0, 0, 0, 0]).join(' / ');
+  doc.text(`Notenspiegel (1–6): [ ${buckets} ]`, pageWidth - margin, 19, { align: 'right' });
+
+  // Teal line
+  doc.setDrawColor(13, 148, 136);
+  doc.setLineWidth(0.4);
+  doc.line(margin, 22, pageWidth - margin, 22);
+
+  // 2. Table Headers & Body
+  const enableLevels = !!dataset.config.enable_student_levels;
+  const catColumns = dataset.categories.map((c) => `Ø ${c.short_code || c.name}`);
+  const headers = [
+    '#',
+    'Name',
+    ...(enableLevels ? ['Niv.'] : []),
+    ...catColumns,
+    'Berechnet',
+    'Zeugnis',
+    'Bemerkung / Begründung',
+  ];
+
+  const studentsRows = dataset.students.map((stu, idx) => {
+    const sum = report?.student_summaries.find((s) => s.student_id === stu.id);
+    const override = dataset.reportCardOverrides?.[stu.id];
+    const zeugnisNote =
+      (activeTerm === 'hj1'
+        ? override?.hj1
+        : activeTerm === 'hj2'
+        ? override?.hj2
+        : override?.all) ||
+      sum?.overall_display_grade ||
+      '—';
+
+    const catValues = dataset.categories.map((c) => {
+      const cr = sum?.category_results.find((r) => r.category_id === c.id);
+      return cr?.average_percent != null
+        ? `${cr.average_percent}% (${cr.display_grade})`
+        : '—';
+    });
+
+    const calcStr =
+      sum?.overall_percent != null
+        ? `${sum.overall_percent}% (${sum.overall_display_grade})`
+        : '—';
+
+    const noteReason = override?.reason || stu.notes || '';
+
+    return [
+      String(idx + 1),
+      stu.name,
+      ...(enableLevels ? [stu.level || 'M'] : []),
+      ...catValues,
+      calcStr,
+      zeugnisNote,
+      noteReason,
+    ];
+  });
+
+  // Dynamic Column Styles
+  const colStyles: Record<number, any> = {
+    0: { cellWidth: 7, halign: 'center' },
+    1: { cellWidth: 38, fontStyle: 'bold' },
+  };
+
+  let colIdx = 2;
+  if (enableLevels) {
+    colStyles[colIdx] = { cellWidth: 9, halign: 'center', textColor: [2, 132, 199] };
+    colIdx++;
+  }
+
+  // Categories (width ~16mm each)
+  dataset.categories.forEach(() => {
+    colStyles[colIdx] = { cellWidth: 16, halign: 'right' };
+    colIdx++;
+  });
+
+  // Berechnet
+  colStyles[colIdx] = { cellWidth: 18, halign: 'right' };
+  colIdx++;
+
+  // Zeugnis (highlighted)
+  const zeugnisColIdx = colIdx;
+  colStyles[zeugnisColIdx] = {
+    cellWidth: 15,
+    halign: 'center',
+    fontStyle: 'bold',
+    textColor: [15, 118, 110],
+    fillColor: [240, 253, 250],
+  };
+  colIdx++;
+
+  // Bemerkung (remaining auto)
+  colStyles[colIdx] = { cellWidth: 'auto' };
+
+  autoTable(doc, {
+    startY: 25,
+    margin: { left: margin, right: margin, top: 14, bottom: 14 },
+    head: [headers],
+    body: studentsRows,
+    theme: 'plain',
+    showHead: 'everyPage',
+    headStyles: {
+      fillColor: [241, 245, 249],
+      textColor: [51, 65, 85],
+      fontSize: 7.5,
+      fontStyle: 'bold',
+      cellPadding: { top: 2, bottom: 2, left: 1.5, right: 1.5 },
+    },
+    bodyStyles: {
+      textColor: [15, 23, 42],
+      fontSize: 7.5,
+      cellPadding: { top: 1.8, bottom: 1.8, left: 1.5, right: 1.5 },
+      lineColor: [226, 232, 240],
+      lineWidth: 0.15,
+    },
+    alternateRowStyles: {
+      fillColor: [250, 250, 250],
+    },
+    columnStyles: colStyles,
+  });
+
+  const finalY = (doc as any).lastAutoTable?.finalY ?? 200;
+  const sigY = Math.min(Math.max(finalY + 12, 262), 275);
+
+  if (finalY + 22 <= pageHeight - 14) {
+    doc.setDrawColor(148, 163, 184);
+    doc.setLineWidth(0.3);
+    doc.line(margin, sigY, margin + 65, sigY);
+    doc.line(pageWidth - margin - 65, sigY, pageWidth - margin, sigY);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text('Datum, Leitung Zeugniskonferenz', margin, sigY + 4);
+    doc.text('Klassenleitung / Protokoll', pageWidth - margin - 65, sigY + 4);
+  }
+
+  // Page Footers (all pages)
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(148, 163, 184);
+    doc.text(
+      `Zeugniskonferenz ${dataset.className} – ${dataset.subjectName} · Seite ${i} von ${totalPages} · Gradus21`,
+      pageWidth / 2,
+      pageHeight - 6,
+      { align: 'center' }
+    );
+  }
+
+  return doc;
+}
+
+/**
+ * Opens a print-ready Zeugniskonferenz-Liste (Print / Save as PDF).
+ * Fully optimized for DIN A4 Portrait.
+ */
+export async function printClassConferenceReport(
+  dataset: ClassroomSubjectDataset,
+  report: ClassReportForExport | null,
+  activeTerm: TermFilterId
+): Promise<void> {
+  const doc = generateClassConferenceReportPdf(dataset, report, activeTerm);
+  const docHtml = generateClassConferenceReportHtml(dataset, report, activeTerm);
+  await deliverPdfDocument(
+    doc,
+    `Zeugniskonferenz – ${dataset.className} ${dataset.subjectName}`,
+    `Zeugniskonferenz – ${dataset.className} ${dataset.subjectName}`,
+    docHtml
+  );
 }

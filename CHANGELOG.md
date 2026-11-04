@@ -3,6 +3,21 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.26] - 2026-11-04
+
+### Direkte Vektor-PDF-Generierung (DIN A4 Portrait) & Optimierte Druckausgabe
+- **Direkte Vektor-PDF-Generierung via `jsPDF` und `jspdf-autotable`**:
+  - Vollständiger Ersatz von `html2canvas`-Screenshots durch native Vektorzeichnung für Schulberichte (`Elterngesprächs-Bogen` und `Zeugniskonferenz-Liste`).
+  - **1-Seiten-Garantie für Schüler-Einzelberichte**: Der Elterngesprächs-Bogen passt nun verlässlich auf genau **1 Seite DIN A4 Portrait** (keine 9-seitigen zerschnittenen Dokumente mehr mit 4 leeren Seiten am Ende).
+  - **Kristallklare Vektortypografie**: Alle Texte, Notenboxen, Zusammenfassungskarten, Tabellenspalten und Unterschriftenlinien werden vektorbasiert im A4-Koordinatensystem gezeichnet. Die PDF ist gestochen scharf, verlustfrei skalierbar, textlich durchsuchbar und mit ca. 18 KB um ein Vielfaches kompakter.
+  - **Zeugniskonferenz-Übersicht**: Kompakte Konferenzliste mit Klassenschnitt, Notenspiegel, optisch hervorgehobener Zeugnisnotenspalte und wiederholter Tabellenkopfzeile auf Folgeseiten (`showHead: 'everyPage'`).
+- **Behebung des mobilen Viewport-Clippings (`htmlToPdfBlob`)**:
+  - Bei verbleibenden HTML-Dokumenten (wie AVV-Vertragsentwurf und Notfall-Schlüsselblatt) wurde das mobile 390px-Viewport-Clipping durch feste Container- und `html2canvas`-Breiten (`windowWidth: 794, width: 794`) sowie `autoPaging: 'slice'` behoben.
+- **Nativer System-Share & Druckdialog**:
+  - Auf Android und iOS öffnet sich direkt das native System-Share-Sheet (`plugin:sharekit|share_file`) mit der echten A4-PDF-Datei zur direkten Weitergabe oder zum Drucken (AirPrint / Android Print Service).
+- **Synchronisierung der Versionsanzeige**:
+  - `APP_VERSION` in `web/src/version.ts` wurde auf `1.2.26` aktualisiert, sodass die Versionsanzeige in der App konsistent ist.
+
 ## [1.2.25] - 2026-11-03
 
 ### PDF-Öffnungsfehler & 0-Byte-Dateikürzung auf Android behoben
