@@ -853,7 +853,16 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       const authSession = await startDesktopBrowserAuth(serverUrl, targetEmail || email.trim() || undefined);
       if (nativeBioStatus.available && !hasNativeBio && authSession?.dekB64 && authSession?.userId) {
         try {
-          await enableNativeBiometricLock(authSession.userId, authSession.email, authSession.dekB64);
+          await enableNativeBiometricLock(
+            authSession.userId,
+            authSession.email,
+            authSession.dekB64,
+            {
+              kdfSaltB64: authSession.kdfSaltB64,
+              encryptedDek: authSession.encryptedDek,
+              kdfParams: authSession.kdfParams ? normalizeKdfParams(authSession.kdfParams) : undefined,
+            }
+          );
           setHasNativeBio(true);
         } catch (bioErr) {
           console.warn('Native biometric setup after browser auth skipped or cancelled:', bioErr);
@@ -932,11 +941,11 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         userId: effectiveUserId,
         email: effectiveEmail,
         isAdmin: session?.isAdmin ?? false,
-        kdfSaltB64: session?.kdfSaltB64 || localCached?.kdfSaltB64 || '',
-        kdfParams: session?.kdfParams || localCached?.kdfParams,
+        kdfSaltB64: session?.kdfSaltB64 || res.kdfSaltB64 || localCached?.kdfSaltB64 || '',
+        kdfParams: session?.kdfParams || (res.kdfParams ? normalizeKdfParams(res.kdfParams) : undefined) || localCached?.kdfParams,
         authKeyB64: session?.authKeyB64 || '',
         dekB64: res.dekB64,
-        encryptedDek: session?.encryptedDek || localCached?.encryptedDek || '',
+        encryptedDek: session?.encryptedDek || res.encryptedDek || localCached?.encryptedDek || '',
         recoveryEncryptedDek,
         recoveryKeyFormatted,
         totpEnabled: session?.totpEnabled ?? localCached?.totpEnabled ?? false,
@@ -1614,6 +1623,30 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       };
 
       setRegSession(newSession);
+
+      // Sicherstellen, dass die lokalen Tresormetadaten (Salt/DEK) sofort persistent hinterlegt sind
+      try {
+        const initialBundle = {
+          userId: localUserId,
+          session: {
+            ...newSession,
+            dekB64: '',
+            token: '',
+            authKeyB64: undefined,
+            recoveryKeyFormatted: undefined,
+          },
+          kdfParams: newSession.kdfParams,
+          classEnvelopes: {},
+          isLocked: false,
+          updatedAt: new Date().toISOString(),
+        };
+        localStorage.setItem(`gradus21_e2ee_user_vault_v3_${localUserId}`, JSON.stringify(initialBundle));
+        localStorage.setItem('gradus21_active_user_id_v3', localUserId);
+        saveLastLoginEmail(trimmedEmail);
+      } catch {
+        // ignore storage errors
+      }
+
       setRegisterStep('recovery');
       setStatusMsg(null);
     } catch (err: any) {
@@ -1896,7 +1929,12 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         const ok = await enableNativeBiometricLock(
           regSession.userId,
           regSession.email,
-          regSession.dekB64
+          regSession.dekB64,
+          {
+            kdfSaltB64: regSession.kdfSaltB64,
+            encryptedDek: regSession.encryptedDek,
+            kdfParams: regSession.kdfParams ? normalizeKdfParams(regSession.kdfParams) : undefined,
+          }
         );
         if (ok) {
           setHasNativeBio(true);
@@ -2183,7 +2221,16 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       // Falls native Biometrie verfügbar ist, aber noch nicht eingerichtet wurde:
       if (enableBioOnLogin && nativeBioStatus.available && unlocked.dek_b64) {
         try {
-          await enableNativeBiometricLock(effectiveUserId, email.trim().toLowerCase(), unlocked.dek_b64);
+          await enableNativeBiometricLock(
+            effectiveUserId,
+            email.trim().toLowerCase(),
+            unlocked.dek_b64,
+            {
+              kdfSaltB64: usedSalt || saltData.kdf_salt_b64 || localCached?.kdfSaltB64,
+              encryptedDek: usedEncryptedDek || candidateEncryptedDeks[0],
+              kdfParams: normalizeKdfParams(saltData.kdf_params || localCached?.kdfParams),
+            }
+          );
           setHasNativeBio(true);
         } catch (bioErr) {
           console.warn('Biometric setup during login skipped or cancelled:', bioErr);

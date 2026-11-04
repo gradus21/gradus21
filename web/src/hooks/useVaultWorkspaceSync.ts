@@ -3,6 +3,7 @@ import {
   wasm_decrypt_envelope,
   wasm_encrypt_envelope,
   wasm_unlock_vault,
+  wasm_rewrap_dek,
 } from '../wasm-pkg/gradus21_core';
 import { ensureWasmLoaded } from '../utils/wasmLoader';
 import {
@@ -204,6 +205,20 @@ export function persistEncryptedSessionCredentialsToCache(session: ActiveVaultSe
     const cachedRaw = localStorage.getItem(userCacheKey);
     const parsed = cachedRaw ? JSON.parse(cachedRaw) : { userId: session.userId };
     parsed.encryptedSessionCredentials = encCreds;
+    if (!parsed.session || !parsed.session.kdfSaltB64 || !parsed.session.encryptedDek) {
+      parsed.session = {
+        ...(parsed.session || {}),
+        ...session,
+        dekB64: '',
+        token: '',
+        authKeyB64: undefined,
+        totpSecretBase32: undefined,
+        recoveryKeyFormatted: undefined,
+      };
+      if (session.kdfParams) {
+        parsed.kdfParams = normalizeKdfParams(session.kdfParams);
+      }
+    }
     localStorage.setItem(userCacheKey, JSON.stringify(parsed));
   } catch {
     // ignore storage errors
@@ -2235,69 +2250,129 @@ export function useVaultWorkspaceSync() {
     try {
       await ensureWasmLoaded();
 
-      const candidateSalt =
+      let candidateSalt =
         vaultSession.kdfSaltB64 ||
         findLocalCachedVault(vaultSession.email)?.kdfSaltB64 ||
         findLocalCachedVault()?.kdfSaltB64;
-      const candidateEncryptedDek =
+      let candidateEncryptedDek =
         vaultSession.encryptedDek ||
         findLocalCachedVault(vaultSession.email)?.encryptedDek ||
         findLocalCachedVault()?.encryptedDek;
-      const kdfParams =
+      let kdfParams =
         vaultSession.kdfParams ||
         findLocalCachedVault(vaultSession.email)?.kdfParams ||
         { memory_kib: 19456, iterations: 2, parallelism: 1 };
 
-      if (!candidateSalt || !candidateEncryptedDek) {
-        return {
-          success: false,
-          error: 'Tresor-Metadaten (Salt/DEK) konnten nicht gefunden werden.',
-        };
-      }
-
-      let unlockedJson: string;
-      try {
-        unlockedJson = wasm_unlock_vault(
-          password,
-          candidateSalt,
-          JSON.stringify(normalizeKdfParams(kdfParams)),
-          candidateEncryptedDek
-        );
-      } catch (err: any) {
-        const msg = String(err?.message || err || '');
-        if (msg.includes('Decryption failed') || msg.includes('invalid key')) {
-          return { success: false, error: 'Das eingegebene Master-Passwort ist nicht korrekt.' };
+      // Falls Salt fehlt (z. B. nach rein biometrischem Unlock), prüfe Server-Salt für diese E-Mail:
+      if (!candidateSalt && vaultSession.email) {
+        try {
+          const saltRes = await fetch(apiUrl('/api/auth/salt'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: vaultSession.email.trim().toLowerCase() }),
+          });
+          if (saltRes.ok) {
+            const serverSalt = await saltRes.json();
+            if (serverSalt?.kdf_salt_b64) {
+              candidateSalt = serverSalt.kdf_salt_b64;
+              if (serverSalt.kdf_params) {
+                kdfParams = normalizeKdfParams(serverSalt.kdf_params);
+              }
+            }
+          }
+        } catch {
+          // ignore network failure
         }
-        return { success: false, error: `Fehler beim Entschlüsseln: ${msg}` };
       }
 
-      const unlocked = JSON.parse(unlockedJson);
-      const authKey = unlocked.auth_key_b64;
-      if (!authKey) {
-        return { success: false, error: 'Kryptografischer Anmeldeschlüssel konnte nicht abgeleitet werden.' };
+      // Wenn candidateSalt und candidateEncryptedDek vorliegen -> normal verifizieren
+      if (candidateSalt && candidateEncryptedDek) {
+        let unlockedJson: string;
+        try {
+          unlockedJson = wasm_unlock_vault(
+            password,
+            candidateSalt,
+            JSON.stringify(normalizeKdfParams(kdfParams)),
+            candidateEncryptedDek
+          );
+        } catch (err: any) {
+          const msg = String(err?.message || err || '');
+          if (msg.includes('Decryption failed') || msg.includes('invalid key')) {
+            return { success: false, error: 'Das eingegebene Master-Passwort ist nicht korrekt.' };
+          }
+          return { success: false, error: `Fehler beim Entschlüsseln: ${msg}` };
+        }
+
+        const unlocked = JSON.parse(unlockedJson);
+        const authKey = unlocked.auth_key_b64;
+        if (!authKey) {
+          return { success: false, error: 'Kryptografischer Anmeldeschlüssel konnte nicht abgeleitet werden.' };
+        }
+
+        const updatedSession: ActiveVaultSession = {
+          ...vaultSession,
+          authKeyB64: authKey,
+          kdfSaltB64: candidateSalt,
+          kdfParams: normalizeKdfParams(kdfParams),
+          encryptedDek: candidateEncryptedDek,
+        };
+
+        if (updatedSession.userId) {
+          setStoredAuthKey(updatedSession.userId, authKey);
+        }
+        setVaultSession(updatedSession);
+        persistEncryptedSessionCredentialsToCache(updatedSession);
+
+        setIsPasswordPromptOpen(false);
+
+        setTimeout(() => {
+          proceedToCloudSyncActivation('', updatedSession);
+        }, 50);
+
+        return { success: true };
       }
 
-      const updatedSession: ActiveVaultSession = {
-        ...vaultSession,
-        authKeyB64: authKey,
-        kdfSaltB64: candidateSalt,
-        kdfParams: normalizeKdfParams(kdfParams),
-        encryptedDek: candidateEncryptedDek,
+      // Fallback für geöffnete lokale Tresore (dekB64 im Speicher vorhanden, aber Salt/DEK-Envelope
+      // im lokalen Cache verloren oder vor initialem Auto-Save):
+      // Leite frischen KDF-Salt, KEK und Auth-Key aus dem Master-Passwort ab und verschlüssele den DEK neu
+      if (vaultSession.dekB64) {
+        try {
+          const rewrapJson = wasm_rewrap_dek(vaultSession.dekB64, password);
+          const rewrapped = JSON.parse(rewrapJson);
+
+          const updatedSession: ActiveVaultSession = {
+            ...vaultSession,
+            authKeyB64: rewrapped.auth_key_b64,
+            kdfSaltB64: rewrapped.kdf_salt_b64,
+            kdfParams: normalizeKdfParams(rewrapped.kdf_params),
+            encryptedDek: rewrapped.encrypted_dek,
+          };
+
+          if (updatedSession.userId) {
+            setStoredAuthKey(updatedSession.userId, rewrapped.auth_key_b64);
+          }
+          setVaultSession(updatedSession);
+          persistEncryptedSessionCredentialsToCache(updatedSession);
+
+          setIsPasswordPromptOpen(false);
+
+          setTimeout(() => {
+            proceedToCloudSyncActivation('', updatedSession);
+          }, 50);
+
+          return { success: true };
+        } catch (rewrapErr: any) {
+          return {
+            success: false,
+            error: 'Fehler beim Ableiten des Tresorschlüssels: ' + String(rewrapErr?.message || rewrapErr),
+          };
+        }
+      }
+
+      return {
+        success: false,
+        error: 'Tresor-Metadaten (Salt/DEK) konnten nicht gefunden werden.',
       };
-
-      if (updatedSession.userId) {
-        setStoredAuthKey(updatedSession.userId, authKey);
-      }
-      setVaultSession(updatedSession);
-      persistEncryptedSessionCredentialsToCache(updatedSession);
-
-      setIsPasswordPromptOpen(false);
-
-      setTimeout(() => {
-        proceedToCloudSyncActivation('', updatedSession);
-      }, 50);
-
-      return { success: true };
     } catch (err: any) {
       console.error('Fehler bei Passwort-Prüfung für Cloud-Sync:', err);
       return { success: false, error: String(err?.message || err || 'Unbekannter Fehler.') };

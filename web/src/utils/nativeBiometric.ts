@@ -98,6 +98,9 @@ export interface BiometricVaultMeta {
   userId: string;
   email: string;
   updatedAt: number;
+  kdfSaltB64?: string;
+  encryptedDek?: string;
+  kdfParams?: { memory_kib: number; iterations: number; parallelism: number };
 }
 
 /**
@@ -225,7 +228,12 @@ export function getNativeBiometricMeta(userIdOrEmail?: string): BiometricVaultMe
 export async function enableNativeBiometricLock(
   userId: string,
   email: string,
-  dekB64: string
+  dekB64: string,
+  metaExtras?: {
+    kdfSaltB64?: string;
+    encryptedDek?: string;
+    kdfParams?: { memory_kib: number; iterations: number; parallelism: number };
+  }
 ): Promise<boolean> {
   if (!isTauri()) {
     throw new Error('Native Biometrie ist nur in der installierten App verfügbar.');
@@ -279,6 +287,9 @@ export async function enableNativeBiometricLock(
     userId: cleanUid,
     email: cleanEmail,
     updatedAt: Date.now(),
+    kdfSaltB64: metaExtras?.kdfSaltB64,
+    encryptedDek: metaExtras?.encryptedDek,
+    kdfParams: metaExtras?.kdfParams,
   };
   localStorage.setItem(`${STORAGE_PREFIX_META}${cleanUid}`, JSON.stringify(meta));
   localStorage.setItem(STORAGE_LAST_USER_KEY, cleanUid);
@@ -292,7 +303,14 @@ export async function enableNativeBiometricLock(
  */
 export async function unlockWithNativeBiometric(
   userIdOrEmail?: string
-): Promise<{ dekB64: string; email: string; userId: string }> {
+): Promise<{
+  dekB64: string;
+  email: string;
+  userId: string;
+  kdfSaltB64?: string;
+  encryptedDek?: string;
+  kdfParams?: { memory_kib: number; iterations: number; parallelism: number };
+}> {
   if (!isTauri()) {
     throw new Error('Native Biometrie ist nur in der installierten App verfügbar.');
   }
@@ -326,6 +344,9 @@ export async function unlockWithNativeBiometric(
       dekB64,
       email: meta?.email || '',
       userId: cleanUid,
+      kdfSaltB64: meta?.kdfSaltB64,
+      encryptedDek: meta?.encryptedDek,
+      kdfParams: meta?.kdfParams,
     };
   }
 
@@ -341,6 +362,9 @@ export async function unlockWithNativeBiometric(
       dekB64: encryptedDek.slice('v1_plain:'.length),
       email: meta?.email || '',
       userId: cleanUid,
+      kdfSaltB64: meta?.kdfSaltB64,
+      encryptedDek: meta?.encryptedDek,
+      kdfParams: meta?.kdfParams,
     };
   }
 
@@ -361,6 +385,9 @@ export async function unlockWithNativeBiometric(
       dekB64: cipherRes.data,
       email: meta?.email || '',
       userId: cleanUid,
+      kdfSaltB64: meta?.kdfSaltB64,
+      encryptedDek: meta?.encryptedDek,
+      kdfParams: meta?.kdfParams,
     };
   } catch (err: any) {
     const errMsg = String(err?.message || err);

@@ -3,9 +3,18 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.28] - 2026-11-04
+
+### Cloud-Sync nach biometrischer Entsperrung & Zero-Knowledge Re-Wrapping
+- **Behebung der Cloud-Verknüpfung nach biometrischem Unlock (`Tresor-Metadaten konnten nicht gefunden werden`)**:
+  - Wenn ein lokaler Offline-Tresor mit Face ID / Touch ID entsperrt wird, verbleibt der Anmeldeschlüssel verschlüsselt im Tresor.
+  - Beim nachträglichen Aktivieren der Cloud-Synchronisation forderte die App das Master-Passwort an, scheiterte jedoch an fehlenden Salt-/DEK-Metadaten, falls diese im Cache noch nicht persistiert waren oder die E-Mail abwich.
+  - **Hardware-gesicherte Metadaten**: Biometrische Tresormetadaten speichern Salt & KDF-Parameter nun hardware-nah im Schlüsselbund / Enclave mit ab (`STORAGE_PREFIX_META`).
+  - **Automatisches Re-Wrapping bei entsperrtem Tresor**: `handleVerifyPasswordForCloudSync` fragt bei Bedarf den Server-Salt ab und führt bei vorhandenem DEK im Speicher einen automatischen Fallback via `wasm_rewrap_dek` aus. Dadurch wird der Tresor mit dem eingegebenen Master-Passwort neu verschlüsselt und der Anmeldeschlüssel für die Cloud nahtlos abgeleitet.
+
 ## [1.2.27] - 2026-11-04
 
-### React Hook-Fehler (#310) bei lokaler Kontoeinrichtung behoben
+### React Hook-Fehler (#310) behoben
 - **Behebung des React Error #310 in `StorageNoticeModal`**:
   - Beim Einrichten eines lokalen Kontos nach einer Neuinstallation öffnet sich nach 500 ms automatisch das gesetzliche Hinweisfenster zum lokalen Datenspeicher (§ 241 Abs. 2 BGB).
   - Ein vorzeitiges `if (!isOpen) return null;` vor zwei `useState`-Hooks führte beim Öffnen des Fensters zu einer veränderten Hook-Anzahl zwischen den Renders und crashte die Anwendung in den ErrorBoundary.

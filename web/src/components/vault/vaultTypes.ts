@@ -163,10 +163,39 @@ export function findLocalCachedVault(targetEmail?: string, targetUserId?: string
             if (!normalized || (s.email && s.email.trim().toLowerCase() === normalized)) {
               return activeMeta;
             }
+            if (!fallback) fallback = activeMeta;
           }
         } catch {
           // ignore corrupted entry
         }
+      }
+    }
+
+    // Also check native biometric storage as secondary fallback for salt/dek
+    if (!fallback) {
+      try {
+        const lastUser = activeUserId || localStorage.getItem('gradus21_bio_last_user_v1');
+        if (lastUser) {
+          const rawBio = localStorage.getItem(`gradus21_bio_meta_v1_${lastUser.trim().toLowerCase()}`);
+          if (rawBio) {
+            const bio = JSON.parse(rawBio);
+            if (bio && bio.kdfSaltB64 && bio.encryptedDek) {
+              const bioMeta: LocalCachedVaultMeta = {
+                userId: bio.userId,
+                email: bio.email || 'lokal@schule.intern',
+                kdfSaltB64: bio.kdfSaltB64,
+                kdfParams: normalizeKdfParams(bio.kdfParams),
+                encryptedDek: bio.encryptedDek,
+              };
+              if (!normalized || (bio.email && bio.email.trim().toLowerCase() === normalized)) {
+                return bioMeta;
+              }
+              fallback = bioMeta;
+            }
+          }
+        }
+      } catch {
+        // ignore
       }
     }
 
