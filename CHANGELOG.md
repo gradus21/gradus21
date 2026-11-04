@@ -3,6 +3,14 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.27] - 2026-11-04
+
+### React Hook-Fehler (#310) bei lokaler Kontoeinrichtung behoben
+- **Behebung des React Error #310 in `StorageNoticeModal`**:
+  - Beim Einrichten eines lokalen Kontos nach einer Neuinstallation öffnet sich nach 500 ms automatisch das gesetzliche Hinweisfenster zum lokalen Datenspeicher (§ 241 Abs. 2 BGB).
+  - Ein vorzeitiges `if (!isOpen) return null;` vor zwei `useState`-Hooks führte beim Öffnen des Fensters zu einer veränderten Hook-Anzahl zwischen den Renders und crashte die Anwendung in den ErrorBoundary.
+  - Alle Hooks werden nun vor jedem bedingten Return deklariert. Ein neuer automatisierter Test sichert den Re-Render-Zustandswechsel zuverlässig ab.
+
 ## [1.2.26] - 2026-11-04
 
 ### Direkte Vektor-PDF-Generierung (DIN A4 Portrait) & Optimierte Druckausgabe

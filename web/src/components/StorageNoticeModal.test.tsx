@@ -15,6 +15,29 @@ describe('StorageNoticeModal component', () => {
     expect(container.firstChild).toBeNull();
   });
 
+  it('safely re-renders from isOpen=false to isOpen=true without hook rule violation', () => {
+    const { container, rerender } = render(
+      <StorageNoticeModal
+        isOpen={false}
+        onClose={vi.fn()}
+        syncStatus="local_only"
+      />
+    );
+    expect(container.firstChild).toBeNull();
+
+    expect(() => {
+      rerender(
+        <StorageNoticeModal
+          isOpen={true}
+          onClose={vi.fn()}
+          syncStatus="local_only"
+        />
+      );
+    }).not.toThrow();
+
+    expect(screen.getByText('Wichtiger Hinweis zu Ihrem Noten-Speicherort')).toBeInTheDocument();
+  });
+
   it('renders required legal text and buttons when open', () => {
     const handleClose = vi.fn();
     const handleExport = vi.fn();

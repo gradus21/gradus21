@@ -35,13 +35,13 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
   onOpenStorageSettings,
 }) => {
   const [copiedPath, setCopiedPath] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportSuccess, setExportSuccess] = useState(false);
 
   if (!isOpen) return null;
 
   const isCloudSynced = syncStatus === 'synced';
   const isCloudOffline = syncStatus === 'offline_local';
-  const [isExporting, setIsExporting] = useState(false);
-  const [exportSuccess, setExportSuccess] = useState(false);
   const storageInfo = getStorageLocationInfo();
 
   const handleCopyPath = () => {
