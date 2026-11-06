@@ -1779,7 +1779,7 @@ dependencies = [
 
 [[package]]
 name = "gradus21-app"
-version = "1.2.28"
+version = "26.11.1"
 dependencies = [
  "base64 0.22.1",
  "gradus21-core",
@@ -1797,7 +1797,7 @@ dependencies = [
 
 [[package]]
 name = "gradus21-core"
-version = "1.2.28"
+version = "26.11.1"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -1816,7 +1816,7 @@ dependencies = [
 
 [[package]]
 name = "gradus21-server"
-version = "1.2.28"
+version = "26.11.1"
 dependencies = [
  "aes-gcm",
  "argon2",
