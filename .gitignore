@@ -39,3 +39,7 @@ graphify-out/
 !docs/*.asc
 
 dist-windows/
+
+# Fastlane generated assets
+fastlane/creative_assets/
+fastlane/google_play_assets/

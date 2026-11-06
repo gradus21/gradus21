@@ -3,7 +3,7 @@ param (
     [string]$Publisher = $env:MSIX_PUBLISHER,
     [string]$PackageName = $env:MSIX_PACKAGE_NAME,
     [string]$PublisherDisplayName = $env:MSIX_PUBLISHER_DISPLAY_NAME,
-    [string]$Version = ""
+    [string]$Version = $env:MSIX_VERSION
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,13 +22,12 @@ if (-not $PublisherDisplayName) {
 
 if (-not $Version) {
     $tauriConf = Get-Content -Raw "src-tauri/tauri.conf.json" | ConvertFrom-Json
-    $baseVer = $tauriConf.version # e.g. "1.2.17"
+    $baseVer = $tauriConf.version # e.g. "1.2.28"
     $parts = $baseVer.Split(".")
-    # Microsoft Store strictly requires the 4th version component (Revision) to be 0 (Major.Minor.Build.0)
-    # To prevent duplicate package name conflicts in Partner Center on repeated CI runs,
-    # use GITHUB_RUN_NUMBER for the build component if available.
-    $buildNum = if ($env:GITHUB_RUN_NUMBER) { $env:GITHUB_RUN_NUMBER } elseif ($parts.Count -ge 3) { $parts[2] } else { 0 }
-    $Version = "$($parts[0]).$($parts[1]).$buildNum.0"
+    $patch = if ($parts.Count -ge 3) { $parts[2] } else { 0 }
+    # Microsoft Store strictly requires quad format: Major.Minor.Build.0 (4th component must be 0).
+    # Uses exact semver patch to stay aligned across all platforms (macOS, Linux, Android, iOS, Windows).
+    $Version = "$($parts[0]).$($parts[1]).$patch.0"
 }
 
 Write-Host "==> Packaging MSIX Version: $Version with PackageName: $PackageName, Publisher: $Publisher, PublisherDisplayName: $PublisherDisplayName"

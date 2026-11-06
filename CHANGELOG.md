@@ -1,7 +1,22 @@
 # Changelog
 
 All notable changes to **Gradus21** are documented in this file.
-This project adheres to [Semantic Versioning](https://semver.org/).
+This project adheres to [Calendar Versioning](https://calver.org/) (Ubuntu-Style `YY.MM.PATCH`).
+
+## [26.11.1] - 2026-11-06
+
+### Umstellung auf CalVer & Behebung des Windows-WebView2-Starts
+- **Versionsschema auf CalVer umgestellt (`26.11.1`)**:
+  - Wechsel auf das intuitive Schema `YY.MM.PATCH` (Ubuntu-Style).
+  - Löst Versionskonflikte im Microsoft Partner Center dauerhaft und synchronisiert alle Release-Zweige (Windows Store, macOS, iOS, iPadOS, Android, Linux).
+- **Behebung des White-Screen-Fehlers unter Windows (WebView2)**:
+  - Automatischer Fallback auf `--disable-gpu` via `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` auf Windows-Systemen ohne konfigurierten Override.
+  - Verhindert das Aufhängen des Chromium-GPU-Prozesses in virtuellen Maschinen (QEMU/VirtIO, Winboat) und auf Rechnern ohne Direct3D-Treiber.
+- **Bereinigung der Microsoft Store MSIX-Paketierung**:
+  - `package-msix.ps1` nutzt nun die saubere Quad-Notation `Major.Minor.Build.0` passend zu `tauri.conf.json`.
+  - Verhindert, dass `GITHUB_RUN_NUMBER` künftig die Versionsnummer überschreibt.
+- **Google Play Setup-Dokumentation**:
+  - Offizielle Lösch-URL (`https://gradus21.de/konto-loeschen.html`) zur Erfüllung der Google-Play-Richtlinien dokumentiert.
 
 ## [1.2.28] - 2026-11-04
 

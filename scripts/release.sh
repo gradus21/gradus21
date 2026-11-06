@@ -76,8 +76,8 @@ if ! gh auth status &> /dev/null; then
 fi
 
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-if [ "$CURRENT_BRANCH" != "main" ] && [ "$FORCE" = false ]; then
-    log_warn "Aktueller Branch ist '$CURRENT_BRANCH' (nicht 'main')."
+if [ "$CURRENT_BRANCH" != "main" ] && [ "$CURRENT_BRANCH" != "dev" ] && [ "$FORCE" = false ]; then
+    log_warn "Aktueller Branch ist '$CURRENT_BRANCH' (nicht 'main' oder 'dev')."
     log_warn "Überspringe diesen Schutz mit '--force', falls beabsichtigt."
     exit 1
 fi

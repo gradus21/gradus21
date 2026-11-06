@@ -44,7 +44,7 @@ Die App wird als **Android App Bundle (`.aab`)** und signiertes **`.apk`** gebau
    - **Datenschutzerklärung:** `https://gradus21.de/datenschutz.html`
    - **Zielgruppe:** Strikt **„18 Jahre und älter“** wählen; Frage *„Spricht die App unbeabsichtigt Kinder an?“* mit **„Nein“** beantworten.
    - **Datensicherheit (Data Safety):** Angeben, dass Daten bei der Übertragung verschlüsselt sind (HTTPS/TLS) und Konten gelöscht werden können.
-   - **Web-Link zur Kontolöschung:** `https://gradus21.de` oder Kontaktseite hinterlegen.
+   - **Web-Link zur Kontolöschung (Konto-URL löschen):** `https://gradus21.de/konto-loeschen.html` (Erfüllt alle Anforderungen von Google Play: Bezug auf App & Entwickler Julian Kallidat, genaue Schritte zur Kontolöschung in der App & per Web/E-Mail, Aufstellung der gelöschten Daten und 0 Tage Aufbewahrungsdauer).
 
 Sobald dieser erste manuelle Schritt abgeschlossen ist, ist die App-ID `de.gradus21.app` im Play Store registriert.
 
