@@ -61,6 +61,7 @@ import {
   isWindows,
   isMacOS,
   getStorageLocationInfo,
+  isMobileDevice,
 } from '../utils/platform';
 import { triggerHapticFeedback } from '../utils/haptics';
 import { ActiveVaultSession } from './vault/vaultTypes';
@@ -1419,7 +1420,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <input
                         ref={fileInputRef}
                         type="file"
-                        accept=".gradus21,.json"
+                        accept={isMobileDevice() ? undefined : '.gradus21,.json'}
                         className="hidden"
                         onChange={(e) => {
                           const file = e.target.files?.[0];

@@ -85,7 +85,7 @@ import {
   startDesktopBrowserAuth,
   DesktopAuthParams,
 } from '../utils/desktopAuth';
-import { isTauri, isDesktopTauri, isAppleTouchDevice } from '../utils/platform';
+import { isTauri, isDesktopTauri, isAppleTouchDevice, isMobileDevice } from '../utils/platform';
 import {
   checkNativeBiometricAvailability,
   hasNativeBiometricEnrollment,
@@ -3252,12 +3252,13 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
                 <span>Aus verschlüsseltem Noten-Backup (.gradus21) wiederherstellen</span>
                 <input
                   type="file"
-                  accept=".gradus21,.json"
+                  accept={isMobileDevice() ? undefined : '.gradus21,.json'}
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) {
                       onImportEncryptedBackup(file);
+                      e.target.value = '';
                     }
                   }}
                 />

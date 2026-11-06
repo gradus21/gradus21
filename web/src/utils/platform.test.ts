@@ -8,6 +8,7 @@ import {
   isLinux,
   isDesktopTauri,
   isMobileTauri,
+  isMobileDevice,
   getStorageLocationInfo,
   getOperatingSystem,
   getModifierKey,
@@ -67,6 +68,7 @@ describe('platform utilities', () => {
     });
     expect(isAppleTouchDevice()).toBe(false);
     expect(isIPad()).toBe(false);
+    expect(isMobileDevice()).toBe(false);
 
     // iPadOS 13+ desktop-class Safari user agent spoof
     Object.defineProperty(navigator, 'userAgent', {
@@ -83,6 +85,7 @@ describe('platform utilities', () => {
     });
     expect(isAppleTouchDevice()).toBe(true);
     expect(isIPad()).toBe(true);
+    expect(isMobileDevice()).toBe(true);
   });
 
   it('correctly distinguishes Android devices from Linux desktop systems', () => {
@@ -101,6 +104,7 @@ describe('platform utilities', () => {
     });
 
     expect(isAndroid()).toBe(true);
+    expect(isMobileDevice()).toBe(true);
     // Must NOT be detected as Linux desktop!
     expect(isLinux()).toBe(false);
 
@@ -128,6 +132,7 @@ describe('platform utilities', () => {
 
     expect(isAndroid()).toBe(false);
     expect(isLinux()).toBe(true);
+    expect(isMobileDevice()).toBe(false);
 
     (window as any).__TAURI__ = {};
     expect(isDesktopTauri()).toBe(true);
