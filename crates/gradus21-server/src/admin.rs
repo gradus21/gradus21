@@ -1,5 +1,6 @@
 use crate::{
-    authenticate_request, persist_to_disk, AppState, EncryptedEnvelopeRecord, JwtClaims, UserRecord,
+    authenticate_request, persist_to_disk, AppState, EncryptedEnvelopeRecord, JwtClaims,
+    UserPasskeyRecord, UserRecord,
 };
 use axum::{
     extract::{Path, State},
@@ -120,21 +121,23 @@ pub async fn update_user_status(
 
     let (summary, user_clone) = {
         let mut users = state.mem_users.write().unwrap();
-        let current_is_admin = users.get(&target_id).map(|u| u.is_admin).ok_or((
-            StatusCode::NOT_FOUND,
-            "Benutzerkonto nicht gefunden.".into(),
-        ))?;
+        let (current_is_admin, current_is_active) = users
+            .get(&target_id)
+            .map(|u| (u.is_admin, u.is_active))
+            .ok_or((
+                StatusCode::NOT_FOUND,
+                "Benutzerkonto nicht gefunden.".into(),
+            ))?;
+
+        let active_admin_count = users.values().filter(|u| u.is_admin && u.is_active).count();
 
         if let Some(new_admin) = payload.is_admin {
-            // Prevent demoting the last admin
-            if !new_admin && current_is_admin {
-                let admin_count = users.values().filter(|u| u.is_admin).count();
-                if admin_count <= 1 {
-                    return Err((
-                        StatusCode::BAD_REQUEST,
-                        "Die/der letzte Administrator:in kann nicht degradiert werden.".into(),
-                    ));
-                }
+            // Prevent demoting the last active admin (Invariant I-6)
+            if !new_admin && current_is_admin && current_is_active && active_admin_count <= 1 {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    "Die/der letzte aktive Administrator:in kann nicht degradiert werden.".into(),
+                ));
             }
         }
 
@@ -144,6 +147,13 @@ pub async fn update_user_status(
                 return Err((
                     StatusCode::BAD_REQUEST,
                     "Du kannst dein eigenes Administratorkonto nicht deaktivieren.".into(),
+                ));
+            }
+            // Prevent deactivating the last active admin
+            if !new_active && current_is_admin && current_is_active && active_admin_count <= 1 {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    "Die/der letzte aktive Administrator:in kann nicht deaktiviert werden.".into(),
                 ));
             }
         }
@@ -208,12 +218,12 @@ pub async fn delete_user(
     {
         let users = state.mem_users.read().unwrap();
         if let Some(u) = users.get(&target_id) {
-            if u.is_admin {
-                let admin_count = users.values().filter(|a| a.is_admin).count();
-                if admin_count <= 1 {
+            if u.is_admin && u.is_active {
+                let active_admin_count = users.values().filter(|a| a.is_admin && a.is_active).count();
+                if active_admin_count <= 1 {
                     return Err((
                         StatusCode::BAD_REQUEST,
-                        "Die/der letzte Administrator:in kann nicht gelöscht werden.".into(),
+                        "Die/der letzte aktive Administrator:in kann nicht gelöscht werden.".into(),
                     ));
                 }
             }
@@ -222,32 +232,8 @@ pub async fn delete_user(
         }
     }
 
-    // 1. Remove from memory
-    {
-        let mut users = state.mem_users.write().unwrap();
-        users.remove(&target_id);
-    }
-    {
-        let mut envelopes = state.mem_envelopes.write().unwrap();
-        envelopes.retain(|_, env| env.owner_user_id != target_id);
-    }
-    {
-        let mut pks = state.mem_passkeys.write().unwrap();
-        pks.retain(|_, p| p.user_id != target_id);
-    }
-
-    // 2. Cascade remove from PostgreSQL
-    if let Some(pool) = &state.db {
-        let _ = sqlx::query("DELETE FROM encrypted_envelopes WHERE owner_user_id = $1")
-            .bind(target_id)
-            .execute(pool)
-            .await;
-        let _ = sqlx::query("DELETE FROM users WHERE id = $1")
-            .bind(target_id)
-            .execute(pool)
-            .await;
-    }
-
+    // Architectural Invariant (I-4): Use centralized user account purge across memory and PostgreSQL
+    crate::state::delete_user_account_everywhere(&state, target_id).await;
     persist_to_disk(&state);
 
     Ok(StatusCode::NO_CONTENT)
@@ -299,23 +285,37 @@ pub async fn invite_user(
         invites
     };
     save_setting_to_pg(&state, "pending_invites", &invites).await;
+    persist_to_disk(&state);
+
+    // Invariant I-8: Never trust unvalidated Host / X-Forwarded-Host / Origin headers when constructing invite links.
+    let configured_primary = std::env::var("PUBLIC_APP_URL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            std::env::var("WEBAUTHN_RP_ORIGIN")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+        })
+        .unwrap_or_else(|| "https://gradus21.app".to_string());
+
+    let mut trusted_origins: Vec<String> = vec![configured_primary.trim().trim_end_matches('/').to_string()];
+    for env_key in ["WEBAUTHN_ALLOWED_ORIGINS", "CORS_ALLOWED_ORIGIN"] {
+        if let Ok(raw) = std::env::var(env_key) {
+            for part in raw.split(',') {
+                let clean = part.trim().trim_end_matches('/');
+                if !clean.is_empty() {
+                    trusted_origins.push(clean.to_string());
+                }
+            }
+        }
+    }
 
     let base_url = headers
         .get("origin")
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .or_else(|| {
-            let host = headers
-                .get("x-forwarded-host")
-                .or_else(|| headers.get("host"))
-                .and_then(|v| v.to_str().ok())?;
-            let proto = headers
-                .get("x-forwarded-proto")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("https");
-            Some(format!("{}://{}", proto, host))
-        })
-        .unwrap_or_else(|| "https://g21-dev.kallidat.com".to_string());
+        .map(|s| s.trim().trim_end_matches('/').to_string())
+        .filter(|origin| trusted_origins.iter().any(|t| t.eq_ignore_ascii_case(origin)))
+        .unwrap_or_else(|| configured_primary.trim().trim_end_matches('/').to_string());
 
     let invite_full_url = format!("{}/#invite={}", base_url.trim_end_matches('/'), invite_token);
 
@@ -416,30 +416,51 @@ fn get_backup_dir(state: &AppState) -> PathBuf {
 }
 
 pub fn perform_backup_snapshot(state: &AppState) -> Result<BackupEntry, String> {
-    let users = state.mem_users.read().unwrap().clone();
-    let envelopes = state.mem_envelopes.read().unwrap().clone();
-    let settings = state.mem_settings.read().unwrap().clone();
-    let templates = state.mem_global_templates.read().unwrap().clone();
+    let created_at = Utc::now();
+    // Architectural Invariant (I-4): Serialize read guards by reference without cloning all HashMaps
+    let content = {
+        let users = state.mem_users.read().unwrap();
+        let passkeys = state.mem_passkeys.read().unwrap();
+        let envelopes = state.mem_envelopes.read().unwrap();
+        let settings = state.mem_settings.read().unwrap();
+        let templates = state.mem_global_templates.read().unwrap();
 
-    let snapshot = serde_json::json!({
-        "version": 2,
-        "format": "gradus21_e2ee_full_backup",
-        "created_at": Utc::now(),
-        "users": users,
-        "envelopes": envelopes,
-        "system_settings": settings,
-        "global_templates": templates,
-    });
+        let snapshot = serde_json::json!({
+            "version": 2,
+            "format": "gradus21_e2ee_full_backup",
+            "created_at": created_at,
+            "users": &*users,
+            "passkeys": &*passkeys,
+            "envelopes": &*envelopes,
+            "system_settings": &*settings,
+            "global_templates": &*templates,
+        });
 
-    let filename = format!("gradus21_backup_{}.json", Utc::now().format("%Y%m%d_%H%M%S"));
+        serde_json::to_string_pretty(&snapshot).map_err(|e| e.to_string())?
+    };
+
     let backup_dir = get_backup_dir(state);
-    let target_path = backup_dir.join(&filename);
+    let mut filename = format!("gradus21_backup_{}.json", created_at.format("%Y%m%d_%H%M%S_%3f"));
+    let mut target_path = backup_dir.join(&filename);
+    if target_path.exists() {
+        let short_id = &uuid::Uuid::new_v4().simple().to_string()[..6];
+        filename = format!(
+            "gradus21_backup_{}_{}.json",
+            created_at.format("%Y%m%d_%H%M%S_%3f"),
+            short_id
+        );
+        target_path = backup_dir.join(&filename);
+    }
 
-    let content = serde_json::to_string_pretty(&snapshot)
-        .map_err(|e| e.to_string())?;
-
-    fs::write(&target_path, content.as_bytes())
-        .map_err(|e| format!("Dateischreibfehler: {}", e))?;
+    let tmp_path = target_path.with_extension(format!("tmp.{}", uuid::Uuid::new_v4()));
+    if let Err(e) = fs::write(&tmp_path, content.as_bytes()) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(format!("Dateischreibfehler: {}", e));
+    }
+    if let Err(e) = fs::rename(&tmp_path, &target_path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(format!("Dateiumbenennungsfehler: {}", e));
+    }
 
     let size_bytes = content.len() as u64;
 
@@ -586,8 +607,14 @@ pub async fn download_backup(
 ) -> Result<Response, (StatusCode, String)> {
     require_admin(&state, &headers)?;
 
-    // Prevent path traversal
-    if filename.contains('/') || filename.contains('\\') || filename.contains("..") {
+    // Invariant I-6: Enforce strict alphanumeric + `[._-]` + `.json` whitelist to prevent path traversal and header injection
+    if filename.is_empty()
+        || !filename.ends_with(".json")
+        || filename.contains("..")
+        || !filename
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    {
         return Err((StatusCode::BAD_REQUEST, "Ungültiger Dateiname".into()));
     }
 
@@ -636,6 +663,14 @@ pub async fn restore_backup(
         serde_json::from_value(users_val.clone())
             .map_err(|e| (StatusCode::BAD_REQUEST, format!("Fehler beim Parsen der Benutzer:innen: {}", e)))?;
 
+    // Invariant I-6: Never allow restoring a backup that leaves the instance without an active admin.
+    if !restored_users.values().any(|u| u.is_admin && u.is_active) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Ungültiges Backup: Das Backup muss mindestens ein aktives Administratorkonto enthalten.".into(),
+        ));
+    }
+
     let raw_envelopes: std::collections::HashMap<String, EncryptedEnvelopeRecord> =
         serde_json::from_value(envelopes_val.clone())
             .map_err(|e| (StatusCode::BAD_REQUEST, format!("Fehler beim Parsen der Envelopes: {}", e)))?;
@@ -648,76 +683,208 @@ pub async fn restore_backup(
         }
     }
 
-    // 1. Wipe and replace memory
+    let restored_passkeys: std::collections::HashMap<Uuid, UserPasskeyRecord> =
+        if let Some(passkeys_val) = payload.get("passkeys") {
+            serde_json::from_value(passkeys_val.clone()).unwrap_or_default()
+        } else {
+            std::collections::HashMap::new()
+        };
+
+    let mut valid_passkeys = std::collections::HashMap::new();
+    for (id, pk) in restored_passkeys {
+        if restored_users.contains_key(&pk.user_id) {
+            valid_passkeys.insert(id, pk);
+        }
+    }
+
+    let parsed_settings: Option<std::collections::HashMap<String, serde_json::Value>> =
+        payload
+            .get("system_settings")
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+
+    let parsed_templates: Option<std::collections::HashMap<Uuid, GlobalTemplateRecord>> =
+        payload
+            .get("global_templates")
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+
+    // 1. Sync to PostgreSQL inside a single atomic transaction first if connected (Invariant I-6)
+    if let Some(pool) = &state.db {
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB Transaktionsfehler: {}", e)))?;
+
+        sqlx::query("DELETE FROM encrypted_envelopes")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Löschen alter Envelopes: {}", e)))?;
+        sqlx::query("DELETE FROM user_passkeys")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Löschen alter Passkeys: {}", e)))?;
+        sqlx::query("DELETE FROM users")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Löschen alter Benutzer: {}", e)))?;
+
+        for user in restored_users.values() {
+            let kdf_params_json = serde_json::to_value(&user.kdf_params).unwrap_or_default();
+            sqlx::query(
+                r#"INSERT INTO users (
+                    id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek,
+                    recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted,
+                    totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek,
+                    passkey_prf_salt, ui_preferences, is_admin, is_active, last_login_at,
+                    email_verified, email_verification_code, email_verification_expires_at,
+                    email_verification_attempts, email_verification_cooldown_until, updated_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NOW())"#,
+            )
+            .bind(user.id)
+            .bind(&user.email)
+            .bind(&user.auth_key_hash)
+            .bind(&user.kdf_salt)
+            .bind(kdf_params_json)
+            .bind(&user.encrypted_dek)
+            .bind(&user.recovery_encrypted_dek)
+            .bind(&user.recovery_auth_key_hash)
+            .bind(&user.totp_secret_server_encrypted)
+            .bind(user.totp_enabled)
+            .bind(&user.passkey_credential_id)
+            .bind(&user.passkey_label)
+            .bind(&user.passkey_encrypted_dek)
+            .bind(&user.passkey_prf_salt)
+            .bind(&user.ui_preferences)
+            .bind(user.is_admin)
+            .bind(user.is_active)
+            .bind(user.last_login_at)
+            .bind(user.email_verified)
+            .bind(&user.email_verification_code)
+            .bind(user.email_verification_expires_at)
+            .bind(user.email_verification_attempts)
+            .bind(user.email_verification_cooldown_until)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Einfügen von Benutzer {}: {}", user.id, e)))?;
+        }
+
+        for pk in valid_passkeys.values() {
+            sqlx::query(
+                r#"INSERT INTO user_passkeys (
+                    id, user_id, credential_id, passkey_label, passkey_encrypted_dek,
+                    passkey_prf_salt, passkey_data, created_at, last_used_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
+            )
+            .bind(pk.id)
+            .bind(pk.user_id)
+            .bind(&pk.credential_id)
+            .bind(&pk.passkey_label)
+            .bind(&pk.passkey_encrypted_dek)
+            .bind(&pk.passkey_prf_salt)
+            .bind(&pk.passkey_data)
+            .bind(pk.created_at)
+            .bind(pk.last_used_at)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Einfügen von Passkey {}: {}", pk.id, e)))?;
+        }
+
+        for env in restored_envelopes.values() {
+            sqlx::query(
+                r#"INSERT INTO encrypted_envelopes (
+                    id, owner_user_id, entity_type, parent_id, class_id, encrypted_payload, version, updated_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+            )
+            .bind(env.id)
+            .bind(env.owner_user_id)
+            .bind(&env.entity_type)
+            .bind(env.parent_id)
+            .bind(env.class_id)
+            .bind(&env.encrypted_payload)
+            .bind(env.version)
+            .bind(env.updated_at)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Einfügen von Envelope {}: {}", env.id, e)))?;
+        }
+
+        if let Some(ref settings) = parsed_settings {
+            sqlx::query("DELETE FROM system_settings")
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Löschen alter Settings: {}", e)))?;
+            for (k, v) in settings {
+                sqlx::query(
+                    r#"INSERT INTO system_settings (key, value, updated_at)
+                    VALUES ($1, $2, NOW())
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()"#,
+                )
+                .bind(k)
+                .bind(v)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Einfügen von Setting {}: {}", k, e)))?;
+            }
+        }
+
+        if let Some(ref templates) = parsed_templates {
+            sqlx::query("DELETE FROM grading_templates WHERE owner_user_id IS NULL")
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Löschen alter Vorlagen: {}", e)))?;
+            for tpl in templates.values() {
+                let payload_str = serde_json::to_string(tpl).unwrap_or_default();
+                sqlx::query(
+                    r#"INSERT INTO grading_templates (id, owner_user_id, is_encrypted, payload, created_at, updated_at)
+                    VALUES ($1, NULL, FALSE, $2, $3, $4)
+                    ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at"#,
+                )
+                .bind(tpl.id)
+                .bind(payload_str)
+                .bind(tpl.created_at)
+                .bind(tpl.updated_at)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Einfügen von Vorlage {}: {}", tpl.id, e)))?;
+            }
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Commit der Transaktion: {}", e)))?;
+    }
+
+    // 2. Wipe and replace memory only AFTER database transaction commits successfully
     {
         let mut users = state.mem_users.write().unwrap();
         *users = restored_users.clone();
     }
     {
+        let mut passkeys = state.mem_passkeys.write().unwrap();
+        *passkeys = valid_passkeys.clone();
+    }
+    {
         let mut envelopes = state.mem_envelopes.write().unwrap();
         *envelopes = restored_envelopes.clone();
     }
-
-    // 2. Sync to PostgreSQL if connected
-    if let Some(pool) = &state.db {
-        let _ = sqlx::query("DELETE FROM encrypted_envelopes").execute(pool).await;
-        let _ = sqlx::query("DELETE FROM users").execute(pool).await;
-
-        for user in restored_users.values() {
-            crate::sync_user_to_pg(&state, user).await;
-        }
-        for env in restored_envelopes.values() {
-            crate::sync_envelope_to_pg(&state, env).await;
-        }
+    if let Some(settings) = parsed_settings {
+        let mut mem_set = state.mem_settings.write().unwrap();
+        *mem_set = settings;
     }
-
-    // 3. Restore system_settings & global_templates if present
-    if let Some(settings_val) = payload.get("system_settings") {
-        if let Ok(settings) = serde_json::from_value::<std::collections::HashMap<String, serde_json::Value>>(settings_val.clone()) {
-            {
-                let mut mem_set = state.mem_settings.write().unwrap();
-                *mem_set = settings.clone();
-            }
-            if let Some(pool) = &state.db {
-                let _ = sqlx::query("DELETE FROM system_settings").execute(pool).await;
-                for (k, v) in settings {
-                    save_setting_to_pg(&state, &k, &v).await;
-                }
-            }
-        }
+    if let Some(templates) = parsed_templates {
+        let mut mem_tpl = state.mem_global_templates.write().unwrap();
+        *mem_tpl = templates;
     }
-
-    if let Some(templates_val) = payload.get("global_templates") {
-        if let Ok(templates) = serde_json::from_value::<std::collections::HashMap<Uuid, GlobalTemplateRecord>>(templates_val.clone()) {
-            {
-                let mut mem_tpl = state.mem_global_templates.write().unwrap();
-                *mem_tpl = templates.clone();
-            }
-            if let Some(pool) = &state.db {
-                let _ = sqlx::query("DELETE FROM grading_templates WHERE owner_user_id IS NULL").execute(pool).await;
-                for tpl in templates.values() {
-                    let payload_str = serde_json::to_string(tpl).unwrap_or_default();
-                    let _ = sqlx::query(
-                        r#"INSERT INTO grading_templates (id, owner_user_id, is_encrypted, payload, created_at, updated_at)
-                        VALUES ($1, NULL, FALSE, $2, $3, $4)
-                        ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at"#,
-                    )
-                    .bind(tpl.id)
-                    .bind(payload_str)
-                    .bind(tpl.created_at)
-                    .bind(tpl.updated_at)
-                    .execute(pool)
-                    .await;
-                }
-            }
-        }
-    }
+    state.reg_challenges.write().unwrap().clear();
+    state.auth_challenges.write().unwrap().clear();
+    state.mem_email_verifications.write().unwrap().clear();
+    crate::totp::clear_all_totp_replay_state();
 
     persist_to_disk(&state);
 
     Ok(Json(serde_json::json!({
         "success": true,
         "restored_users_count": restored_users.len(),
+        "restored_passkeys_count": valid_passkeys.len(),
         "restored_envelopes_count": restored_envelopes.len()
     })))
 }
@@ -1243,9 +1410,21 @@ pub struct SmtpConfig {
 
 pub fn get_smtp_config_internal(state: &AppState) -> Option<SmtpConfig> {
     let settings = state.mem_settings.read().unwrap();
-    settings
+    let mut cfg: SmtpConfig = settings
         .get("smtp_config")
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .and_then(|v| serde_json::from_value(v.clone()).ok())?;
+    // Invariant I-6: Transparently decrypt at-rest encrypted SMTP password (`v1:...` envelope)
+    if cfg.password.starts_with("v1:") {
+        if let Ok(plain) = gradus21_core::crypto::decrypt_entity_envelope(
+            &state.server_encryption_key_b64,
+            "server",
+            "smtp_config",
+            &cfg.password,
+        ) {
+            cfg.password = plain;
+        }
+    }
+    Some(cfg)
 }
 
 pub async fn get_smtp_config(
@@ -1291,6 +1470,20 @@ pub async fn update_smtp_config(
         }
     }
 
+    let plain_password_not_empty = !payload.password.is_empty();
+    // Invariant I-6: Encrypt SMTP password at rest using the server encryption key
+    // so `vault_store.json`, PostgreSQL `system_settings`, and backup snapshots never store cleartext SMTP credentials.
+    if plain_password_not_empty && !payload.password.starts_with("v1:") {
+        if let Ok(enc) = gradus21_core::crypto::encrypt_entity_envelope(
+            &state.server_encryption_key_b64,
+            "server",
+            "smtp_config",
+            &payload.password,
+        ) {
+            payload.password = enc;
+        }
+    }
+
     let val = serde_json::to_value(&payload).unwrap();
     {
         let mut settings = state.mem_settings.write().unwrap();
@@ -1300,7 +1493,7 @@ pub async fn update_smtp_config(
     persist_to_disk(&state);
 
     let mut response = payload;
-    if !response.password.is_empty() {
+    if plain_password_not_empty {
         response.password = "********".into();
     }
     Ok(Json(serde_json::to_value(&response).unwrap()))
@@ -1339,12 +1532,15 @@ pub async fn send_email_internal(
 
     let creds = Credentials::new(cfg.username.clone(), cfg.password.clone());
 
+    let smtp_timeout = Some(std::time::Duration::from_secs(10));
+
     match cfg.security.to_lowercase().as_str() {
         "tls" | "ssl" => {
             let mailer = AsyncSmtpTransport::<Tokio1Executor>::relay(&cfg.host)
                 .map_err(|e| format!("SMTP Relay Fehler: {}", e))?
                 .port(cfg.port)
                 .credentials(creds)
+                .timeout(smtp_timeout)
                 .build();
             mailer
                 .send(email)
@@ -1355,6 +1551,7 @@ pub async fn send_email_internal(
             let mailer = AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&cfg.host)
                 .port(cfg.port)
                 .credentials(creds)
+                .timeout(smtp_timeout)
                 .build();
             mailer
                 .send(email)
@@ -1367,6 +1564,7 @@ pub async fn send_email_internal(
                 .map_err(|e| format!("SMTP STARTTLS Relay Fehler: {}", e))?
                 .port(cfg.port)
                 .credentials(creds)
+                .timeout(smtp_timeout)
                 .build();
             mailer
                 .send(email)

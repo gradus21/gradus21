@@ -12,7 +12,6 @@ import {
 } from '../data/demoClasses';
 import {
   wasm_calculate_class_report,
-  wasm_simulate_needed_score_v2,
 } from '../wasm-pkg/gradus21_core';
 import type { GlobalTemplateRecord } from '../types/templates';
 import { ClassCalculationReport, StudentCalculatedSummary } from '../types/workspace';
@@ -25,8 +24,8 @@ export interface UseClassroomCalculationsParams {
   selectedAssessmentId: string;
   selectedStudentId: string;
   showArchivedInMatrix: boolean;
-  simCategoryId: string;
-  simTargetPercent: number;
+  simCategoryId?: string;
+  simTargetPercent?: number;
 }
 
 export function useClassroomCalculations({
@@ -37,8 +36,6 @@ export function useClassroomCalculations({
   selectedAssessmentId,
   selectedStudentId,
   showArchivedInMatrix,
-  simCategoryId,
-  simTargetPercent,
 }: UseClassroomCalculationsParams) {
   // Curve Cutoffs & Templates
   const [curvePresetKey, setCurvePresetKey] = useState<string>('standard');
@@ -229,47 +226,6 @@ export function useClassroomCalculations({
     termAssessments[0] ||
     activeDataset.assessments[0];
 
-  const simulatedNeededPercent: number | null = useMemo(() => {
-    if (!wasmReady || !activeStudentSummary || !activeStudent) return null;
-    try {
-      const levelOffset =
-        activeDataset.config.enable_student_levels && activeStudent?.level
-          ? activeDataset.config.level_threshold_offsets[activeStudent.level] ?? 0
-          : 0;
-      const effectiveTargetPercent = Math.max(0, Math.min(100, simTargetPercent + levelOffset));
-
-      const simInput = {
-        config: activeDataset.config,
-        categories: activeDataset.categories,
-        assessments: activeDataset.assessments,
-        grades: activeDataset.grades,
-        student: activeStudent,
-        current_summary: activeStudentSummary,
-        target_category_id: simCategoryId,
-        target_overall_percent: effectiveTargetPercent,
-        term_filter: activeTerm === 'all' ? null : activeTerm,
-        simulated_weight: 1.0,
-        simulated_max_points: 20.0,
-      };
-
-      const val = wasm_simulate_needed_score_v2(JSON.stringify(simInput));
-      return typeof val === 'number' ? val : null;
-    } catch {
-      return null;
-    }
-  }, [
-    wasmReady,
-    activeStudentSummary,
-    activeStudent,
-    activeDataset.config,
-    activeDataset.categories,
-    activeDataset.assessments,
-    activeDataset.grades,
-    simCategoryId,
-    simTargetPercent,
-    activeTerm,
-  ]);
-
   // Student & Grade Actions
   const updateGradeEntry = (
     studentId: string,
@@ -303,7 +259,21 @@ export function useClassroomCalculations({
         return { ...ds, grades: [...filtered, newEntry] };
       }
 
-      const num = parseFloat(trimmed.replace(',', '.'));
+      let directGradeVal: number | null = null;
+      if (ds.config.scale_id === 'de_classic_1_to_6' || !ds.config.scale_id) {
+        let clean = trimmed.replace(',', '.');
+        const hasPlus = clean.endsWith('+') || clean.startsWith('+');
+        const hasMinus = clean.endsWith('-') || clean.startsWith('-');
+        clean = clean.replace(/[+-]/g, '').trim();
+        const base = parseFloat(clean);
+        if (!isNaN(base)) {
+          if (hasPlus) directGradeVal = Math.max(0.75, base - 0.25);
+          else if (hasMinus) directGradeVal = Math.min(6.0, base + 0.25);
+          else directGradeVal = base;
+        }
+      }
+
+      const num = directGradeVal !== null ? directGradeVal : parseFloat(trimmed.replace(',', '.'));
       if (isNaN(num)) return ds;
 
       const student = ds.students.find((s) => s.id === studentId);
@@ -320,7 +290,7 @@ export function useClassroomCalculations({
           status: 'graded',
           percent_value: null,
           raw_points: null,
-          direct_grade_value: num,
+          direct_grade_value: directGradeVal !== null ? directGradeVal : num,
           comment: null,
         };
         return { ...ds, grades: [...filtered, newEntry] };
@@ -464,7 +434,6 @@ export function useClassroomCalculations({
     activeStudentSummary,
     termAssessments,
     activeAssessment,
-    simulatedNeededPercent,
     updateGradeEntry,
     updateReportCardOverride,
     cycleStudentLevel,

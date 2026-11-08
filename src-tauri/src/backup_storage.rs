@@ -3,7 +3,26 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 
-static LAST_SNAPSHOT_MS: AtomicU64 = AtomicU64::new(0);
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+
+static LAST_SNAPSHOT_MAP: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
+
+fn get_last_snapshot_ms(uid: &str) -> u64 {
+    let map_lock = LAST_SNAPSHOT_MAP.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(map) = map_lock.lock() {
+        map.get(uid).copied().unwrap_or(0)
+    } else {
+        0
+    }
+}
+
+fn set_last_snapshot_ms(uid: &str, ms: u64) {
+    let map_lock = LAST_SNAPSHOT_MAP.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(mut map) = map_lock.lock() {
+        map.insert(uid.to_string(), ms);
+    }
+}
 
 /// Formats a Unix epoch timestamp (seconds) into `YYYY-MM-DDTHH-MM-SS` (UTC) without external crates.
 pub fn format_epoch_iso_filename(epoch_secs: u64) -> String {
@@ -308,6 +327,18 @@ pub fn export_backup_file(
     vault_json: &str,
     preferred_dir: Option<String>,
 ) -> Result<Option<String>, String> {
+    // Invariant I-6: Strictly whitelist filename characters at the boundary to prevent
+    // path traversal or osascript/PowerShell command interpolation across all OSes.
+    let sanitized_filename: String = filename
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
+        .collect();
+    let safe_filename = if sanitized_filename.is_empty() {
+        "Gradus21_Backup.gradus21".to_string()
+    } else {
+        sanitized_filename
+    };
+
     let base_dir = preferred_dir
         .as_deref()
         .and_then(|p| expand_backup_path(Some(app), p).ok())
@@ -315,7 +346,7 @@ pub fn export_backup_file(
         .unwrap_or_else(|| resolve_default_base_dir(app));
 
     let _ = std::fs::create_dir_all(&base_dir);
-    let default_target = base_dir.join(filename);
+    let default_target = base_dir.join(&safe_filename);
     let default_target_str = default_target.to_string_lossy().to_string();
 
     #[cfg(target_os = "linux")]
@@ -368,10 +399,9 @@ pub fn export_backup_file(
     #[cfg(target_os = "macos")]
     {
         use std::process::Command;
-        let safe_name = filename.replace('"', "");
         let script = format!(
             r#"POSIX path of (choose file name with prompt "Gradus21 Tresor-Backup speichern:" default name "{}")"#,
-            safe_name
+            safe_filename
         );
         if let Ok(output) = Command::new("osascript").arg("-e").arg(&script).output() {
             if output.status.success() {
@@ -391,7 +421,6 @@ pub fn export_backup_file(
     #[cfg(target_os = "windows")]
     {
         use std::process::Command;
-        let safe_name = filename.replace('\'', "");
         let ps_script = format!(
             r#"
 Add-Type -AssemblyName System.Windows.Forms
@@ -403,7 +432,7 @@ if ($s.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{
     [Console]::Out.Write($s.FileName)
 }}
 "#,
-            safe_name
+            safe_filename
         );
         if let Ok(output) = Command::new("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Sta", "-Command", &ps_script])
@@ -503,7 +532,7 @@ pub fn write_vault_backup_to_dir(
         .unwrap_or_default();
     let now_ms = now_dur.as_millis() as u64;
     let now_secs = now_dur.as_secs();
-    let last_ms = LAST_SNAPSHOT_MS.load(Ordering::Relaxed);
+    let last_ms = get_last_snapshot_ms(&safe_uid);
 
     let should_snapshot =
         force_snapshot || last_ms == 0 || now_ms.saturating_sub(last_ms) >= snapshot_interval_ms;
@@ -512,7 +541,7 @@ pub fn write_vault_backup_to_dir(
     let date_str = format_epoch_iso_filename(now_secs);
 
     if should_snapshot {
-        LAST_SNAPSHOT_MS.store(now_ms, Ordering::Relaxed);
+        set_last_snapshot_ms(&safe_uid, now_ms);
         let snapshot_filename = format!("gradus21_vault_backup_{}_{}.gradus21", safe_uid, date_str);
         let snapshot_path = dir.join(&snapshot_filename);
         write_file_atomic_or_direct(&snapshot_path, vault_json.as_bytes())?;
@@ -521,13 +550,15 @@ pub fn write_vault_backup_to_dir(
         // 3. Retention rotation (keep at most max_snapshots timestamped files)
         if let Ok(entries) = std::fs::read_dir(dir) {
             let suffix_main = format!("{}.gradus21", safe_uid);
+            let user_snapshot_prefix = format!("gradus21_vault_backup_{}_", safe_uid);
             let mut snapshot_files: Vec<String> = entries
                 .filter_map(|e| e.ok())
                 .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
                 .filter_map(|e| e.file_name().into_string().ok())
                 .filter(|name| {
-                    (name.starts_with("gradus21_vault_backup_")
-                        || name.starts_with("gradus21-vault-"))
+                    let matches_user = name.starts_with(&user_snapshot_prefix)
+                        || (safe_uid == "default" && name.starts_with("gradus21-vault-"));
+                    matches_user
                         && name.ends_with(".gradus21")
                         && !name.ends_with(&suffix_main)
                         && !name.contains("latest")

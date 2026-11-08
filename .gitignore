@@ -6,9 +6,16 @@
 /web/node_modules/
 /web/dist/
 /web/.vite/
+/web/src/wasm-pkg/*
+!/web/src/wasm-pkg/package.json
+*.tsbuildinfo
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Python
+__pycache__/
+*.py[cod]
 
 # Local runtime vault data & environment secrets
 /data/

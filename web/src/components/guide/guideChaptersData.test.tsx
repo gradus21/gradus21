@@ -47,6 +47,25 @@ describe('guideChaptersData - Guide Structure & Class Setup Start', () => {
     expect(actionTypes).toContain('load_demo_dataset');
   });
 
+  it('configures Chapter 3 (custom_grading_model) to match the modular tabbed Baukasten with Sandbox simulator', () => {
+    const chapter = GUIDE_CHAPTERS.find((c) => c.id === 'custom_grading_model');
+    expect(chapter).toBeDefined();
+
+    const stepIds = chapter!.steps.map((s) => s.id);
+    expect(stepIds).toContain('cgm_welcome');
+    expect(stepIds).toContain('cgm_categories');
+    expect(stepIds).toContain('cgm_curve_editor');
+    expect(stepIds).toContain('cgm_differentiation');
+    expect(stepIds).toContain('cgm_scale_mode');
+    expect(stepIds).toContain('cgm_live_simulator');
+    expect(stepIds).toContain('cgm_templates');
+
+    // Live simulator step specifically highlights the sandbox / live-check
+    const simStep = chapter!.steps.find((s) => s.id === 'cgm_live_simulator');
+    expect(simStep?.targetId).toBe('configurator-live-check');
+    expect(simStep?.content).toContain('Sandbox');
+  });
+
   it('ensures all chapters and steps have non-empty titles and content', () => {
     for (const chapter of GUIDE_CHAPTERS) {
       expect(chapter.id).toBeTruthy();

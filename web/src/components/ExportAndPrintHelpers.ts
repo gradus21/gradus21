@@ -380,11 +380,26 @@ export function buildExportTableData(
 }
 
 /**
- * Escapes a single value for CSV output according to RFC 4180.
+ * Neutralizes spreadsheet formula injection (OWASP CSV/Formula Injection) in string cells.
+ * Strings starting with `=`, `+`, `-`, or `@` (that are not plain numeric literals like `-5` or `-3,5`)
+ * are prefixed with `'` so Excel and LibreOffice Calc treat them strictly as text.
  */
-export function escapeCsvCell(val: unknown, delimiter: string): string {
+export function sanitizeSpreadsheetCell(val: unknown): string | number {
   if (val == null) return '';
+  if (typeof val === 'number') return val;
   const str = String(val);
+  if (/^[=+\-@]/.test(str) && !/^[+-]?\d+([.,]\d+)?%?$/.test(str.trim())) {
+    return `'${str}`;
+  }
+  return str;
+}
+
+/**
+ * Escapes a single value for CSV output according to RFC 4180 and neutralizes formula injection.
+ */
+export function escapeCsvCell(val: unknown, delimiter: string = ';'): string {
+  if (val == null) return '';
+  const str = String(sanitizeSpreadsheetCell(val));
   const needsQuotes =
     str.includes(delimiter) ||
     str.includes('"') ||
@@ -570,8 +585,10 @@ export async function exportConfigurableClassToXlsx(
 ): Promise<void> {
   const XLSX = await import('@e965/xlsx');
   const { headers, rows } = buildExportTableData(dataset, report, options);
+  const safeHeaders = headers.map((h) => sanitizeSpreadsheetCell(h));
+  const safeRows = rows.map((r) => r.map((cell) => sanitizeSpreadsheetCell(cell)));
 
-  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  const ws = XLSX.utils.aoa_to_sheet([safeHeaders, ...safeRows]);
   const wb = XLSX.utils.book_new();
   const sheetName = `${dataset.subjectName}_${dataset.className}`.slice(0, 31);
   XLSX.utils.book_append_sheet(wb, ws, sheetName);

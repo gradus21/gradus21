@@ -158,7 +158,7 @@ export function findLocalCachedVault(targetEmail?: string, targetUserId?: string
               encryptedDek: s.encryptedDek,
               recoveryEncryptedDek: s.recoveryEncryptedDek,
               totpEnabled: s.totpEnabled,
-              totpSecretBase32: s.totpSecretBase32,
+              totpSecretBase32: undefined,
             };
             if (!normalized || (s.email && s.email.trim().toLowerCase() === normalized)) {
               return activeMeta;
@@ -174,9 +174,15 @@ export function findLocalCachedVault(targetEmail?: string, targetUserId?: string
     // Also check native biometric storage as secondary fallback for salt/dek
     if (!fallback) {
       try {
-        const lastUser = activeUserId || localStorage.getItem('gradus21_bio_last_user_v1');
+        const lastUser =
+          activeUserId ||
+          localStorage.getItem('gradus21_native_bio_last_user') ||
+          localStorage.getItem('gradus21_bio_last_user_v1');
         if (lastUser) {
-          const rawBio = localStorage.getItem(`gradus21_bio_meta_v1_${lastUser.trim().toLowerCase()}`);
+          const cleanLast = lastUser.trim().toLowerCase();
+          const rawBio =
+            localStorage.getItem(`gradus21_native_bio_meta_${cleanLast}`) ||
+            localStorage.getItem(`gradus21_bio_meta_v1_${cleanLast}`);
           if (rawBio) {
             const bio = JSON.parse(rawBio);
             if (bio && bio.kdfSaltB64 && bio.encryptedDek) {
@@ -220,7 +226,7 @@ export function findLocalCachedVault(targetEmail?: string, targetUserId?: string
               encryptedDek: s.encryptedDek,
               recoveryEncryptedDek: s.recoveryEncryptedDek,
               totpEnabled: s.totpEnabled,
-              totpSecretBase32: s.totpSecretBase32,
+              totpSecretBase32: undefined,
             };
             if (normalized && s.email && s.email.trim().toLowerCase() === normalized) {
               return meta;

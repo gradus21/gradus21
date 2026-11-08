@@ -5,13 +5,13 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sqlx::Row;
 use uuid::Uuid;
 
 use crate::middleware::authenticate_request;
 use crate::state::{
-    delete_all_envelopes_from_pg, delete_all_passkeys_for_user_from_pg, delete_envelope_from_pg,
-    delete_user_from_pg, persist_to_disk, sync_envelope_to_pg, sync_user_to_pg, tenant_env_key,
-    AppState, EncryptedEnvelopeRecord,
+    delete_all_envelopes_from_pg, delete_envelope_from_pg, persist_to_disk, sync_user_to_pg,
+    tenant_env_key, AppState, EncryptedEnvelopeRecord,
 };
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -41,12 +41,39 @@ pub async fn list_envelopes(
     let owner_id = Uuid::parse_str(&claims.sub)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
 
-    let store = state.mem_envelopes.read().unwrap();
-    let list: Vec<EncryptedEnvelopeRecord> = store
-        .values()
-        .filter(|e| e.owner_user_id == owner_id)
-        .cloned()
-        .collect();
+    let list: Vec<EncryptedEnvelopeRecord> = if let Some(pool) = &state.db {
+        if let Ok(rows) = sqlx::query(
+            "SELECT id, owner_user_id, entity_type, parent_id, class_id, encrypted_payload, version, updated_at FROM encrypted_envelopes WHERE owner_user_id = $1"
+        )
+        .bind(owner_id)
+        .fetch_all(pool)
+        .await {
+            rows.into_iter().map(|row| EncryptedEnvelopeRecord {
+                id: row.get("id"),
+                owner_user_id: row.get("owner_user_id"),
+                entity_type: row.get("entity_type"),
+                parent_id: row.get("parent_id"),
+                class_id: row.get("class_id"),
+                encrypted_payload: row.get("encrypted_payload"),
+                version: row.get("version"),
+                updated_at: row.get("updated_at"),
+            }).collect()
+        } else {
+            let store = state.mem_envelopes.read().unwrap();
+            store
+                .values()
+                .filter(|e| e.owner_user_id == owner_id)
+                .cloned()
+                .collect()
+        }
+    } else {
+        let store = state.mem_envelopes.read().unwrap();
+        store
+            .values()
+            .filter(|e| e.owner_user_id == owner_id)
+            .cloned()
+            .collect()
+    };
 
     Ok(Json(list))
 }
@@ -78,111 +105,67 @@ pub fn resolve_tenant_envelope_id(owner_id: Uuid, requested_id: Uuid) -> Uuid {
     Uuid::from_bytes(combined)
 }
 
-pub async fn upsert_envelope(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(req): Json<UpsertEnvelopeRequest>,
-) -> Result<Json<EncryptedEnvelopeRecord>, (StatusCode, String)> {
-    let claims = authenticate_request(&state, &headers)?;
-    let owner_id = Uuid::parse_str(&claims.sub)
-        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
-
-    let primary_key = tenant_env_key(&owner_id, &req.id);
-    let legacy_namespaced_id = resolve_tenant_envelope_id(owner_id, req.id);
-    let legacy_key = tenant_env_key(&owner_id, &legacy_namespaced_id);
-
-    let record = {
-        let mut store = state.mem_envelopes.write().unwrap();
-        let existing = store.get(&primary_key).or_else(|| store.get(&legacy_key));
-        if let Some(existing) = existing {
-            // Optimistic Concurrency Control
-            if let Some(exp_ver) = req.expected_version {
-                if existing.version != exp_ver {
-                    let err_json = serde_json::json!({
-                        "error": "conflict",
-                        "message": format!(
-                            "Konflikt: Datensatz hat Version {}, erwartete Version war {}",
-                            existing.version, exp_ver
-                        ),
-                        "conflict_envelope": existing,
-                        "current_envelope": existing,
-                        "server_version": existing.version,
-                        "expected_version": exp_ver,
-                        "envelope_id": req.id
-                    });
-                    return Err((StatusCode::CONFLICT, err_json.to_string()));
-                }
-            }
+/// Architectural Invariant (I-3): Single atomic implementation for both single-envelope and
+/// batch-envelope upserts. Enforces strict Optimistic Concurrency Control (`expected_version`
+/// must match `Some(existing.version)` whenever an envelope already exists; `None` is only
+/// permitted for initial creation) and executes all PostgreSQL writes in a single transaction
+/// before mutating `state.mem_envelopes`.
+async fn apply_envelope_upserts(
+    state: &AppState,
+    owner_id: Uuid,
+    items: Vec<BatchUpsertItem>,
+) -> Result<Vec<EncryptedEnvelopeRecord>, (StatusCode, String)> {
+    if items.len() > 500 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Maximal 500 Umschläge pro Batch-Synchronisation erlaubt.".into(),
+        ));
+    }
+    for item in &items {
+        let et = item.entity_type.trim();
+        if et.is_empty() || et.len() > 64 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Ungültiger entity_type (1 bis 64 Zeichen erforderlich).".into(),
+            ));
         }
+    }
 
-        let next_version = existing.map(|e| e.version + 1).unwrap_or(1);
-        let rec = EncryptedEnvelopeRecord {
-            id: req.id,
-            owner_user_id: owner_id,
-            entity_type: req.entity_type,
-            parent_id: req.parent_id,
-            class_id: req.class_id,
-            encrypted_payload: req.encrypted_payload,
-            version: next_version,
-            updated_at: Utc::now(),
-        };
-        if legacy_key != primary_key {
-            store.remove(&legacy_key);
-        }
-        store.insert(primary_key, rec.clone());
-        rec
-    };
-    sync_envelope_to_pg(&state, &record).await;
-    persist_to_disk(&state);
-    Ok(Json(record))
-}
-
-pub async fn batch_sync_envelopes(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(req): Json<BatchSyncRequest>,
-) -> Result<Json<Vec<EncryptedEnvelopeRecord>>, (StatusCode, String)> {
-    let claims = authenticate_request(&state, &headers)?;
-    let owner_id = Uuid::parse_str(&claims.sub)
-        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
-
-    let updated = {
-        let mut store = state.mem_envelopes.write().unwrap();
+    let staged: Vec<(String, String, Option<i32>, EncryptedEnvelopeRecord)> = {
+        let store = state.mem_envelopes.read().unwrap();
 
         // Pre-validation pass: verify all expected_versions before mutating any record
-        for item in &req.envelopes {
+        for item in &items {
             let primary_key = tenant_env_key(&owner_id, &item.id);
             let legacy_namespaced_id = resolve_tenant_envelope_id(owner_id, item.id);
             let legacy_key = tenant_env_key(&owner_id, &legacy_namespaced_id);
 
             let existing = store.get(&primary_key).or_else(|| store.get(&legacy_key));
             if let Some(existing) = existing {
-                if let Some(exp_ver) = item.expected_version {
-                    if existing.version != exp_ver {
-                        let err_json = serde_json::json!({
-                            "error": "conflict",
-                            "message": format!(
-                                "Konflikt bei Envelope {}: Server hat Version {}, erwartet war {}",
-                                item.id, existing.version, exp_ver
-                            ),
-                            "conflict_envelope": existing,
-                            "current_envelope": existing,
-                            "server_version": existing.version,
-                            "expected_version": exp_ver,
-                            "envelope_id": item.id
-                        });
-                        return Err((StatusCode::CONFLICT, err_json.to_string()));
-                    }
+                if item.expected_version != Some(existing.version) {
+                    let err_json = serde_json::json!({
+                        "error": "conflict",
+                        "message": format!(
+                            "Konflikt bei Envelope {}: Server hat Version {}, erwartet war {:?}",
+                            item.id, existing.version, item.expected_version
+                        ),
+                        "conflict_envelope": existing,
+                        "current_envelope": existing,
+                        "server_version": existing.version,
+                        "expected_version": item.expected_version,
+                        "envelope_id": item.id
+                    });
+                    return Err((StatusCode::CONFLICT, err_json.to_string()));
                 }
             }
         }
 
-        let mut out = Vec::with_capacity(req.envelopes.len());
-
-        for item in req.envelopes {
+        let mut out = Vec::with_capacity(items.len());
+        for item in items {
             let primary_key = tenant_env_key(&owner_id, &item.id);
             let legacy_namespaced_id = resolve_tenant_envelope_id(owner_id, item.id);
             let legacy_key = tenant_env_key(&owner_id, &legacy_namespaced_id);
+            let exp_ver = item.expected_version;
 
             let next_version = store
                 .get(&primary_key)
@@ -200,18 +183,96 @@ pub async fn batch_sync_envelopes(
                 version: next_version,
                 updated_at: Utc::now(),
             };
-            if legacy_key != primary_key {
-                store.remove(&legacy_key);
-            }
-            store.insert(primary_key, record.clone());
-            out.push(record);
+            out.push((primary_key, legacy_key, exp_ver, record));
         }
         out
     };
-    for rec in &updated {
-        sync_envelope_to_pg(&state, rec).await;
+
+    let pg_staged: Vec<(Option<i32>, EncryptedEnvelopeRecord)> = staged
+        .iter()
+        .map(|(_, _, exp_ver, rec)| (*exp_ver, rec.clone()))
+        .collect();
+
+    match crate::state::sync_envelopes_batch_to_pg_checked(state, &pg_staged).await {
+        Ok(Some(conflict_id)) => {
+            let store = state.mem_envelopes.read().unwrap();
+            let primary_key = tenant_env_key(&owner_id, &conflict_id);
+            let existing = store.get(&primary_key);
+            let exp_ver = staged
+                .iter()
+                .find(|(_, _, _, r)| r.id == conflict_id)
+                .and_then(|(_, _, ev, _)| *ev);
+            let err_json = serde_json::json!({
+                "error": "conflict",
+                "message": format!("Versionskonflikt in der Datenbank bei Envelope {}", conflict_id),
+                "conflict_envelope": existing,
+                "current_envelope": existing,
+                "expected_version": exp_ver,
+                "envelope_id": conflict_id
+            });
+            return Err((StatusCode::CONFLICT, err_json.to_string()));
+        }
+        Ok(None) => {}
+        Err(err_msg) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Datenbankfehler beim Speichern der Umschläge: {}", err_msg),
+            ));
+        }
     }
-    persist_to_disk(&state);
+
+    let updated = {
+        let mut store = state.mem_envelopes.write().unwrap();
+        let mut out = Vec::with_capacity(staged.len());
+        for (primary_key, legacy_key, _, rec) in staged {
+            if legacy_key != primary_key {
+                store.remove(&legacy_key);
+            }
+            store.insert(primary_key, rec.clone());
+            out.push(rec);
+        }
+        out
+    };
+    persist_to_disk(state);
+    Ok(updated)
+}
+
+pub async fn upsert_envelope(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<UpsertEnvelopeRequest>,
+) -> Result<Json<EncryptedEnvelopeRecord>, (StatusCode, String)> {
+    let claims = authenticate_request(&state, &headers)?;
+    let owner_id = Uuid::parse_str(&claims.sub)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
+
+    let mut updated = apply_envelope_upserts(
+        &state,
+        owner_id,
+        vec![BatchUpsertItem {
+            id: req.id,
+            entity_type: req.entity_type,
+            parent_id: req.parent_id,
+            class_id: req.class_id,
+            encrypted_payload: req.encrypted_payload,
+            expected_version: req.expected_version,
+        }],
+    )
+    .await?;
+
+    Ok(Json(updated.pop().expect("single item batch returns one record")))
+}
+
+pub async fn batch_sync_envelopes(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<BatchSyncRequest>,
+) -> Result<Json<Vec<EncryptedEnvelopeRecord>>, (StatusCode, String)> {
+    let claims = authenticate_request(&state, &headers)?;
+    let owner_id = Uuid::parse_str(&claims.sub)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
+
+    let updated = apply_envelope_upserts(&state, owner_id, req.envelopes).await?;
     Ok(Json(updated))
 }
 
@@ -228,12 +289,29 @@ pub async fn delete_envelope(
     let legacy_namespaced_id = resolve_tenant_envelope_id(owner_id, id);
     let legacy_key = tenant_env_key(&owner_id, &legacy_namespaced_id);
 
+    // If PostgreSQL is active, delete from DB first and fail if query fails
+    let pg_deleted = if state.db.is_some() {
+        let res1 = delete_envelope_from_pg(&state, id, owner_id)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler beim Löschen: {}", e)))?;
+        let res2 = if legacy_namespaced_id != id {
+            delete_envelope_from_pg(&state, legacy_namespaced_id, owner_id)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler beim Löschen: {}", e)))?
+        } else {
+            0
+        };
+        res1 > 0 || res2 > 0
+    } else {
+        false
+    };
+
     let removed = {
         let mut store = state.mem_envelopes.write().unwrap();
         store.remove(&primary_key).or_else(|| store.remove(&legacy_key))
     };
-    if let Some(_rec) = removed {
-        delete_envelope_from_pg(&state, id, owner_id).await;
+
+    if pg_deleted || removed.is_some() {
         persist_to_disk(&state);
         return Ok(StatusCode::NO_CONTENT);
     }
@@ -266,6 +344,43 @@ pub async fn get_envelopes_summary(
     let owner_id = Uuid::parse_str(&claims.sub)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
 
+    if let Some(ref pool) = state.db {
+        if let Ok(rows) = sqlx::query(
+            "SELECT id, entity_type, updated_at FROM encrypted_envelopes WHERE owner_user_id = $1"
+        )
+        .bind(owner_id)
+        .fetch_all(pool)
+        .await
+        {
+            let envelope_count = rows.len();
+            let mut class_count = 0;
+            let mut class_ids = Vec::new();
+            let mut last_updated_at: Option<DateTime<Utc>> = None;
+
+            for r in rows {
+                let id: Uuid = r.get("id");
+                let entity_type: String = r.get("entity_type");
+                let updated_at: DateTime<Utc> = r.get("updated_at");
+
+                if entity_type == "class_dataset" {
+                    class_count += 1;
+                    class_ids.push(id);
+                }
+
+                if last_updated_at.map_or(true, |prev| updated_at > prev) {
+                    last_updated_at = Some(updated_at);
+                }
+            }
+
+            return Ok(Json(EnvelopesSummaryResponse {
+                envelope_count,
+                class_count,
+                class_ids,
+                last_updated_at,
+            }));
+        }
+    }
+
     let store = state.mem_envelopes.read().unwrap();
     let user_envs: Vec<_> = store.values().filter(|e| e.owner_user_id == owner_id).collect();
 
@@ -291,30 +406,15 @@ pub async fn delete_all_user_envelopes(
     let owner_id = Uuid::parse_str(&claims.sub)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
 
-    // 1. Delete all envelopes for this user
-    {
-        let mut store = state.mem_envelopes.write().unwrap();
-        store.retain(|_, env| env.owner_user_id != owner_id);
-    }
-    delete_all_envelopes_from_pg(&state, owner_id).await;
-
-    // 2. If non-admin: cascade delete passkeys and user account completely
     let user_deleted = if !claims.is_admin {
-        // Remove passkeys from memory and PG
-        {
-            let mut pks = state.mem_passkeys.write().unwrap();
-            pks.retain(|_, p| p.user_id != owner_id);
-        }
-        delete_all_passkeys_for_user_from_pg(&state, owner_id).await;
-
-        // Remove user from memory and PG
-        {
-            let mut users = state.mem_users.write().unwrap();
-            users.remove(&owner_id);
-        }
-        delete_user_from_pg(&state, owner_id).await;
+        crate::state::delete_user_account_everywhere(&state, owner_id).await;
         true
     } else {
+        {
+            let mut store = state.mem_envelopes.write().unwrap();
+            store.retain(|_, env| env.owner_user_id != owner_id);
+        }
+        delete_all_envelopes_from_pg(&state, owner_id).await;
         false
     };
 

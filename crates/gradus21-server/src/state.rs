@@ -130,10 +130,56 @@ pub struct AppState {
     pub app_env: String,
 }
 
+pub fn is_production_env(env: &str) -> bool {
+    let norm = env.trim().to_lowercase();
+    norm == "production" || norm == "prod" || norm == "produktiv"
+}
+
+pub fn resolve_app_env(
+    app_env: Option<String>,
+    environment: Option<String>,
+    node_env: Option<String>,
+    is_debug: bool,
+) -> String {
+    app_env
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| environment.filter(|s| !s.trim().is_empty()))
+        .or_else(|| node_env.filter(|s| !s.trim().is_empty()))
+        .map(|s| s.trim().to_lowercase())
+        .unwrap_or_else(|| {
+            if is_debug {
+                "development".into()
+            } else {
+                "production".into()
+            }
+        })
+}
+
+pub fn is_insecure_jwt(s: &str) -> bool {
+    let trimmed = s.trim();
+    trimmed.len() < 32
+        || trimmed == "gradus21_jwt_signing_secret_2026_zero_knowledge"
+        || trimmed == "super_secret_jwt_signing_key_change_in_prod_32b"
+}
+
+pub fn is_insecure_server_key(s: &str) -> bool {
+    let trimmed = s.trim();
+    trimmed.len() < 32
+        || trimmed == "0123456789abcdef0123456789abcdef"
+        || trimmed == "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+}
+
 impl AppState {
+    pub fn is_production_env(&self) -> bool {
+        is_production_env(&self.app_env)
+    }
+
     pub fn is_test_or_production_env(&self) -> bool {
+        if self.is_production_env() {
+            return true;
+        }
         let env = self.app_env.trim().to_lowercase();
-        env == "production" || env == "prod" || env == "produktiv" || env == "test" || env == "testing"
+        env == "test" || env == "testing"
     }
 }
 
@@ -207,6 +253,74 @@ pub struct EncryptedEnvelopeRecord {
     pub updated_at: DateTime<Utc>,
 }
 
+
+pub fn user_record_from_pg_row(row: &sqlx::postgres::PgRow) -> UserRecord {
+    let id: Uuid = row.get("id");
+    let kdf_params_val: serde_json::Value = row.get("kdf_params");
+    UserRecord {
+        id,
+        email: row.get("email"),
+        auth_key_hash: row.get("auth_key_hash"),
+        kdf_salt: row.get("kdf_salt"),
+        kdf_params: serde_json::from_value(kdf_params_val).unwrap_or_default(),
+        encrypted_dek: row.get("encrypted_dek"),
+        recovery_encrypted_dek: row.get("recovery_encrypted_dek"),
+        recovery_auth_key_hash: row.try_get("recovery_auth_key_hash").unwrap_or_default(),
+        totp_secret_server_encrypted: row.get("totp_secret_server_encrypted"),
+        totp_enabled: row.get("totp_enabled"),
+        passkey_credential_id: row.try_get("passkey_credential_id").ok().flatten(),
+        passkey_label: row.try_get("passkey_label").ok().flatten(),
+        passkey_encrypted_dek: row.try_get("passkey_encrypted_dek").ok().flatten(),
+        passkey_prf_salt: row.try_get("passkey_prf_salt").ok().flatten(),
+        ui_preferences: row.get("ui_preferences"),
+        is_admin: row.try_get("is_admin").unwrap_or(false),
+        is_active: row.try_get("is_active").unwrap_or(true),
+        created_at: row.try_get("created_at").ok(),
+        last_login_at: row.try_get("last_login_at").ok(),
+        email_verified: row.try_get("email_verified").unwrap_or(false),
+        email_verification_code: row.try_get("email_verification_code").ok().flatten(),
+        email_verification_expires_at: row.try_get("email_verification_expires_at").ok().flatten(),
+        email_verification_attempts: row.try_get("email_verification_attempts").unwrap_or(0),
+        email_verification_cooldown_until: row.try_get("email_verification_cooldown_until").ok().flatten(),
+    }
+}
+
+pub fn migrate_legacy_user_passkeys(
+    users_map: &HashMap<Uuid, UserRecord>,
+    passkeys_map: &mut HashMap<Uuid, UserPasskeyRecord>,
+) {
+    for user in users_map.values() {
+        if let Some(cred_id) = &user.passkey_credential_id {
+            if !cred_id.trim().is_empty()
+                && !passkeys_map
+                    .values()
+                    .any(|p| p.user_id == user.id && p.credential_id == *cred_id)
+            {
+                let pid = Uuid::new_v4();
+                let label = user
+                    .passkey_label
+                    .clone()
+                    .unwrap_or_else(|| "Passkey (Standard)".into());
+                let enc_dek = user
+                    .passkey_encrypted_dek
+                    .clone()
+                    .unwrap_or_else(|| user.encrypted_dek.clone());
+                let rec = UserPasskeyRecord {
+                    id: pid,
+                    user_id: user.id,
+                    credential_id: cred_id.clone(),
+                    passkey_label: label,
+                    passkey_encrypted_dek: enc_dek,
+                    passkey_prf_salt: user.passkey_prf_salt.clone(),
+                    passkey_data: None,
+                    created_at: user.created_at.unwrap_or_else(Utc::now),
+                    last_used_at: user.last_login_at,
+                };
+                passkeys_map.insert(pid, rec);
+            }
+        }
+    }
+}
 
 pub async fn ensure_pg_schema_and_load(
     pool: &PgPool,
@@ -320,35 +434,8 @@ pub async fn ensure_pg_schema_and_load(
     .await
     {
         for row in rows {
-            let id: Uuid = row.get("id");
-            let kdf_params_val: serde_json::Value = row.get("kdf_params");
-            let user = UserRecord {
-                id,
-                email: row.get("email"),
-                auth_key_hash: row.get("auth_key_hash"),
-                kdf_salt: row.get("kdf_salt"),
-                kdf_params: serde_json::from_value(kdf_params_val).unwrap_or_default(),
-                encrypted_dek: row.get("encrypted_dek"),
-                recovery_encrypted_dek: row.get("recovery_encrypted_dek"),
-                recovery_auth_key_hash: row.try_get("recovery_auth_key_hash").unwrap_or_default(),
-                totp_secret_server_encrypted: row.get("totp_secret_server_encrypted"),
-                totp_enabled: row.get("totp_enabled"),
-                passkey_credential_id: row.try_get("passkey_credential_id").ok().flatten(),
-                passkey_label: row.try_get("passkey_label").ok().flatten(),
-                passkey_encrypted_dek: row.try_get("passkey_encrypted_dek").ok().flatten(),
-                passkey_prf_salt: row.try_get("passkey_prf_salt").ok().flatten(),
-                ui_preferences: row.get("ui_preferences"),
-                is_admin: row.try_get("is_admin").unwrap_or(false),
-                is_active: row.try_get("is_active").unwrap_or(true),
-                created_at: row.try_get("created_at").ok(),
-                last_login_at: row.try_get("last_login_at").ok(),
-                email_verified: row.try_get("email_verified").unwrap_or(false),
-                email_verification_code: row.try_get("email_verification_code").ok().flatten(),
-                email_verification_expires_at: row.try_get("email_verification_expires_at").ok().flatten(),
-                email_verification_attempts: row.try_get("email_verification_attempts").unwrap_or(0),
-                email_verification_cooldown_until: row.try_get("email_verification_cooldown_until").ok().flatten(),
-            };
-            users_map.insert(id, user);
+            let user = user_record_from_pg_row(&row);
+            users_map.insert(user.id, user);
         }
     }
 
@@ -376,28 +463,9 @@ pub async fn ensure_pg_schema_and_load(
     }
 
     // Auto-migrate legacy passkey from users into user_passkeys if not already present
-    for user in users_map.values() {
-        if let Some(cred_id) = &user.passkey_credential_id {
-            if !cred_id.trim().is_empty() && !passkeys_map.values().any(|p| p.user_id == user.id && p.credential_id == *cred_id) {
-                let pid = Uuid::new_v4();
-                let label = user.passkey_label.clone().unwrap_or_else(|| "Passkey (Standard)".into());
-                let enc_dek = user.passkey_encrypted_dek.clone().unwrap_or_else(|| user.encrypted_dek.clone());
-                let rec = UserPasskeyRecord {
-                    id: pid,
-                    user_id: user.id,
-                    credential_id: cred_id.clone(),
-                    passkey_label: label,
-                    passkey_encrypted_dek: enc_dek,
-                    passkey_prf_salt: user.passkey_prf_salt.clone(),
-                    passkey_data: None,
-                    created_at: user.created_at.unwrap_or_else(Utc::now),
-                    last_used_at: user.last_login_at,
-                };
-                passkeys_map.insert(pid, rec);
-            }
-        }
-    }
+    migrate_legacy_user_passkeys(users_map, passkeys_map);
 
+    // shortcut: loads all envelopes into memory at startup for zero-latency in-memory OCC version checks; upgrade to SQL-based OCC (UPDATE ... WHERE version = expected_version) when total envelopes cross 100,000 records
     if let Ok(rows) = sqlx::query(
         "SELECT id, owner_user_id, entity_type, parent_id, class_id, encrypted_payload, version, updated_at FROM encrypted_envelopes",
     )
@@ -552,49 +620,101 @@ pub async fn sync_user_to_pg(state: &AppState, user: &UserRecord) {
     }
 }
 
-pub async fn sync_envelope_to_pg(state: &AppState, env: &EncryptedEnvelopeRecord) {
+/// Architectural Invariant (I-3): Atomically persists a batch of envelopes to PostgreSQL inside
+/// a single transaction with strict Optimistic Concurrency Control (`expected_version`).
+/// Returns `Ok(Some(conflict_envelope_id))` if any item failed its OCC version check (rolling back the whole batch).
+pub async fn sync_envelopes_batch_to_pg_checked(
+    state: &AppState,
+    staged: &[(Option<i32>, EncryptedEnvelopeRecord)],
+) -> Result<Option<Uuid>, String> {
     let Some(pool) = &state.db else {
-        return;
+        return Ok(None);
     };
-    if let Err(e) = sqlx::query(
-        r#"INSERT INTO encrypted_envelopes (
-            id, owner_user_id, entity_type, parent_id, class_id, encrypted_payload, version, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (owner_user_id, id) DO UPDATE SET
-            entity_type = EXCLUDED.entity_type,
-            parent_id = EXCLUDED.parent_id,
-            class_id = EXCLUDED.class_id,
-            encrypted_payload = EXCLUDED.encrypted_payload,
-            version = EXCLUDED.version,
-            updated_at = EXCLUDED.updated_at"#,
-    )
-    .bind(env.id)
-    .bind(env.owner_user_id)
-    .bind(&env.entity_type)
-    .bind(env.parent_id)
-    .bind(env.class_id)
-    .bind(&env.encrypted_payload)
-    .bind(env.version)
-    .bind(env.updated_at)
-    .execute(pool)
-    .await
-    {
-        tracing::error!("Failed to sync envelope {} to PostgreSQL: {}", env.id, e);
+    let mut tx = pool.begin().await.map_err(|e| {
+        tracing::error!("Failed to begin PostgreSQL transaction for envelope batch: {}", e);
+        e.to_string()
+    })?;
+
+    for (expected_version, env) in staged {
+        let res = if let Some(exp_ver) = expected_version {
+            sqlx::query(
+                r#"INSERT INTO encrypted_envelopes (
+                    id, owner_user_id, entity_type, parent_id, class_id, encrypted_payload, version, updated_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                ON CONFLICT (owner_user_id, id) DO UPDATE SET
+                    entity_type = EXCLUDED.entity_type,
+                    parent_id = EXCLUDED.parent_id,
+                    class_id = EXCLUDED.class_id,
+                    encrypted_payload = EXCLUDED.encrypted_payload,
+                    version = EXCLUDED.version,
+                    updated_at = EXCLUDED.updated_at
+                WHERE encrypted_envelopes.version = $9"#,
+            )
+            .bind(env.id)
+            .bind(env.owner_user_id)
+            .bind(&env.entity_type)
+            .bind(env.parent_id)
+            .bind(env.class_id)
+            .bind(&env.encrypted_payload)
+            .bind(env.version)
+            .bind(env.updated_at)
+            .bind(*exp_ver)
+            .execute(&mut *tx)
+            .await
+        } else {
+            sqlx::query(
+                r#"INSERT INTO encrypted_envelopes (
+                    id, owner_user_id, entity_type, parent_id, class_id, encrypted_payload, version, updated_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                ON CONFLICT (owner_user_id, id) DO NOTHING"#,
+            )
+            .bind(env.id)
+            .bind(env.owner_user_id)
+            .bind(&env.entity_type)
+            .bind(env.parent_id)
+            .bind(env.class_id)
+            .bind(&env.encrypted_payload)
+            .bind(env.version)
+            .bind(env.updated_at)
+            .execute(&mut *tx)
+            .await
+        };
+
+        match res {
+            Ok(done) => {
+                if done.rows_affected() == 0 {
+                    // Dropping `tx` rolls back all prior statements in this batch automatically
+                    return Ok(Some(env.id));
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to sync envelope {} to PostgreSQL: {}", env.id, e);
+                return Err(e.to_string());
+            }
+        }
     }
+
+    tx.commit().await.map_err(|e| {
+        tracing::error!("Failed to commit PostgreSQL transaction for envelope batch: {}", e);
+        e.to_string()
+    })?;
+    Ok(None)
 }
 
-pub async fn delete_envelope_from_pg(state: &AppState, id: Uuid, owner_id: Uuid) {
+pub async fn delete_envelope_from_pg(state: &AppState, id: Uuid, owner_id: Uuid) -> Result<u64, String> {
     let Some(pool) = &state.db else {
-        return;
+        return Ok(0);
     };
-    if let Err(e) = sqlx::query("DELETE FROM encrypted_envelopes WHERE id = $1 AND owner_user_id = $2")
+    let res = sqlx::query("DELETE FROM encrypted_envelopes WHERE id = $1 AND owner_user_id = $2")
         .bind(id)
         .bind(owner_id)
         .execute(pool)
         .await
-    {
-        tracing::error!("Failed to delete envelope {} from PostgreSQL: {}", id, e);
-    }
+        .map_err(|e| {
+            tracing::error!("Failed to delete envelope {} from PostgreSQL: {}", id, e);
+            e.to_string()
+        })?;
+    Ok(res.rows_affected())
 }
 
 pub async fn delete_all_envelopes_from_pg(state: &AppState, owner_id: Uuid) {
@@ -634,6 +754,36 @@ pub async fn delete_all_passkeys_for_user_from_pg(state: &AppState, user_id: Uui
     {
         tracing::error!("Failed to delete passkeys for user {} from PostgreSQL: {}", user_id, e);
     }
+}
+
+/// Architectural Invariant (I-4): Single source of truth for completely purging a user account
+/// across PostgreSQL and all in-memory maps (`mem_envelopes`, `mem_passkeys`, `mem_users`,
+/// `reg_challenges`, and `totp` replay state).
+pub async fn delete_user_account_everywhere(state: &AppState, user_id: Uuid) {
+    {
+        let mut store = state.mem_envelopes.write().unwrap();
+        store.retain(|_, env| env.owner_user_id != user_id);
+    }
+    delete_all_envelopes_from_pg(state, user_id).await;
+
+    {
+        let mut pks = state.mem_passkeys.write().unwrap();
+        pks.retain(|_, p| p.user_id != user_id);
+    }
+    delete_all_passkeys_for_user_from_pg(state, user_id).await;
+
+    {
+        let mut users = state.mem_users.write().unwrap();
+        users.remove(&user_id);
+    }
+    delete_user_from_pg(state, user_id).await;
+
+    state
+        .reg_challenges
+        .write()
+        .unwrap()
+        .remove(&user_id.to_string());
+    crate::totp::clear_totp_replay_state(user_id);
 }
 
 pub fn create_webauthn() -> Arc<Webauthn> {
@@ -763,23 +913,39 @@ pub async fn delete_passkey_from_pg(state: &AppState, id: Uuid) {
     }
 }
 
+#[derive(Serialize)]
+struct BorrowedDiskStore<'a> {
+    users: &'a HashMap<Uuid, UserRecord>,
+    passkeys: &'a HashMap<Uuid, UserPasskeyRecord>,
+    envelopes: &'a HashMap<String, EncryptedEnvelopeRecord>,
+    system_settings: &'a HashMap<String, serde_json::Value>,
+    global_templates: &'a HashMap<Uuid, admin::GlobalTemplateRecord>,
+}
+
 pub fn persist_to_disk(state: &AppState) {
-    let users = state.mem_users.read().unwrap().clone();
-    let passkeys = state.mem_passkeys.read().unwrap().clone();
-    let envelopes = state.mem_envelopes.read().unwrap().clone();
-    let system_settings = state.mem_settings.read().unwrap().clone();
-    let global_templates = state.mem_global_templates.read().unwrap().clone();
-    let store = PersistentDiskStore {
-        users,
-        passkeys,
-        envelopes,
-        system_settings,
-        global_templates,
+    if state.db.is_some() {
+        return;
+    }
+    let json_res = {
+        let users = state.mem_users.read().unwrap();
+        let passkeys = state.mem_passkeys.read().unwrap();
+        let envelopes = state.mem_envelopes.read().unwrap();
+        let system_settings = state.mem_settings.read().unwrap();
+        let global_templates = state.mem_global_templates.read().unwrap();
+        let store = BorrowedDiskStore {
+            users: &users,
+            passkeys: &passkeys,
+            envelopes: &envelopes,
+            system_settings: &system_settings,
+            global_templates: &global_templates,
+        };
+        serde_json::to_string(&store)
     };
-    if let Ok(json) = serde_json::to_string_pretty(&store) {
-        let tmp_path = state.disk_store_path.with_extension("json.tmp");
+    if let Ok(json) = json_res {
+        let tmp_path = state.disk_store_path.with_extension(format!("tmp.{}", Uuid::new_v4()));
         if let Err(e) = fs::write(&tmp_path, json) {
             tracing::error!("Failed to write temporary vault store {:?}: {}", tmp_path, e);
+            let _ = fs::remove_file(&tmp_path);
             return;
         }
         if let Err(e) = fs::rename(&tmp_path, &state.disk_store_path) {
@@ -789,6 +955,7 @@ pub fn persist_to_disk(state: &AppState) {
                 state.disk_store_path,
                 e
             );
+            let _ = fs::remove_file(&tmp_path);
         }
     }
 }
@@ -813,35 +980,8 @@ pub async fn find_user_by_email(state: &AppState, email: &str) -> Option<UserRec
         .fetch_optional(pool)
         .await
         {
-            let id: Uuid = row.get("id");
-            let kdf_params_val: serde_json::Value = row.get("kdf_params");
-            let user = UserRecord {
-                id,
-                email: row.get("email"),
-                auth_key_hash: row.get("auth_key_hash"),
-                kdf_salt: row.get("kdf_salt"),
-                kdf_params: serde_json::from_value(kdf_params_val).unwrap_or_default(),
-                encrypted_dek: row.get("encrypted_dek"),
-                recovery_encrypted_dek: row.get("recovery_encrypted_dek"),
-                recovery_auth_key_hash: row.try_get("recovery_auth_key_hash").unwrap_or_default(),
-                totp_secret_server_encrypted: row.get("totp_secret_server_encrypted"),
-                totp_enabled: row.get("totp_enabled"),
-                passkey_credential_id: row.try_get("passkey_credential_id").ok().flatten(),
-                passkey_label: row.try_get("passkey_label").ok().flatten(),
-                passkey_encrypted_dek: row.try_get("passkey_encrypted_dek").ok().flatten(),
-                passkey_prf_salt: row.try_get("passkey_prf_salt").ok().flatten(),
-                ui_preferences: row.get("ui_preferences"),
-                is_admin: row.try_get("is_admin").unwrap_or(false),
-                is_active: row.try_get("is_active").unwrap_or(true),
-                created_at: row.try_get("created_at").ok(),
-                last_login_at: row.try_get("last_login_at").ok(),
-                email_verified: row.try_get("email_verified").unwrap_or(false),
-                email_verification_code: row.try_get("email_verification_code").ok().flatten(),
-                email_verification_expires_at: row.try_get("email_verification_expires_at").ok().flatten(),
-                email_verification_attempts: row.try_get("email_verification_attempts").unwrap_or(0),
-                email_verification_cooldown_until: row.try_get("email_verification_cooldown_until").ok().flatten(),
-            };
-            state.mem_users.write().unwrap().insert(id, user.clone());
+            let user = user_record_from_pg_row(&row);
+            state.mem_users.write().unwrap().insert(user.id, user.clone());
             return Some(user);
         }
     }

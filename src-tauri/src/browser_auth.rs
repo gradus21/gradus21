@@ -105,6 +105,7 @@ pub fn start_desktop_browser_auth(
 
     let start_time = Instant::now();
     let timeout = Duration::from_secs(300); // 5 minutes timeout
+    // shortcut: 300s polling timeout runs until completion or callback; upgrade to an abort channel when desktop login modal emits a close event
 
     while start_time.elapsed() < timeout {
         match listener.accept() {
@@ -152,21 +153,27 @@ pub fn start_desktop_browser_auth(
                     }
 
                     if first_line.starts_with("POST") {
-                        // Extract Content-Length
+                        // Extract Content-Length (capped at 64 KiB per Invariant I-6)
                         let mut content_length: usize = 0;
                         for line in header_str.lines() {
                             if line.to_ascii_lowercase().starts_with("content-length:") {
                                 if let Some(val) = line.split(':').nth(1) {
-                                    content_length = val.trim().parse().unwrap_or(0);
+                                    content_length = val.trim().parse::<usize>().unwrap_or(0).min(64 * 1024);
                                 }
                             }
                         }
 
                         // Read remaining body if not fully read
-                        while buffer.len() < pos + content_length {
+                        let body_start = Instant::now();
+                        let body_timeout = Duration::from_secs(5);
+                        while buffer.len() < pos + content_length && body_start.elapsed() < body_timeout {
                             match stream.read(&mut chunk) {
                                 Ok(0) => break,
                                 Ok(n) => buffer.extend_from_slice(&chunk[..n]),
+                                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                                    std::thread::sleep(Duration::from_millis(50));
+                                    continue;
+                                }
                                 Err(_) => break,
                             }
                         }

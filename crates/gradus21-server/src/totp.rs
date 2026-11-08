@@ -1,9 +1,20 @@
 use hmac::{Hmac, Mac};
 use rand::RngCore;
 use sha1::Sha1;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+    time::{SystemTime, UNIX_EPOCH},
+};
+use uuid::Uuid;
 
 type HmacSha1 = Hmac<Sha1>;
+
+static LAST_USED_TOTP_STEP: OnceLock<Mutex<HashMap<Uuid, u64>>> = OnceLock::new();
+
+fn used_steps_map() -> &'static Mutex<HashMap<Uuid, u64>> {
+    LAST_USED_TOTP_STEP.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 const BASE32_ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
@@ -23,18 +34,55 @@ pub fn build_otpauth_uri(email: &str, secret_base32: &str) -> String {
     )
 }
 
-/// Verifies a 6-digit TOTP code against a Base32 secret with +-1 time step tolerance (RFC 6238)
-pub fn verify_totp_code(secret_base32: &str, code: &str) -> bool {
+/// Verifies initial QR-code enrollment before 2FA is active (`totp_enabled == false`).
+/// Does not consume the login replay counter so the user can immediately test logging in
+/// after completing setup. All authentication & step-up endpoints MUST use `verify_totp_code_once`.
+pub fn verify_totp_enrollment_code(secret_base32: &str, code: &str) -> bool {
+    match_totp_step(secret_base32, code).is_some()
+}
+
+/// Verifies a 6-digit TOTP code and enforces RFC 6238 §5.2 single-use replay protection per user.
+///
+/// Architectural Invariant (I-1): Every login and step-up authentication endpoint MUST call
+/// `verify_totp_code_once` so that a captured TOTP code can never be replayed.
+pub fn verify_totp_code_once(user_id: Uuid, secret_base32: &str, code: &str) -> bool {
+    let Some(matched_step) = match_totp_step(secret_base32, code) else {
+        return false;
+    };
+    let mut map = used_steps_map().lock().unwrap();
+    if map.len() >= 2048 {
+        map.retain(|_, &mut step| step.saturating_add(4) >= matched_step);
+    }
+    if let Some(&last_step) = map.get(&user_id) {
+        if matched_step <= last_step {
+            return false;
+        }
+    }
+    map.insert(user_id, matched_step);
+    true
+}
+
+/// Clears stored TOTP replay state for a user (when 2FA is reconfigured or disabled).
+pub fn clear_totp_replay_state(user_id: Uuid) {
+    let mut map = used_steps_map().lock().unwrap();
+    map.remove(&user_id);
+}
+
+/// Clears all stored TOTP replay states (e.g. after full system backup restore).
+pub fn clear_all_totp_replay_state() {
+    let mut map = used_steps_map().lock().unwrap();
+    map.clear();
+}
+
+fn match_totp_step(secret_base32: &str, code: &str) -> Option<u64> {
     let cleaned_code = code.trim();
     if cleaned_code.len() != 6 || !cleaned_code.chars().all(|c| c.is_ascii_digit()) {
-        return false;
+        return None;
     }
     let Ok(code_num) = cleaned_code.parse::<u32>() else {
-        return false;
+        return None;
     };
-    let Some(secret_bytes) = base32_decode(secret_base32) else {
-        return false;
-    };
+    let secret_bytes = base32_decode(secret_base32)?;
 
     let now_secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -45,10 +93,10 @@ pub fn verify_totp_code(secret_base32: &str, code: &str) -> bool {
     for offset in [-1i64, 0, 1] {
         let step = (current_step as i64 + offset) as u64;
         if compute_hotp(&secret_bytes, step) == code_num {
-            return true;
+            return Some(step);
         }
     }
-    false
+    None
 }
 
 /// Computes current 6-digit TOTP code (restricted to unit tests only)

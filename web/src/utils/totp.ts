@@ -118,8 +118,56 @@ export async function generateTotpCode(secretBase32: string, timestampMs = Date.
   return otp.toString().padStart(6, '0');
 }
 
+const usedTotpSteps = new Map<string, number>();
+const TOTP_REPLAY_STORAGE_PREFIX = 'gradus21_totp_last_step_';
+
+function getLastUsedStep(scopeKey: string): number | undefined {
+  const mem = usedTotpSteps.get(scopeKey);
+  if (typeof mem === 'number') return mem;
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      const raw = sessionStorage.getItem(`${TOTP_REPLAY_STORAGE_PREFIX}${scopeKey}`);
+      if (raw !== null) {
+        const parsed = parseInt(raw, 10);
+        if (!Number.isNaN(parsed)) return parsed;
+      }
+    }
+  } catch {
+    // Ignore storage access errors
+  }
+  return undefined;
+}
+
+function recordUsedStep(scopeKey: string, step: number): void {
+  usedTotpSteps.set(scopeKey, step);
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem(`${TOTP_REPLAY_STORAGE_PREFIX}${scopeKey}`, String(step));
+    }
+  } catch {
+    // Ignore storage access errors
+  }
+}
+
+export function clearTotpReplayState(): void {
+  usedTotpSteps.clear();
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      for (let i = sessionStorage.length - 1; i >= 0; i--) {
+        const k = sessionStorage.key(i);
+        if (k && k.startsWith(TOTP_REPLAY_STORAGE_PREFIX)) {
+          sessionStorage.removeItem(k);
+        }
+      }
+    }
+  } catch {
+    // Ignore storage access errors
+  }
+}
+
 /**
- * Verifies a 6-digit TOTP code against a base32 secret, allowing +/- 1 time step (30s) drift.
+ * Verifies a 6-digit TOTP code against a base32 secret, allowing +/- 1 time step (30s) drift,
+ * and enforces RFC 6238 §5.2 single-use replay protection (Invariant I-1).
  */
 export async function verifyTotpCode(
   secretBase32: string,
@@ -129,9 +177,20 @@ export async function verifyTotpCode(
   const normalized = userCode.trim().replace(/\s+/g, '');
   if (!/^\d{6}$/.test(normalized)) return false;
 
+  const cleanedSecret = secretBase32.toUpperCase().replace(/=+$/, '').replace(/\s+/g, '');
+  if (!cleanedSecret) return false;
+
+  const currentStep = Math.floor(timestampMs / 1000 / 30);
+
   for (const stepOffset of [-1, 0, 1]) {
-    const code = await generateTotpCode(secretBase32, timestampMs + stepOffset * 30 * 1000);
+    const candidateStep = currentStep + stepOffset;
+    const code = await generateTotpCode(cleanedSecret, candidateStep * 30 * 1000);
     if (code === normalized) {
+      const lastStep = getLastUsedStep(cleanedSecret);
+      if (typeof lastStep === 'number' && candidateStep <= lastStep) {
+        return false;
+      }
+      recordUsedStep(cleanedSecret, candidateStep);
       return true;
     }
   }

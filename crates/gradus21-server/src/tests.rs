@@ -88,6 +88,7 @@ async fn test_register_login_and_cryptographic_recovery_verification() {
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await
@@ -121,6 +122,7 @@ async fn test_register_login_and_cryptographic_recovery_verification() {
             new_encrypted_dek: new_enc_dek.clone(),
             new_recovery_encrypted_dek: None,
             new_recovery_auth_key_b64: None,
+            totp_code: None,
         }),
     )
     .await;
@@ -139,6 +141,7 @@ async fn test_register_login_and_cryptographic_recovery_verification() {
             new_encrypted_dek: new_enc_dek,
             new_recovery_encrypted_dek: None,
             new_recovery_auth_key_b64: None,
+            totp_code: None,
         }),
     )
     .await
@@ -161,6 +164,8 @@ async fn test_register_login_and_cryptographic_recovery_verification() {
         Json(RotateRecoveryKeyRequest {
             recovery_encrypted_dek: new_rec_enc_dek.clone(),
             recovery_auth_key_b64: new_rec_auth_b64.clone(),
+            auth_key_b64: Some(new_auth_key.clone()),
+            totp_code: None,
         }),
     )
     .await
@@ -179,6 +184,7 @@ async fn test_register_login_and_cryptographic_recovery_verification() {
             new_encrypted_dek: "v1:nonce:new_dek_payload".into(),
             new_recovery_encrypted_dek: None,
             new_recovery_auth_key_b64: None,
+            totp_code: None,
         }),
     )
     .await
@@ -198,7 +204,7 @@ async fn test_2fa_setup_locks_after_enabling_and_tenant_isolation() {
         State(state.clone()),
         Json(RegisterRequest {
             email: "2fa@schule.de".into(),
-            auth_key_b64: bundle.auth_key_b64,
+            auth_key_b64: bundle.auth_key_b64.clone(),
             kdf_salt_b64: bundle.kdf_salt_b64,
             kdf_params: bundle.kdf_params,
             encrypted_dek: bundle.encrypted_dek,
@@ -207,6 +213,7 @@ async fn test_2fa_setup_locks_after_enabling_and_tenant_isolation() {
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await
@@ -243,10 +250,21 @@ async fn test_2fa_setup_locks_after_enabling_and_tenant_isolation() {
     assert!(second_setup.is_err());
     assert_eq!(second_setup.unwrap_err().0, StatusCode::CONFLICT);
 
-    // 3b. Reconfiguring 2FA generates a new secret and temporarily resets totp_enabled to false until verified
-    let Json(reconf_info) = reconfigure_2fa(State(state.clone()), headers.clone())
-        .await
-        .expect("reconfigure 2fa");
+    // 3b. Reconfiguring 2FA requires password auth_key or valid totp_code when 2FA is enabled
+    let unauth_reconf = reconfigure_2fa(State(state.clone()), headers.clone(), None).await;
+    assert!(unauth_reconf.is_err());
+    assert_eq!(unauth_reconf.unwrap_err().0, StatusCode::UNAUTHORIZED);
+
+    let Json(reconf_info) = reconfigure_2fa(
+        State(state.clone()),
+        headers.clone(),
+        Some(Json(Reconfigure2faRequest {
+            auth_key_b64: Some(bundle.auth_key_b64.clone()),
+            totp_code: None,
+        })),
+    )
+    .await
+    .expect("reconfigure 2fa");
     assert_eq!(reconf_info["totp_enabled"], false);
     let new_secret_b32 = reconf_info["totp_secret_base32"].as_str().unwrap().to_string();
     assert_ne!(new_secret_b32, secret_b32);
@@ -264,10 +282,21 @@ async fn test_2fa_setup_locks_after_enabling_and_tenant_isolation() {
     .expect("re-enable 2fa");
     assert_eq!(re_verified["totp_enabled"], true);
 
-    // 3c. Disabling 2FA resets totp_enabled to false
-    let Json(disabled_info) = disable_2fa(State(state.clone()), headers.clone())
-        .await
-        .expect("disable 2fa");
+    // 3c. Disabling 2FA requires password auth_key or valid totp_code
+    let unauth_err = disable_2fa(State(state.clone()), headers.clone(), None).await;
+    assert!(unauth_err.is_err());
+    assert_eq!(unauth_err.unwrap_err().0, StatusCode::UNAUTHORIZED);
+
+    let Json(disabled_info) = disable_2fa(
+        State(state.clone()),
+        headers.clone(),
+        Some(Json(crate::routes::auth::Disable2faRequest {
+            auth_key_b64: Some(bundle.auth_key_b64.clone()),
+            totp_code: None,
+        })),
+    )
+    .await
+    .expect("disable 2fa");
     assert_eq!(disabled_info["totp_enabled"], false);
 
     // Re-enable again for remaining tests
@@ -360,6 +389,7 @@ async fn test_passkey_prf_registration_and_login_flow() {
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await
@@ -472,6 +502,7 @@ async fn test_admin_permissions_user_management_and_templates() {
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await
@@ -492,6 +523,7 @@ async fn test_admin_permissions_user_management_and_templates() {
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await
@@ -616,6 +648,7 @@ async fn test_full_registration_onboarding_recovery_totp_and_passkey_flow() {
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await
@@ -699,13 +732,13 @@ async fn test_full_registration_onboarding_recovery_totp_and_passkey_flow() {
     assert!(login_no_2fa.is_err());
     assert_eq!(login_no_2fa.unwrap_err().1, "2FA_REQUIRED");
 
-    // B) Password login with valid TOTP code succeeds
+    // B) Password login with valid TOTP code succeeds once
     let Json(login_ok) = login_user(
         State(state.clone()),
         Json(LoginRequest {
             email: "onboarding.teacher@schule.de".into(),
             auth_key_b64: bundle.auth_key_b64.clone(),
-            totp_code: Some(valid_totp),
+            totp_code: Some(valid_totp.clone()),
         }),
     )
     .await
@@ -713,7 +746,20 @@ async fn test_full_registration_onboarding_recovery_totp_and_passkey_flow() {
     assert_eq!(login_ok.totp_enabled, true);
     assert_eq!(login_ok.passkey_credential_id, Some(cred_id.into()));
 
-    // C) Verify unauthenticated passkey login bypass is strictly disabled (Issue #8)
+    // B2) Replaying the exact same TOTP code in the same time window must be rejected (RFC 6238 §5.2)
+    let replay_attempt = login_user(
+        State(state.clone()),
+        Json(LoginRequest {
+            email: "onboarding.teacher@schule.de".into(),
+            auth_key_b64: bundle.auth_key_b64.clone(),
+            totp_code: Some(valid_totp),
+        }),
+    )
+    .await;
+    assert!(replay_attempt.is_err());
+    assert_eq!(replay_attempt.unwrap_err().0, StatusCode::UNAUTHORIZED);
+
+    // C) Verify unauthenticated passkey login and legacy passkey register bypasses are strictly disabled
     let passkey_login_legacy = legacy_passkey_login_disabled(
         State(state.clone()),
         Json(PasskeyLoginRequest {
@@ -725,14 +771,65 @@ async fn test_full_registration_onboarding_recovery_totp_and_passkey_flow() {
     assert!(passkey_login_legacy.is_err());
     assert_eq!(passkey_login_legacy.unwrap_err().0, StatusCode::GONE);
 
+    let passkey_reg_legacy = legacy_passkey_register_disabled(
+        State(state.clone()),
+        HeaderMap::new(),
+        Json(PasskeyRegisterRequest {
+            credential_id: "evil_cred".into(),
+            label: "Evil Device".into(),
+            passkey_encrypted_dek: "evil_dek".into(),
+            passkey_prf_salt_b64: None,
+            kdf_salt_b64: None,
+            encrypted_dek: None,
+            recovery_encrypted_dek: None,
+            recovery_auth_key_b64: None,
+        }),
+    )
+    .await;
+    assert!(passkey_reg_legacy.is_err());
+    assert_eq!(passkey_reg_legacy.unwrap_err().0, StatusCode::GONE);
+
     let _ = fs::remove_file(&state.disk_store_path);
 }
 
 #[tokio::test]
 async fn test_backup_snapshot_and_schedule_configuration() {
     let state = create_test_state();
+    let admin_id = Uuid::new_v4();
+    {
+        let mut users = state.mem_users.write().unwrap();
+        users.insert(
+            admin_id,
+            UserRecord {
+                id: admin_id,
+                email: "admin@example.com".into(),
+                auth_key_hash: "hash".into(),
+                kdf_salt: "salt".into(),
+                kdf_params: KdfParams::default(),
+                encrypted_dek: "dek".into(),
+                recovery_encrypted_dek: "rec".into(),
+                recovery_auth_key_hash: "rec_hash".into(),
+                totp_secret_server_encrypted: None,
+                totp_enabled: false,
+                passkey_credential_id: None,
+                passkey_label: None,
+                passkey_encrypted_dek: None,
+                passkey_prf_salt: None,
+                ui_preferences: serde_json::json!({}),
+                is_admin: true,
+                is_active: true,
+                created_at: Some(Utc::now()),
+                last_login_at: Some(Utc::now()),
+                email_verified: true,
+                email_verification_code: None,
+                email_verification_expires_at: None,
+                email_verification_attempts: 0,
+                email_verification_cooldown_until: None,
+            },
+        );
+    }
     let claims = JwtClaims {
-        sub: Uuid::new_v4().to_string(),
+        sub: admin_id.to_string(),
         email: "admin@example.com".into(),
         is_admin: true,
         two_factor_verified: true,
@@ -853,6 +950,7 @@ async fn test_multi_passkey_management() {
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await
@@ -991,6 +1089,7 @@ async fn test_webauthn_builder_and_origin_configuration() {
     let state = create_test_state();
     let err = passkey_login_start(
         State(state.clone()),
+        HeaderMap::new(),
         Json(PasskeyLoginStartRequest {
             email: Some("nonexistent@schule.de".into()),
         }),
@@ -1003,6 +1102,7 @@ async fn test_webauthn_builder_and_origin_configuration() {
     // Verify discoverable passkey login without email on empty database returns expected error
     let err_empty = passkey_login_start(
         State(state),
+        HeaderMap::new(),
         Json(PasskeyLoginStartRequest {
             email: None,
         }),
@@ -1048,6 +1148,7 @@ async fn test_granular_class_envelopes_occ_and_deletion() {
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await
@@ -1202,6 +1303,7 @@ async fn test_delete_all_user_envelopes_removes_only_own_data() {
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await
@@ -1221,6 +1323,7 @@ async fn test_delete_all_user_envelopes_removes_only_own_data() {
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await
@@ -1327,6 +1430,7 @@ async fn test_admin_cloud_purge_preserves_admin_account() {
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await
@@ -1454,6 +1558,7 @@ async fn test_envelopes_summary_endpoint() {
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await
@@ -1578,6 +1683,7 @@ async fn test_email_verification_requirement_in_test_and_production_environments
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await;
@@ -1599,6 +1705,7 @@ async fn test_email_verification_requirement_in_test_and_production_environments
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await;
@@ -1616,7 +1723,13 @@ async fn test_email_verification_requirement_in_test_and_production_environments
     )
     .await
     .unwrap();
-    let dev_code = verify_start.dev_code.expect("dev code generated");
+    let dev_code = verify_start
+        .dev_code
+        .or_else(|| {
+            let verifs = state.mem_email_verifications.read().unwrap();
+            verifs.get("second_teacher@schule.de").map(|v| v.code.clone())
+        })
+        .expect("code available");
 
     // 4. Confirm verification code
     let confirm_res = verify_email_confirm(
@@ -1644,6 +1757,7 @@ async fn test_email_verification_requirement_in_test_and_production_environments
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await;
@@ -1696,6 +1810,7 @@ async fn test_email_verification_requirement_in_test_and_production_environments
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await;
@@ -1757,6 +1872,7 @@ async fn test_singleton_settings_envelope_tenant_isolation_in_batch_sync() {
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await
@@ -1845,6 +1961,7 @@ async fn test_deactivated_user_cannot_access_api_or_recover() {
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await
@@ -1864,6 +1981,7 @@ async fn test_deactivated_user_cannot_access_api_or_recover() {
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await
@@ -1914,6 +2032,7 @@ async fn test_deactivated_user_cannot_access_api_or_recover() {
             new_encrypted_dek: "new_enc_dek".into(),
             new_recovery_encrypted_dek: None,
             new_recovery_auth_key_b64: None,
+            totp_code: None,
         }),
     )
     .await;
@@ -1942,7 +2061,7 @@ async fn test_desktop_relay_flow() {
     let state = create_test_state();
 
     // 1. Desktop app initializes relay session
-    let init_res = desktop_relay_init(State(state.clone())).await.unwrap();
+    let init_res = desktop_relay_init(State(state.clone()), HeaderMap::new()).await.unwrap();
     let token = init_res.0.session_token;
     assert!(!token.is_empty());
 
@@ -2015,6 +2134,7 @@ async fn test_smtp_configuration_and_test_recipient_handling() {
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await
@@ -2119,9 +2239,31 @@ async fn test_local_only_vault_cloud_linking_deserialization() {
 #[tokio::test]
 async fn test_update_user_email_flow() {
     let state = create_test_state();
+
+    // 0. Register first admin user so the next user is a non-admin
+    let admin_bundle = generate_vault_bundle("AdminPassword123!").expect("admin bundle");
+    let _ = register_user(
+        State(state.clone()),
+        Json(RegisterRequest {
+            email: "system_admin@schule.de".into(),
+            auth_key_b64: admin_bundle.auth_key_b64.clone(),
+            kdf_salt_b64: admin_bundle.kdf_salt_b64.clone(),
+            kdf_params: admin_bundle.kdf_params.clone(),
+            encrypted_dek: admin_bundle.encrypted_dek.clone(),
+            recovery_encrypted_dek: admin_bundle.recovery_encrypted_dek.clone(),
+            recovery_auth_key_b64: None,
+            user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
+            invite_token: None,
+        }),
+    )
+    .await
+    .expect("register initial admin");
+
     let bundle = generate_vault_bundle("MasterPassword123!").expect("bundle");
 
-    // 1. Register user
+    // 1. Register regular non-admin user
     let register_res = register_user(
         State(state.clone()),
         Json(RegisterRequest {
@@ -2135,6 +2277,7 @@ async fn test_update_user_email_flow() {
             user_id: None,
             totp_secret_base32: None,
             totp_enabled: None,
+            invite_token: None,
         }),
     )
     .await
@@ -2153,18 +2296,66 @@ async fn test_update_user_email_flow() {
         headers.clone(),
         Json(UpdateUserEmailRequest {
             new_email: "not-an-email".into(),
+            ..Default::default()
         }),
     )
     .await;
     assert!(invalid_err.is_err());
     assert_eq!(invalid_err.unwrap_err().0, StatusCode::BAD_REQUEST);
 
-    // 3. Update to valid new email
+    // 2b. Finding 1: Reject privilege escalation to admin email
+    let admin_err = update_user_email(
+        State(state.clone()),
+        headers.clone(),
+        Json(UpdateUserEmailRequest {
+            new_email: "admin@example.com".into(),
+            ..Default::default()
+        }),
+    )
+    .await;
+    assert!(admin_err.is_err());
+    assert_eq!(admin_err.unwrap_err().0, StatusCode::FORBIDDEN);
+
+    // 2c. In production cloud environment, reject without prior email verification
+    {
+        let mut prod_state = state.clone();
+        prod_state.app_env = "production".into();
+
+        let unverified_err = update_user_email(
+            State(prod_state.clone()),
+            headers.clone(),
+            Json(UpdateUserEmailRequest {
+                new_email: "new_email@schule.de".into(),
+                auth_key_b64: Some(bundle.auth_key_b64.clone()),
+                ..Default::default()
+            }),
+        )
+        .await;
+        assert!(unverified_err.is_err());
+        assert_eq!(unverified_err.unwrap_err().0, StatusCode::FORBIDDEN);
+    }
+
+    // 2d. Reject update without step-up authentication (auth_key_b64)
+    let missing_stepup_err = update_user_email(
+        State(state.clone()),
+        headers.clone(),
+        Json(UpdateUserEmailRequest {
+            new_email: "new_email@schule.de".into(),
+            ..Default::default()
+        }),
+    )
+    .await;
+    assert!(missing_stepup_err.is_err());
+    assert_eq!(missing_stepup_err.unwrap_err().0, StatusCode::UNAUTHORIZED);
+
+    // 3. Update to valid new email with valid step-up auth_key_b64
     let update_res = update_user_email(
         State(state.clone()),
         headers.clone(),
         Json(UpdateUserEmailRequest {
             new_email: "new_email@schule.de".into(),
+            auth_key_b64: Some(bundle.auth_key_b64.clone()),
+            ..Default::default()
         }),
     )
     .await
@@ -2180,6 +2371,78 @@ async fn test_update_user_email_flow() {
         let users = state.mem_users.read().unwrap();
         assert!(users.values().any(|u| u.email == "new_email@schule.de"));
         assert!(!users.values().any(|u| u.email == "old_email@schule.de"));
+    }
+
+    let _ = fs::remove_file(&state.disk_store_path);
+}
+
+#[tokio::test]
+async fn test_invite_token_registration_grants_admin_and_consumes_invite() {
+    let state = create_test_state();
+
+    // First user is automatically admin
+    let bundle_first = generate_vault_bundle("FirstAdminPass123!").unwrap();
+    let _ = register_user(
+        State(state.clone()),
+        Json(RegisterRequest {
+            email: "first_admin@schule.de".into(),
+            auth_key_b64: bundle_first.auth_key_b64.clone(),
+            kdf_salt_b64: bundle_first.kdf_salt_b64.clone(),
+            kdf_params: bundle_first.kdf_params.clone(),
+            encrypted_dek: bundle_first.encrypted_dek.clone(),
+            recovery_encrypted_dek: bundle_first.recovery_encrypted_dek.clone(),
+            recovery_auth_key_b64: None,
+            user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
+            invite_token: None,
+        }),
+    )
+    .await
+    .expect("first admin register");
+
+    // Create an invite with is_admin: true in pending_invites
+    let invite_token = "g21_inv_test_secret_12345".to_string();
+    {
+        let mut settings = state.mem_settings.write().unwrap();
+        let invites = serde_json::json!({
+            &invite_token: {
+                "email": "invited_colleague@schule.de",
+                "is_admin": true,
+                "created_at": Utc::now()
+            }
+        });
+        settings.insert("pending_invites".into(), invites);
+    }
+
+    // Register second user with invite token
+    let bundle_colleague = generate_vault_bundle("ColleaguePass123!").unwrap();
+    let Json(auth_resp) = register_user(
+        State(state.clone()),
+        Json(RegisterRequest {
+            email: "invited_colleague@schule.de".into(),
+            auth_key_b64: bundle_colleague.auth_key_b64.clone(),
+            kdf_salt_b64: bundle_colleague.kdf_salt_b64.clone(),
+            kdf_params: bundle_colleague.kdf_params.clone(),
+            encrypted_dek: bundle_colleague.encrypted_dek.clone(),
+            recovery_encrypted_dek: bundle_colleague.recovery_encrypted_dek.clone(),
+            recovery_auth_key_b64: None,
+            user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
+            invite_token: Some(invite_token.clone()),
+        }),
+    )
+    .await
+    .expect("invited colleague register");
+
+    assert_eq!(auth_resp.is_admin, true);
+
+    // Verify invite token was consumed
+    {
+        let settings = state.mem_settings.read().unwrap();
+        let invites = settings.get("pending_invites").unwrap().as_object().unwrap();
+        assert!(!invites.contains_key(&invite_token));
     }
 
     let _ = fs::remove_file(&state.disk_store_path);
@@ -2236,5 +2499,716 @@ async fn test_cors_private_network_access_header() {
     // Untrusted origin is strictly NOT allowed in Access-Control-Allow-Origin -> browser drops preflight
     assert_eq!(evil_resp.headers().get("access-control-allow-origin"), None);
 
+    let _ = fs::remove_file(&state.disk_store_path);
+}
+
+#[test]
+fn test_insecure_secrets_validation() {
+    assert!(is_insecure_jwt("gradus21_jwt_signing_secret_2026_zero_knowledge"));
+    assert!(is_insecure_jwt("   gradus21_jwt_signing_secret_2026_zero_knowledge \n"));
+    assert!(is_insecure_jwt("super_secret_jwt_signing_key_change_in_prod_32b"));
+    assert!(is_insecure_jwt("short"));
+    assert!(is_insecure_jwt("secret_that_is_under_32_chars"));
+    assert!(!is_insecure_jwt("a_very_secure_and_random_production_jwt_secret_999!"));
+
+    assert!(is_insecure_server_key("0123456789abcdef0123456789abcdef"));
+    assert!(is_insecure_server_key("   0123456789abcdef0123456789abcdef \n"));
+    assert!(is_insecure_server_key("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"));
+    assert!(is_insecure_server_key("short"));
+    assert!(is_insecure_server_key("secret_that_is_under_32_chars"));
+    assert!(!is_insecure_server_key("a_random_production_server_encryption_key_2026_safe"));
+
+    assert!(is_production_env("production"));
+    assert!(is_production_env("Production"));
+    assert!(is_production_env("PROD"));
+    assert!(is_production_env("  prod  "));
+    assert!(is_production_env("produktiv"));
+    assert!(!is_production_env("development"));
+    assert!(!is_production_env("dev"));
+    assert!(!is_production_env("test"));
+
+    // Verify resolve_app_env cleans empty strings, trims whitespace, lowercases and defaults safely
+    assert_eq!(resolve_app_env(Some("production".into()), None, None, true), "production");
+    assert_eq!(resolve_app_env(Some("  Production \n".into()), None, None, true), "production");
+    assert_eq!(resolve_app_env(Some("".into()), Some("  PROD  ".into()), None, false), "prod");
+    assert_eq!(resolve_app_env(Some("   ".into()), None, None, false), "production");
+    assert_eq!(resolve_app_env(Some("   ".into()), None, None, true), "development");
+    assert_eq!(resolve_app_env(None, None, None, false), "production");
+    assert_eq!(resolve_app_env(None, None, None, true), "development");
+}
+
+#[test]
+fn test_rate_limiter_preserves_active_lockouts_under_key_flooding() {
+    let state = create_test_state();
+    let locked_key = "login:victim@schule.de";
+
+    // Exhaust the 12 attempts for the victim account
+    for _ in 0..12 {
+        assert!(crate::middleware::check_auth_rate_limit(&state, locked_key).is_ok());
+    }
+    assert!(crate::middleware::check_auth_rate_limit(&state, locked_key).is_err());
+
+    // Flood the rate limiter with 2,500 distinct random keys
+    for i in 0..2500 {
+        let dummy_key = format!("salt:attacker_{}@example.com", i);
+        let _ = crate::middleware::check_auth_rate_limit(&state, &dummy_key);
+    }
+
+    // Victim's lockout must still be enforced!
+    let res = crate::middleware::check_auth_rate_limit(&state, locked_key);
+    assert!(res.is_err());
+    assert_eq!(res.unwrap_err().0, StatusCode::TOO_MANY_REQUESTS);
+
+    let _ = fs::remove_file(&state.disk_store_path);
+}
+
+#[tokio::test]
+async fn test_invariant_i1_totp_replay_blocked_across_login_and_2fa_disable() {
+    let state = create_test_state();
+    let bundle = generate_vault_bundle("MasterPassword123!").unwrap();
+    let secret_b32 = crate::totp::generate_totp_secret_base32();
+
+    let Json(reg_resp) = register_user(
+        State(state.clone()),
+        Json(RegisterRequest {
+            email: "totp_invariant@schule.de".into(),
+            auth_key_b64: bundle.auth_key_b64.clone(),
+            kdf_salt_b64: bundle.kdf_salt_b64.clone(),
+            kdf_params: bundle.kdf_params.clone(),
+            encrypted_dek: bundle.encrypted_dek.clone(),
+            recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
+            recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
+            user_id: None,
+            totp_secret_base32: Some(secret_b32.clone()),
+            totp_enabled: Some(true),
+            invite_token: None,
+        }),
+    )
+    .await
+    .expect("register 2fa user");
+
+    let valid_code = crate::totp::current_totp_code(&secret_b32).expect("totp code");
+
+    // 1. Login consumes the TOTP code for this 30s time step
+    let login_res = login_user(
+        State(state.clone()),
+        Json(LoginRequest {
+            email: "totp_invariant@schule.de".into(),
+            auth_key_b64: bundle.auth_key_b64.clone(),
+            totp_code: Some(valid_code.clone()),
+        }),
+    )
+    .await;
+    assert!(login_res.is_ok(), "First use of TOTP code at login must succeed");
+
+    // 2. Attempting to replay the exact same TOTP code to disable 2FA must be rejected!
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::AUTHORIZATION,
+        format!("Bearer {}", reg_resp.token).parse().unwrap(),
+    );
+    let disable_replay_err = disable_2fa(
+        State(state.clone()),
+        headers,
+        Some(Json(Disable2faRequest {
+            auth_key_b64: None,
+            totp_code: Some(valid_code),
+        })),
+    )
+    .await;
+    assert!(
+        disable_replay_err.is_err(),
+        "Replaying login TOTP code on /api/auth/2fa/disable must be rejected"
+    );
+    assert_eq!(disable_replay_err.unwrap_err().0, StatusCode::UNAUTHORIZED);
+
+    let _ = fs::remove_file(&state.disk_store_path);
+}
+
+#[tokio::test]
+async fn test_invariant_i3_expected_version_none_rejected_when_envelope_exists() {
+    let state = create_test_state();
+    let bundle = generate_vault_bundle("MasterPassword123!").unwrap();
+
+    let Json(reg_resp) = register_user(
+        State(state.clone()),
+        Json(RegisterRequest {
+            email: "occ_invariant@schule.de".into(),
+            auth_key_b64: bundle.auth_key_b64,
+            kdf_salt_b64: bundle.kdf_salt_b64,
+            kdf_params: bundle.kdf_params,
+            encrypted_dek: bundle.encrypted_dek,
+            recovery_encrypted_dek: bundle.recovery_encrypted_dek,
+            recovery_auth_key_b64: None,
+            user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
+            invite_token: None,
+        }),
+    )
+    .await
+    .expect("register user");
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::AUTHORIZATION,
+        format!("Bearer {}", reg_resp.token).parse().unwrap(),
+    );
+
+    let class_id = Uuid::new_v4();
+
+    // 1. Initial creation with expected_version: None succeeds at version 1
+    let first_res = upsert_envelope(
+        State(state.clone()),
+        headers.clone(),
+        Json(UpsertEnvelopeRequest {
+            id: class_id,
+            entity_type: "class_dataset".into(),
+            parent_id: None,
+            class_id: Some(class_id),
+            encrypted_payload: "v1_payload".into(),
+            expected_version: None,
+        }),
+    )
+    .await
+    .expect("initial creation");
+    assert_eq!(first_res.0.version, 1);
+
+    // 2. Second device sending expected_version: None for an already-existing envelope must get 409 Conflict
+    let blind_overwrite_err = upsert_envelope(
+        State(state.clone()),
+        headers,
+        Json(UpsertEnvelopeRequest {
+            id: class_id,
+            entity_type: "class_dataset".into(),
+            parent_id: None,
+            class_id: Some(class_id),
+            encrypted_payload: "blind_overwrite_payload".into(),
+            expected_version: None,
+        }),
+    )
+    .await;
+    assert!(blind_overwrite_err.is_err());
+    assert_eq!(blind_overwrite_err.unwrap_err().0, StatusCode::CONFLICT);
+
+    let _ = fs::remove_file(&state.disk_store_path);
+}
+
+#[tokio::test]
+async fn test_invariant_i6_live_claims_backup_restore_and_recovery_2fa() {
+    let state = create_test_state();
+    let bundle1 = generate_vault_bundle("AdminOnePass123!").unwrap();
+    let bundle2 = generate_vault_bundle("AdminTwoPass123!").unwrap();
+    let secret2_b32 = crate::totp::generate_totp_secret_base32();
+
+    // 1. Register first admin
+    let Json(admin1) = register_user(
+        State(state.clone()),
+        Json(RegisterRequest {
+            email: "admin1@schule.de".into(),
+            auth_key_b64: bundle1.auth_key_b64.clone(),
+            kdf_salt_b64: bundle1.kdf_salt_b64.clone(),
+            kdf_params: bundle1.kdf_params.clone(),
+            encrypted_dek: bundle1.encrypted_dek.clone(),
+            recovery_encrypted_dek: bundle1.recovery_encrypted_dek.clone(),
+            recovery_auth_key_b64: Some(bundle1.recovery_auth_key_b64.clone()),
+            user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
+            invite_token: None,
+        }),
+    )
+    .await
+    .expect("register admin1");
+    assert!(admin1.is_admin);
+
+    // 2. Register second user (also in admin_emails: "admin@example.com") with 2FA enabled
+    let Json(admin2) = register_user(
+        State(state.clone()),
+        Json(RegisterRequest {
+            email: "admin@example.com".into(),
+            auth_key_b64: bundle2.auth_key_b64.clone(),
+            kdf_salt_b64: bundle2.kdf_salt_b64.clone(),
+            kdf_params: bundle2.kdf_params.clone(),
+            encrypted_dek: bundle2.encrypted_dek.clone(),
+            recovery_encrypted_dek: bundle2.recovery_encrypted_dek.clone(),
+            recovery_auth_key_b64: Some(bundle2.recovery_auth_key_b64.clone()),
+            user_id: None,
+            totp_secret_base32: Some(secret2_b32.clone()),
+            totp_enabled: Some(true),
+            invite_token: None,
+        }),
+    )
+    .await
+    .expect("register admin2");
+    assert!(admin2.is_admin);
+
+    let mut admin1_headers = HeaderMap::new();
+    admin1_headers.insert(
+        "authorization",
+        format!("Bearer {}", admin1.token).parse().unwrap(),
+    );
+    let mut admin2_headers = HeaderMap::new();
+    admin2_headers.insert(
+        "authorization",
+        format!("Bearer {}", admin2.token).parse().unwrap(),
+    );
+
+    // Admin 2 can initially call /api/admin/users
+    assert!(admin::list_users(State(state.clone()), admin2_headers.clone()).await.is_ok());
+
+    // 3. Admin 1 demotes Admin 2 -> Admin 2's pre-existing JWT must IMMEDIATELY be rejected on /api/admin/users
+    let _ = admin::update_user_status(
+        State(state.clone()),
+        admin1_headers.clone(),
+        Path(admin2.user_id),
+        Json(admin::UpdateUserStatusRequest {
+            is_admin: Some(false),
+            is_active: None,
+        }),
+    )
+    .await
+    .expect("demote admin2");
+
+    let stale_jwt_attempt = admin::list_users(State(state.clone()), admin2_headers).await;
+    assert!(stale_jwt_attempt.is_err(), "Demoted admin's existing JWT must immediately lose admin access");
+    assert_eq!(stale_jwt_attempt.unwrap_err().0, StatusCode::FORBIDDEN);
+
+    // 4. Backup restore without any active admin must be rejected with 400 Bad Request
+    let bad_restore = admin::restore_backup(
+        State(state.clone()),
+        admin1_headers,
+        Json(serde_json::json!({
+            "users": {},
+            "envelopes": {}
+        })),
+    )
+    .await;
+    assert!(bad_restore.is_err(), "Restoring a backup without any active admin must be rejected");
+    assert_eq!(bad_restore.unwrap_err().0, StatusCode::BAD_REQUEST);
+
+    // 5. Password recovery on a 2FA-enabled account (admin2) without totp_code must fail with 2FA_REQUIRED
+    let rec_without_2fa = recover_password(
+        State(state.clone()),
+        Json(RecoverPasswordRequest {
+            email: "admin@example.com".into(),
+            recovery_auth_key_b64: bundle2.recovery_auth_key_b64.clone(),
+            new_auth_key_b64: "new_auth_key".into(),
+            new_kdf_salt_b64: "new_salt".into(),
+            new_kdf_params: KdfParams::default(),
+            new_encrypted_dek: "v1:nonce:new_dek".into(),
+            new_recovery_encrypted_dek: None,
+            new_recovery_auth_key_b64: None,
+            totp_code: None,
+        }),
+    )
+    .await;
+    assert!(rec_without_2fa.is_err());
+    assert_eq!(rec_without_2fa.unwrap_err().1, "2FA_REQUIRED");
+
+    // With valid TOTP code, recovery succeeds
+    let valid_totp = crate::totp::current_totp_code(&secret2_b32).unwrap();
+    let rec_with_2fa = recover_password(
+        State(state.clone()),
+        Json(RecoverPasswordRequest {
+            email: "admin@example.com".into(),
+            recovery_auth_key_b64: bundle2.recovery_auth_key_b64,
+            new_auth_key_b64: "new_auth_key".into(),
+            new_kdf_salt_b64: "new_salt".into(),
+            new_kdf_params: KdfParams::default(),
+            new_encrypted_dek: "v1:nonce:new_dek".into(),
+            new_recovery_encrypted_dek: None,
+            new_recovery_auth_key_b64: None,
+            totp_code: Some(valid_totp),
+        }),
+    )
+    .await;
+    assert!(rec_with_2fa.is_ok(), "Password recovery with valid 2FA code must succeed");
+
+    let _ = fs::remove_file(&state.disk_store_path);
+}
+
+#[tokio::test]
+async fn test_audit4_invariants_smtp_encryption_active_admin_and_demoted_login() {
+    let state = create_test_state();
+    let bundle1 = generate_vault_bundle("AdminOnePass123!").unwrap();
+    let bundle2 = generate_vault_bundle("AdminTwoPass123!").unwrap();
+
+    // 1. Register first admin and second bootstrap admin (admin@example.com)
+    let Json(admin1) = register_user(
+        State(state.clone()),
+        Json(RegisterRequest {
+            email: "admin1@schule.de".into(),
+            auth_key_b64: bundle1.auth_key_b64.clone(),
+            kdf_salt_b64: bundle1.kdf_salt_b64.clone(),
+            kdf_params: bundle1.kdf_params.clone(),
+            encrypted_dek: bundle1.encrypted_dek.clone(),
+            recovery_encrypted_dek: bundle1.recovery_encrypted_dek.clone(),
+            recovery_auth_key_b64: None,
+            user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
+            invite_token: None,
+        }),
+    )
+    .await
+    .expect("register admin1");
+
+    let Json(admin2) = register_user(
+        State(state.clone()),
+        Json(RegisterRequest {
+            email: "admin@example.com".into(),
+            auth_key_b64: bundle2.auth_key_b64.clone(),
+            kdf_salt_b64: bundle2.kdf_salt_b64.clone(),
+            kdf_params: bundle2.kdf_params.clone(),
+            encrypted_dek: bundle2.encrypted_dek.clone(),
+            recovery_encrypted_dek: bundle2.recovery_encrypted_dek.clone(),
+            recovery_auth_key_b64: None,
+            user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
+            invite_token: None,
+        }),
+    )
+    .await
+    .expect("register admin2");
+
+    let mut admin1_headers = HeaderMap::new();
+    admin1_headers.insert(
+        "authorization",
+        format!("Bearer {}", admin1.token).parse().unwrap(),
+    );
+
+    // 2. Demote admin2 (who is in state.admin_emails) -> subsequent password login must NOT re-promote them
+    let _ = admin::update_user_status(
+        State(state.clone()),
+        admin1_headers.clone(),
+        Path(admin2.user_id),
+        Json(admin::UpdateUserStatusRequest {
+            is_admin: Some(false),
+            is_active: None,
+        }),
+    )
+    .await
+    .expect("demote admin2");
+
+    let Json(login_resp) = login_user(
+        State(state.clone()),
+        Json(LoginRequest {
+            email: "admin@example.com".into(),
+            auth_key_b64: bundle2.auth_key_b64.clone(),
+            totp_code: None,
+        }),
+    )
+    .await
+    .expect("login demoted admin2");
+    assert!(!login_resp.is_admin, "Demoted bootstrap admin must not be re-promoted on login");
+
+    // 3. Deactivating the sole remaining active admin (admin1) must fail with 400 Bad Request
+    let deactivate_last_admin = admin::update_user_status(
+        State(state.clone()),
+        admin1_headers.clone(),
+        Path(admin1.user_id),
+        Json(admin::UpdateUserStatusRequest {
+            is_admin: None,
+            is_active: Some(false),
+        }),
+    )
+    .await;
+    assert!(deactivate_last_admin.is_err());
+    assert_eq!(deactivate_last_admin.unwrap_err().0, StatusCode::BAD_REQUEST);
+
+    // 4. SMTP password must be encrypted at rest in mem_settings and decrypted internally
+    let _ = admin::update_smtp_config(
+        State(state.clone()),
+        admin1_headers.clone(),
+        Json(admin::SmtpConfig {
+            host: "smtp.schule.de".into(),
+            port: 587,
+            username: "mailer@schule.de".into(),
+            password: "TopSecretSmtpPassword!2026".into(),
+            from_email: "noreply@schule.de".into(),
+            from_name: "Gradus21".into(),
+            security: "starttls".into(),
+        }),
+    )
+    .await
+    .expect("save smtp config");
+
+    {
+        let settings = state.mem_settings.read().unwrap();
+        let raw_pw = settings
+            .get("smtp_config")
+            .and_then(|v| v.get("password"))
+            .and_then(|v| v.as_str())
+            .expect("raw password in mem_settings");
+        assert!(
+            raw_pw.starts_with("v1:"),
+            "SMTP password must be stored as an encrypted v1 envelope at rest"
+        );
+        assert!(!raw_pw.contains("TopSecretSmtpPassword"));
+    }
+
+    let decrypted_smtp = admin::get_smtp_config_internal(&state).expect("decrypted smtp config");
+    assert_eq!(decrypted_smtp.password, "TopSecretSmtpPassword!2026");
+
+    // 5. verify_email_confirm must reject empty or non-6-digit codes
+    let empty_code_err = crate::routes::auth::verify_email_confirm(
+        State(state.clone()),
+        Json(crate::routes::auth::VerifyEmailConfirmRequest {
+            email: "admin1@schule.de".into(),
+            code: "".into(),
+        }),
+    )
+    .await;
+    assert!(empty_code_err.is_err());
+    assert_eq!(empty_code_err.unwrap_err().0, StatusCode::BAD_REQUEST);
+
+    let _ = fs::remove_file(&state.disk_store_path);
+}
+
+#[tokio::test]
+async fn test_invariant_i7_passkey_only_anti_lockout_and_batch_limits() {
+    let state = create_test_state();
+
+    // 1. Register a Passkey-only user (auth_key_b64 is empty)
+    let Json(pk_user) = register_user(
+        State(state.clone()),
+        Json(RegisterRequest {
+            email: "passkey_only@schule.de".into(),
+            auth_key_b64: "".into(),
+            kdf_salt_b64: "".into(),
+            kdf_params: KdfParams::default(),
+            encrypted_dek: "".into(),
+            recovery_encrypted_dek: "".into(),
+            recovery_auth_key_b64: None,
+            user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
+            invite_token: None,
+        }),
+    )
+    .await
+    .expect("register passkey-only user");
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "authorization",
+        format!("Bearer {}", pk_user.token).parse().unwrap(),
+    );
+
+    // Register 1st passkey
+    let _ = register_passkey(
+        State(state.clone()),
+        headers.clone(),
+        Json(PasskeyRegisterRequest {
+            credential_id: "cred_pk_1".into(),
+            label: "MacBook Touch ID".into(),
+            passkey_encrypted_dek: "v1:nonce:dek1".into(),
+            passkey_prf_salt_b64: Some("salt1".into()),
+            kdf_salt_b64: None,
+            encrypted_dek: None,
+            recovery_encrypted_dek: None,
+            recovery_auth_key_b64: None,
+        }),
+    )
+    .await
+    .expect("register 1st passkey");
+
+    let Json(pk_list_1) = list_user_passkeys(State(state.clone()), headers.clone())
+        .await
+        .expect("list passkeys");
+    assert_eq!(pk_list_1.len(), 1);
+    let pk1_id = Uuid::parse_str(pk_list_1[0]["id"].as_str().unwrap()).unwrap();
+
+    // Attempting password login with empty auth_key_b64 on a Passkey-only account must fail with 401 Unauthorized
+    let empty_pw_login = login_user(
+        State(state.clone()),
+        Json(LoginRequest {
+            email: "passkey_only@schule.de".into(),
+            auth_key_b64: "".into(),
+            totp_code: None,
+        }),
+    )
+    .await;
+    assert!(empty_pw_login.is_err());
+    assert_eq!(empty_pw_login.unwrap_err().0, StatusCode::UNAUTHORIZED);
+
+    // Attempting to delete the sole passkey on a Passkey-only account must fail with 400 Bad Request
+    let del_sole_by_id = delete_user_passkey_by_id(
+        State(state.clone()),
+        headers.clone(),
+        Path(pk1_id),
+    )
+    .await;
+    assert!(del_sole_by_id.is_err());
+    assert_eq!(del_sole_by_id.unwrap_err().0, StatusCode::BAD_REQUEST);
+
+    let del_all_pk = delete_passkey(State(state.clone()), headers.clone()).await;
+    assert!(del_all_pk.is_err());
+    assert_eq!(del_all_pk.unwrap_err().0, StatusCode::BAD_REQUEST);
+
+    // Register 2nd passkey -> now deleting the 1st passkey succeeds, while the 2nd remains protected
+    let _ = register_passkey(
+        State(state.clone()),
+        headers.clone(),
+        Json(PasskeyRegisterRequest {
+            credential_id: "cred_pk_2".into(),
+            label: "iPhone Face ID".into(),
+            passkey_encrypted_dek: "v1:nonce:dek2".into(),
+            passkey_prf_salt_b64: Some("salt2".into()),
+            kdf_salt_b64: None,
+            encrypted_dek: None,
+            recovery_encrypted_dek: None,
+            recovery_auth_key_b64: None,
+        }),
+    )
+    .await
+    .expect("register 2nd passkey");
+
+    let del_first_ok = delete_user_passkey_by_id(
+        State(state.clone()),
+        headers.clone(),
+        Path(pk1_id),
+    )
+    .await;
+    assert!(del_first_ok.is_ok());
+
+    // 2. Verify batch_sync_envelopes rejects > 500 items or invalid entity_type
+    let oversized_items: Vec<BatchUpsertItem> = (0..501)
+        .map(|_| BatchUpsertItem {
+            id: Uuid::new_v4(),
+            entity_type: "class_dataset".into(),
+            parent_id: None,
+            class_id: None,
+            encrypted_payload: "v1:a:b".into(),
+            expected_version: None,
+        })
+        .collect();
+
+    let batch_err = batch_sync_envelopes(
+        State(state.clone()),
+        headers.clone(),
+        Json(BatchSyncRequest {
+            envelopes: oversized_items,
+        }),
+    )
+    .await;
+    assert!(batch_err.is_err());
+    assert_eq!(batch_err.unwrap_err().0, StatusCode::BAD_REQUEST);
+
+    let bad_type_err = upsert_envelope(
+        State(state.clone()),
+        headers,
+        Json(UpsertEnvelopeRequest {
+            id: Uuid::new_v4(),
+            entity_type: "".into(),
+            parent_id: None,
+            class_id: None,
+            encrypted_payload: "v1:a:b".into(),
+            expected_version: None,
+        }),
+    )
+    .await;
+    assert!(bad_type_err.is_err());
+    assert_eq!(bad_type_err.unwrap_err().0, StatusCode::BAD_REQUEST);
+
+    let _ = fs::remove_file(&state.disk_store_path);
+}
+
+#[test]
+fn test_invariant_i8_extract_client_ip_spoofing_protection() {
+    // 1. When Nginx sets both X-Real-IP and X-Forwarded-For (with a client-spoofed prefix),
+    // extract_client_ip must return the real client IP, never the spoofed prefix.
+    let mut headers = HeaderMap::new();
+    headers.insert("x-forwarded-for", "1.2.3.4, 198.51.100.7".parse().unwrap());
+    headers.insert("x-real-ip", "198.51.100.7".parse().unwrap());
+    assert_eq!(crate::middleware::extract_client_ip(&headers), "198.51.100.7");
+
+    // 2. When only X-Forwarded-For is present, extract_client_ip must take the rightmost (proxy-appended) IP.
+    let mut xff_only = HeaderMap::new();
+    xff_only.insert("x-forwarded-for", "203.0.113.99, 198.51.100.42".parse().unwrap());
+    assert_eq!(crate::middleware::extract_client_ip(&xff_only), "198.51.100.42");
+
+    // 3. Fallback when no proxy headers are present
+    let empty = HeaderMap::new();
+    assert_eq!(crate::middleware::extract_client_ip(&empty), "local");
+}
+
+#[tokio::test]
+async fn test_audit7_invite_origin_validation_backup_whitelist_and_unique_snapshots() {
+    let state = create_test_state();
+    let bundle = generate_vault_bundle("AdminPass123!").unwrap();
+
+    let Json(admin_resp) = register_user(
+        State(state.clone()),
+        Json(RegisterRequest {
+            email: "admin_audit7@schule.de".into(),
+            auth_key_b64: bundle.auth_key_b64,
+            kdf_salt_b64: bundle.kdf_salt_b64,
+            kdf_params: bundle.kdf_params,
+            encrypted_dek: bundle.encrypted_dek,
+            recovery_encrypted_dek: bundle.recovery_encrypted_dek,
+            recovery_auth_key_b64: None,
+            user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
+            invite_token: None,
+        }),
+    )
+    .await
+    .expect("register admin");
+
+    let mut evil_headers = HeaderMap::new();
+    evil_headers.insert(
+        "authorization",
+        format!("Bearer {}", admin_resp.token).parse().unwrap(),
+    );
+    evil_headers.insert("origin", "https://evil-phishing.example.com".parse().unwrap());
+    evil_headers.insert("x-forwarded-host", "evil-phishing.example.com".parse().unwrap());
+
+    // 1. invite_user must ignore untrusted Origin / X-Forwarded-Host headers
+    let Json(inv_res) = admin::invite_user(
+        State(state.clone()),
+        evil_headers.clone(),
+        Json(admin::InviteUserRequest {
+            email: "new_teacher@schule.de".into(),
+            is_admin: Some(false),
+            send_mail: Some(false),
+        }),
+    )
+    .await
+    .expect("invite user");
+
+    let invite_url = inv_res["invite_url"].as_str().expect("invite_url string");
+    assert!(
+        !invite_url.contains("evil-phishing.example.com"),
+        "invite_url must never adopt untrusted Origin/Host headers: {}",
+        invite_url
+    );
+
+    // 2. download_backup must enforce strict alphanumeric + `[._-]` + `.json` whitelist
+    for bad_name in ["evil\"header.json", "secrets.txt", "../vault_store.json", "file with spaces.json"] {
+        let dl_err = admin::download_backup(
+            State(state.clone()),
+            evil_headers.clone(),
+            Path(bad_name.to_string()),
+        )
+        .await;
+        assert!(dl_err.is_err(), "download_backup must reject {}", bad_name);
+        assert_eq!(dl_err.unwrap_err().0, StatusCode::BAD_REQUEST);
+    }
+
+    // 3. Two consecutive backup snapshots within the same second must produce distinct filenames
+    let snap1 = admin::perform_backup_snapshot(&state).expect("snapshot 1");
+    let snap2 = admin::perform_backup_snapshot(&state).expect("snapshot 2");
+    assert_ne!(
+        snap1.filename, snap2.filename,
+        "Back-to-back snapshots must not overwrite each other"
+    );
+
+    if let Some(parent) = state.disk_store_path.parent() {
+        let _ = fs::remove_dir_all(parent.join("backups"));
+    }
     let _ = fs::remove_file(&state.disk_store_path);
 }

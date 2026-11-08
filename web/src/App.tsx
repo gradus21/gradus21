@@ -134,10 +134,6 @@ export const App: React.FC = () => {
   const [showOnDemandCurveEditor, setShowOnDemandCurveEditor] = useState(false);
   const [showOnDemandSimulator, setShowOnDemandSimulator] = useState(false);
 
-  // What-If Simulation State
-  const [simCategoryId] = useState<string>('cat_lnw');
-  const [simTargetPercent] = useState<number>(75);
-
   // Desktop In-App Auto-Update State
   const [appUpdate, setAppUpdate] = useState<UpdateInfo | null>(null);
   const [dismissedUpdate, setDismissedUpdate] = useState(false);
@@ -334,8 +330,6 @@ export const App: React.FC = () => {
     selectedAssessmentId,
     selectedStudentId,
     showArchivedInMatrix,
-    simCategoryId,
-    simTargetPercent,
   });
 
   // Global Keyboard Shortcuts (Cmd/Ctrl + 1..4, Alt+P, ?, F1)
@@ -552,7 +546,6 @@ export const App: React.FC = () => {
               toggleStudentNotGraded={toggleStudentNotGraded}
               toggleStudentArchived={toggleStudentArchived}
               onAddStudent={handleAddStudent}
-              onAddAssessment={handleAddAssessment}
               onUpdateDatasetMeta={handleUpdateDatasetMeta}
             />
           )}

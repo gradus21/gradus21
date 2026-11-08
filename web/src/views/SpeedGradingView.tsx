@@ -2,6 +2,7 @@ import React from 'react';
 import {
   AssessmentConfig,
   ClassroomSubjectDataset,
+  formatGradeDisplayLabel,
   gradeToPercent,
   GRADING_CURVE_PRESETS,
   percentToGradeThreshold,
@@ -466,7 +467,7 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
                   )}
                   {entry?.direct_grade_value != null && entry?.percent_value == null && (
                     <span className="sm:hidden px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/25 shrink-0">
-                      {entry.direct_grade_value}
+                      {formatGradeDisplayLabel(entry.direct_grade_value, activeDataset.config)}
                     </span>
                   )}
                 </div>
@@ -510,10 +511,7 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
                     >
                       Direkt:{' '}
                       <strong>
-                        {entry.direct_grade_value}
-                        {activeDataset.config.scale_id === 'de_oberstufe_0_to_15'
-                          ? ' Pkt'
-                          : ''}
+                        {formatGradeDisplayLabel(entry.direct_grade_value, activeDataset.config)}
                       </strong>
                     </span>
                   ) : null}

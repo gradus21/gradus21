@@ -4,6 +4,7 @@ import {
   AssessmentInputMode,
   CellDisplayFormat,
   ClassroomSubjectDataset,
+  formatGradeDisplayLabel,
   gradeToPercent,
   percentToGradeThreshold,
   StudentProfile,
@@ -64,13 +65,64 @@ export interface ClassMatrixViewProps {
   toggleStudentNotGraded: (studentId: string) => void;
   toggleStudentArchived: (studentId: string) => void;
   onAddStudent: (name: string, level: 'G' | 'M' | 'E') => void;
-  onAddAssessment?: (
-    title: string,
-    categoryId: string,
-    inputMode: AssessmentInputMode
-  ) => void;
   onUpdateDatasetMeta?: (patch: { subjectCode?: string; courseType?: string }) => void;
 }
+
+interface MatrixGradeCellInputProps {
+  inputMode?: 'grade_scale' | 'points' | 'percent';
+  displayValue: string;
+  placeholder?: string;
+  title?: string;
+  className?: string;
+  style?: React.CSSProperties;
+  dataCardGradeInput?: boolean;
+  enterKeyHint?: 'next' | 'done' | 'enter';
+  onUpdate: (val: string) => void;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+}
+
+const MatrixGradeCellInput: React.FC<MatrixGradeCellInputProps> = ({
+  inputMode = 'percent',
+  displayValue,
+  placeholder = '—',
+  title,
+  className,
+  style,
+  dataCardGradeInput,
+  enterKeyHint,
+  onUpdate,
+  onKeyDown,
+}) => {
+  const [localValue, setLocalValue] = useState<string | null>(null);
+  const currentValue = localValue !== null ? localValue : displayValue;
+
+  return (
+    <input
+      type="text"
+      inputMode={inputMode === 'grade_scale' ? 'text' : 'decimal'}
+      enterKeyHint={enterKeyHint}
+      data-card-grade-input={dataCardGradeInput ? 'true' : undefined}
+      value={currentValue}
+      placeholder={placeholder}
+      title={title}
+      className={className}
+      style={style}
+      onFocus={(e) => {
+        setLocalValue(displayValue);
+        e.target.select();
+      }}
+      onBlur={() => {
+        setLocalValue(null);
+      }}
+      onChange={(e) => {
+        const val = e.target.value;
+        setLocalValue(val);
+        onUpdate(val);
+      }}
+      onKeyDown={onKeyDown}
+    />
+  );
+};
 
 export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
   activeDataset,
@@ -95,7 +147,6 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
   toggleStudentNotGraded,
   toggleStudentArchived,
   onAddStudent,
-  onAddAssessment: _onAddAssessment,
   onUpdateDatasetMeta,
 }) => {
   const [showExportConfigModal, setShowExportConfigModal] = useState(false);
@@ -847,7 +898,7 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                                     <>
                                       <span>·</span>
                                       <strong className="text-teal-600 dark:text-teal-400">
-                                        Note {entry.direct_grade_value ?? percentToGradeThreshold(entry.percent_value, activeDataset.config, currentStudent.level).display_label}
+                                        Note {entry.direct_grade_value != null ? formatGradeDisplayLabel(entry.direct_grade_value, activeDataset.config) : percentToGradeThreshold(entry.percent_value, activeDataset.config, currentStudent.level).display_label}
                                       </strong>
                                     </>
                                   )}
@@ -865,17 +916,16 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                                   </button>
                                 ) : (
                                   <>
-                                    <input
-                                      type="text"
-                                      inputMode={assess.input_mode === 'grade_scale' ? 'text' : 'decimal'}
+                                    <MatrixGradeCellInput
+                                      inputMode={assess.input_mode}
                                       enterKeyHint="next"
-                                      data-card-grade-input="true"
-                                      value={
+                                      dataCardGradeInput={true}
+                                      displayValue={
                                         assess.input_mode === 'grade_scale'
                                           ? entry?.direct_grade_value != null
-                                            ? String(entry.direct_grade_value)
+                                            ? formatGradeDisplayLabel(entry.direct_grade_value, activeDataset.config)
                                             : entry?.percent_value != null
-                                            ? String(percentToGradeThreshold(entry.percent_value, activeDataset.config, currentStudent.level).numeric_value)
+                                            ? percentToGradeThreshold(entry.percent_value, activeDataset.config, currentStudent.level).display_label
                                             : ''
                                           : assess.input_mode === 'points'
                                           ? entry?.raw_points != null
@@ -890,12 +940,11 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                                           : ''
                                       }
                                       placeholder="—"
-                                      onFocus={(e) => e.target.select()}
-                                      onChange={(e) => {
+                                      onUpdate={(val) => {
                                         updateGradeEntry(
                                           currentStudent.id,
                                           assess.id,
-                                          e.target.value,
+                                          val,
                                           assess.input_mode || 'percent'
                                         );
                                       }}
@@ -1355,15 +1404,14 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                                     Attest
                                   </button>
                                 ) : (
-                                  <input
-                                    type="text"
-                                    inputMode={assess.input_mode === 'grade_scale' ? 'text' : 'decimal'}
-                                    value={
+                                  <MatrixGradeCellInput
+                                    inputMode={assess.input_mode}
+                                    displayValue={
                                       assess.input_mode === 'grade_scale'
                                         ? entry?.direct_grade_value != null
-                                          ? String(entry.direct_grade_value)
+                                          ? formatGradeDisplayLabel(entry.direct_grade_value, activeDataset.config)
                                           : entry?.percent_value != null
-                                          ? String(percentToGradeThreshold(entry.percent_value, activeDataset.config, stu.level).numeric_value)
+                                          ? percentToGradeThreshold(entry.percent_value, activeDataset.config, stu.level).display_label
                                           : ''
                                         : assess.input_mode === 'points'
                                         ? entry?.raw_points != null
@@ -1380,14 +1428,14 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                                     placeholder="—"
                                     title={
                                       entry?.percent_value != null || entry?.direct_grade_value != null
-                                        ? `Note: ${entry?.direct_grade_value ?? (entry?.percent_value != null ? percentToGradeThreshold(entry.percent_value, activeDataset.config, stu.level).display_label : '—')} | ${entry?.percent_value != null ? `${entry.percent_value}%` : '—'} | ${entry?.raw_points != null ? `${entry.raw_points} Pkt` : '—'}`
+                                        ? `Note: ${entry?.direct_grade_value != null ? formatGradeDisplayLabel(entry.direct_grade_value, activeDataset.config) : (entry?.percent_value != null ? percentToGradeThreshold(entry.percent_value, activeDataset.config, stu.level).display_label : '—')} | ${entry?.percent_value != null ? `${entry.percent_value}%` : '—'} | ${entry?.raw_points != null ? `${entry.raw_points} Pkt` : '—'}`
                                         : 'Wert eintragen'
                                     }
-                                    onChange={(e) =>
+                                    onUpdate={(val) =>
                                       updateGradeEntry(
                                         stu.id,
                                         assess.id,
-                                        e.target.value,
+                                        val,
                                         assess.input_mode || 'percent'
                                       )
                                     }

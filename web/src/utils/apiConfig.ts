@@ -50,14 +50,12 @@ export function getServerUrl(): string {
     }
   }
 
-  // If running in browser hosted on a domain (e.g. https://gradus21.app or custom domain)
+  // If running in browser hosted on a domain (e.g. https://gradus21.app, custom domain, or local Docker instance)
   if (
     !isStandaloneClient() &&
     typeof window.location !== 'undefined' &&
+    window.location.origin &&
     window.location.origin.startsWith('http') &&
-    !window.location.hostname.includes('localhost') &&
-    !window.location.hostname.includes('127.0.0.1') &&
-    !window.location.hostname.includes('tauri') &&
     !isInvalidOrLegacyServerUrl(window.location.origin)
   ) {
     return window.location.origin;

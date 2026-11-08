@@ -12,14 +12,25 @@ describe('Offline TOTP Utility (RFC 6238)', () => {
     expect(uri).toContain('issuer=Gradus21');
   });
 
-  it('generates and verifies matching 6-digit TOTP code', async () => {
+  it('generates and verifies matching 6-digit TOTP code and blocks replay in the same time step', async () => {
     const { secretBase32 } = generateTotpSecret();
-    const code = await generateTotpCode(secretBase32);
+    const now = 1_700_000_000_000;
+    const code = await generateTotpCode(secretBase32, now);
 
     expect(code).toMatch(/^\d{6}$/);
 
-    const valid = await verifyTotpCode(secretBase32, code);
-    expect(valid).toBe(true);
+    const validFirst = await verifyTotpCode(secretBase32, code, now);
+    expect(validFirst).toBe(true);
+
+    // Replaying the exact same code in the same 30s window must be rejected (RFC 6238 §5.2)
+    const validReplay = await verifyTotpCode(secretBase32, code, now + 5_000);
+    expect(validReplay).toBe(false);
+
+    // Next 30s window code must be accepted
+    const nextWindowNow = now + 30_000;
+    const nextCode = await generateTotpCode(secretBase32, nextWindowNow);
+    const validNext = await verifyTotpCode(secretBase32, nextCode, nextWindowNow);
+    expect(validNext).toBe(true);
   });
 
   it('rejects incorrect codes', async () => {

@@ -196,6 +196,13 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
     if (currentStep.targetMode) {
       setMode(currentStep.targetMode);
     }
+    if (currentStep.targetId) {
+      window.dispatchEvent(
+        new CustomEvent('gradus21:guide-target', {
+          detail: { targetId: currentStep.targetId, stepId: currentStep.id },
+        })
+      );
+    }
   }, [isOpen, currentStep, setMode]);
 
   // Dynamically measure actual popover dimensions to prevent any viewport clipping
@@ -243,6 +250,14 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
     let selector = `[data-tour="${currentStep.targetId}"]`;
     if (currentStep.targetId === 'header-sync-status') {
       selector = '[data-tour="header-sync-status"], [data-tour="header-storage-indicator"]';
+    } else if (currentStep.targetId === 'configurator-scale-mode') {
+      selector = '[data-tour="configurator-scale-mode"], [data-tour="configurator-tab-base-setup"]';
+    } else if (currentStep.targetId === 'configurator-curve-editor') {
+      selector = '[data-tour="configurator-curve-editor"], [data-tour="configurator-tab-curve"]';
+    } else if (currentStep.targetId === 'configurator-differentiation') {
+      selector = '[data-tour="configurator-differentiation"], [data-tour="configurator-tab-differentiation"]';
+    } else if (currentStep.targetId === 'configurator-categories') {
+      selector = '[data-tour="configurator-categories"], [data-tour="configurator-tab-categories"]';
     }
 
     let el = document.querySelector(selector) as HTMLElement | null;

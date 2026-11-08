@@ -137,4 +137,32 @@ describe('Student360View Empty State & Safety', () => {
     expect(screen.getAllByText(firstStudent.name).length).toBeGreaterThan(0);
     expect(screen.getByText('Elterngesprächs-Ansicht (HJ1)')).toBeInTheDocument();
   });
+
+  it('safely handles datasets where level_threshold_offsets is missing or undefined', () => {
+    const unscaledDataset = {
+      ...INITIAL_CLASS_DATASETS[0],
+      config: {
+        ...INITIAL_CLASS_DATASETS[0].config,
+        enable_student_levels: true,
+        level_threshold_offsets: undefined as unknown as Record<string, number>,
+      },
+    };
+    const studentWithLevel = {
+      ...unscaledDataset.students[0],
+      level: 'G' as const,
+    };
+
+    render(
+      <Student360View
+        {...defaultProps}
+        activeDataset={unscaledDataset}
+        visibleStudents={[studentWithLevel]}
+        activeStudent={studentWithLevel}
+        selectedStudentId={studentWithLevel.id}
+        showOnDemandSimulator={true}
+      />
+    );
+
+    expect(screen.getAllByText(studentWithLevel.name).length).toBeGreaterThan(0);
+  });
 });

@@ -20,12 +20,286 @@ interface ClassSetupAndExcelWizardProps {
   onLoadDemoClass?: () => void;
 }
 
-interface DetectedExcelColumn {
+export interface DetectedExcelColumn {
   colIndex: number;
   header: string;
   role: 'student_name' | 'student_level' | 'assessment' | 'ignore';
   categoryKey: 'lnw' | 'muendl' | 'tests';
+  inputMode?: 'percent' | 'grade_scale';
   sampleValues: string[];
+}
+
+export function detectExcelColumns(
+  headerRow: Array<string | number | null>,
+  dataRows: Array<Array<string | number | null>>
+): DetectedExcelColumn[] {
+  return headerRow.map((rawHeader, idx) => {
+    const header = String(rawHeader ?? `Spalte ${idx + 1}`).trim();
+    const lower = header.toLowerCase();
+
+    let role: DetectedExcelColumn['role'] = 'assessment';
+    let categoryKey: DetectedExcelColumn['categoryKey'] = 'tests';
+
+    const isKa =
+      /\bka\b/i.test(lower) ||
+      /\bka\d/i.test(lower) ||
+      lower.startsWith('ka ') ||
+      lower.startsWith('ka-') ||
+      lower.startsWith('ka_');
+
+    if (
+      idx === 0 ||
+      lower.includes('name') ||
+      lower.includes('schüler') ||
+      lower.includes('schueler') ||
+      lower.includes('lernende')
+    ) {
+      role = 'student_name';
+    } else if (lower.includes('niveau') || lower.includes('level') || lower.includes('kurs')) {
+      role = 'student_level';
+    } else if (
+      lower.includes('lnw') ||
+      isKa ||
+      lower.includes('arbeit') ||
+      lower.includes('klausur')
+    ) {
+      role = 'assessment';
+      categoryKey = 'lnw';
+    } else if (
+      lower.includes('münd') ||
+      lower.includes('muend') ||
+      lower.includes('somi') ||
+      lower.includes('mitarbeit')
+    ) {
+      role = 'assessment';
+      categoryKey = 'muendl';
+    } else {
+      role = 'assessment';
+      categoryKey = 'tests';
+    }
+
+    let inputMode: 'percent' | 'grade_scale' = 'percent';
+    if (role === 'assessment') {
+      const indicatesGrade =
+        lower.includes('note') || lower.includes('zensur') || lower.includes('noten');
+      const indicatesPercent =
+        lower.includes('%') ||
+        lower.includes('prozent') ||
+        lower.includes('punkte') ||
+        lower.includes('pkt');
+
+      const colValues = dataRows
+        .map((r) => r[idx])
+        .filter((v) => v !== null && v !== undefined && String(v).trim() !== '');
+
+      let hasPercentSymbol = false;
+      let hasTendency = false;
+      let allUnderSix = colValues.length > 0;
+      let numericCount = 0;
+
+      for (const rawVal of colValues) {
+        const s = String(rawVal).trim().toUpperCase();
+        if (s === 'K' || s === 'ATTEST' || s === 'A' || s === 'E' || s === '-') continue;
+        if (s.includes('%')) {
+          hasPercentSymbol = true;
+        }
+        if (s.endsWith('+') || s.endsWith('-') || s.startsWith('+') || s.startsWith('-')) {
+          hasTendency = true;
+        }
+        const clean = s.replace(/[+-]/g, '').replace(',', '.').trim();
+        const val = parseFloat(clean);
+        if (!isNaN(val)) {
+          numericCount++;
+          if (val > 6.0) {
+            allUnderSix = false;
+          }
+        }
+      }
+
+      if (hasPercentSymbol || indicatesPercent) {
+        inputMode = 'percent';
+      } else if (indicatesGrade || hasTendency || (numericCount > 0 && allUnderSix)) {
+        inputMode = 'grade_scale';
+      } else {
+        inputMode = 'percent';
+      }
+    }
+
+    const samples = dataRows
+      .slice(0, 4)
+      .map((r) => (r[idx] != null && String(r[idx]).trim() !== '' ? String(r[idx]).trim() : '—'));
+
+    return {
+      colIndex: idx,
+      header,
+      role,
+      categoryKey,
+      inputMode,
+      sampleValues: samples,
+    };
+  });
+}
+
+export function buildClassroomFromExcel(params: {
+  schoolName: string;
+  schoolYear: string;
+  className: string;
+  subjectName: string;
+  scaleId: GradingScaleId;
+  excelFileName?: string | null;
+  detectedColumns: DetectedExcelColumn[];
+  excelRows: Array<Array<string | number | null>>;
+}): ClassroomSubjectDataset {
+  const {
+    schoolName,
+    schoolYear,
+    className,
+    subjectName,
+    scaleId,
+    excelFileName = 'Importierte Datei.xlsx',
+    detectedColumns,
+    excelRows,
+  } = params;
+
+  const nameCol = detectedColumns.find((c) => c.role === 'student_name')?.colIndex ?? 0;
+  const levelCol = detectedColumns.find((c) => c.role === 'student_level')?.colIndex;
+
+  const categories: CategoryConfig[] = [
+    { id: 'cat_lnw', name: 'Große LNW (Klassenarbeiten)', short_code: 'LNW', weight: 0.5, drop_lowest_count: 0 },
+    { id: 'cat_muendl', name: 'Mündliche Leistung', short_code: 'Mündl', weight: 0.3, drop_lowest_count: 0 },
+    { id: 'cat_tests', name: 'Tests (Vokabeln & Kurztests)', short_code: 'Tests', weight: 0.2, drop_lowest_count: 0 },
+  ];
+
+  const assessments: AssessmentConfig[] = [];
+  const colToAssessmentId = new Map<number, string>();
+
+  detectedColumns.forEach((col, i) => {
+    if (col.role !== 'assessment') return;
+    const assessId = `imp_assess_${i}_${Date.now()}`;
+    colToAssessmentId.set(col.colIndex, assessId);
+    const catId =
+      col.categoryKey === 'lnw'
+        ? 'cat_lnw'
+        : col.categoryKey === 'muendl'
+        ? 'cat_muendl'
+        : 'cat_tests';
+
+    const isGradeScale = col.inputMode === 'grade_scale';
+    assessments.push({
+      id: assessId,
+      category_id: catId,
+      title: col.header,
+      term_id: 'hj1',
+      weight: 1.0,
+      input_mode: isGradeScale ? 'grade_scale' : 'percent',
+      max_points: isGradeScale ? null : col.categoryKey === 'lnw' ? 45 : 15,
+    });
+  });
+
+  const students: StudentProfile[] = [];
+  const grades: GradeEntry[] = [];
+
+  excelRows.forEach((row, rIdx) => {
+    const rawName = row[nameCol];
+    if (!rawName || String(rawName).trim() === '') return;
+    const stuName = String(rawName).trim();
+    const stuId = `imp_stu_${rIdx + 1}_${Date.now()}`;
+
+    const rawLvl = levelCol !== undefined ? String(row[levelCol] ?? '').trim().toUpperCase() : '';
+    const level = ['G', 'M', 'E'].includes(rawLvl) ? rawLvl : 'M';
+
+    students.push({
+      id: stuId,
+      name: stuName,
+      level,
+      is_not_graded: false,
+    });
+
+    colToAssessmentId.forEach((assessId, colIdx) => {
+      const cellVal = row[colIdx];
+      if (cellVal === null || cellVal === undefined || String(cellVal).trim() === '') {
+        return;
+      }
+      const strVal = String(cellVal).trim().toUpperCase();
+      if (strVal === 'K' || strVal === 'ATTEST' || strVal === 'A' || strVal === 'E') {
+        grades.push({
+          student_id: stuId,
+          assessment_id: assessId,
+          status: 'excused',
+          percent_value: null,
+          raw_points: null,
+          direct_grade_value: null,
+          comment: 'Aus Excel importiert (Attest)',
+        });
+        return;
+      }
+
+      const assess = assessments.find((a) => a.id === assessId);
+      const col = detectedColumns.find((c) => c.colIndex === colIdx);
+      const isGradeScale = assess?.input_mode === 'grade_scale' || col?.inputMode === 'grade_scale';
+
+      let clean = strVal.replace(',', '.');
+      const hasPlus = clean.endsWith('+') || clean.startsWith('+');
+      const hasMinus = clean.endsWith('-') || clean.startsWith('-');
+      clean = clean.replace(/[+-]/g, '').trim();
+      const num = parseFloat(clean);
+
+      if (!isNaN(num)) {
+        if (isGradeScale) {
+          let directVal = num;
+          if (hasPlus) {
+            directVal = Math.max(0.75, num - 0.25);
+          } else if (hasMinus) {
+            directVal = Math.min(6.0, num + 0.25);
+          }
+          grades.push({
+            student_id: stuId,
+            assessment_id: assessId,
+            status: 'graded',
+            percent_value: null,
+            raw_points: null,
+            direct_grade_value: directVal,
+            comment: null,
+          });
+        } else {
+          const clampedPct = Math.max(0, Math.min(100, num));
+          const maxPts = assess?.max_points ?? 15;
+          grades.push({
+            student_id: stuId,
+            assessment_id: assessId,
+            status: 'graded',
+            percent_value: clampedPct,
+            raw_points: Math.round((clampedPct / 100) * maxPts * 10) / 10,
+            direct_grade_value: null,
+            comment: null,
+          });
+        }
+      }
+    });
+  });
+
+  return {
+    id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ensureValidUuid(`class_xlsx_${Date.now()}`),
+    schoolName,
+    schoolYear,
+    className,
+    subjectName,
+    shortName: `${subjectName.slice(0, 2).toUpperCase()} ${className.replace(/[^0-9a-zA-Z]/g, '')}`,
+    description: `Importiert aus ${excelFileName} (${students.length} Schüler:innen, ${assessments.length} Prüfungen)`,
+    config: {
+      scale_id: scaleId,
+      weighting_mode: 'category_buckets',
+      scale_empty_categories: true,
+      enable_student_levels: levelCol !== undefined,
+      level_threshold_offsets: { G: -5, M: 0, E: 3 },
+      custom_thresholds: null,
+    },
+    categories,
+    assessments,
+    students,
+    grades,
+    reportCardOverrides: {},
+  };
 }
 
 export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> = ({
@@ -171,41 +445,7 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
       const dataRows = nonEmptyRows.slice(1);
       setExcelRows(dataRows);
 
-      const cols: DetectedExcelColumn[] = headerRow.map((rawHeader, idx) => {
-        const header = String(rawHeader ?? `Spalte ${idx + 1}`).trim();
-        const lower = header.toLowerCase();
-
-        let role: DetectedExcelColumn['role'] = 'assessment';
-        let categoryKey: DetectedExcelColumn['categoryKey'] = 'tests';
-
-        if (idx === 0 || lower.includes('name') || lower.includes('schüler') || lower.includes('schueler') || lower.includes('lernende')) {
-          role = 'student_name';
-        } else if (lower.includes('niveau') || lower.includes('level') || lower.includes('kurs')) {
-          role = 'student_level';
-        } else if (lower.includes('lnw') || lower.includes('ka') || lower.includes('arbeit') || lower.includes('klausur')) {
-          role = 'assessment';
-          categoryKey = 'lnw';
-        } else if (lower.includes('münd') || lower.includes('muend') || lower.includes('somi') || lower.includes('mitarbeit')) {
-          role = 'assessment';
-          categoryKey = 'muendl';
-        } else {
-          role = 'assessment';
-          categoryKey = 'tests';
-        }
-
-        const samples = dataRows
-          .slice(0, 4)
-          .map((r) => (r[idx] != null && String(r[idx]).trim() !== '' ? String(r[idx]).trim() : '—'));
-
-        return {
-          colIndex: idx,
-          header,
-          role,
-          categoryKey,
-          sampleValues: samples,
-        };
-      });
-
+      const cols = detectExcelColumns(headerRow, dataRows);
       setDetectedColumns(cols);
     };
     reader.readAsArrayBuffer(file);
@@ -214,117 +454,16 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
   const handleConfirmExcelImport = () => {
     if (excelRows.length === 0) return;
 
-    const nameCol = detectedColumns.find((c) => c.role === 'student_name')?.colIndex ?? 0;
-    const levelCol = detectedColumns.find((c) => c.role === 'student_level')?.colIndex;
-
-    const categories: CategoryConfig[] = [
-      { id: 'cat_lnw', name: 'Große LNW (Klassenarbeiten)', short_code: 'LNW', weight: 0.5, drop_lowest_count: 0 },
-      { id: 'cat_muendl', name: 'Mündliche Leistung', short_code: 'Mündl', weight: 0.3, drop_lowest_count: 0 },
-      { id: 'cat_tests', name: 'Tests (Vokabeln & Kurztests)', short_code: 'Tests', weight: 0.2, drop_lowest_count: 0 },
-    ];
-
-    const assessments: AssessmentConfig[] = [];
-    const colToAssessmentId = new Map<number, string>();
-
-    detectedColumns.forEach((col, i) => {
-      if (col.role !== 'assessment') return;
-      const assessId = `imp_assess_${i}_${Date.now()}`;
-      colToAssessmentId.set(col.colIndex, assessId);
-      const catId =
-        col.categoryKey === 'lnw'
-          ? 'cat_lnw'
-          : col.categoryKey === 'muendl'
-          ? 'cat_muendl'
-          : 'cat_tests';
-
-      assessments.push({
-        id: assessId,
-        category_id: catId,
-        title: col.header,
-        term_id: 'hj1',
-        weight: 1.0,
-        input_mode: 'percent',
-        max_points: col.categoryKey === 'lnw' ? 45 : 15,
-      });
-    });
-
-    const students: StudentProfile[] = [];
-    const grades: GradeEntry[] = [];
-
-    excelRows.forEach((row, rIdx) => {
-      const rawName = row[nameCol];
-      if (!rawName || String(rawName).trim() === '') return;
-      const stuName = String(rawName).trim();
-      const stuId = `imp_stu_${rIdx + 1}_${Date.now()}`;
-
-      const rawLvl = levelCol !== undefined ? String(row[levelCol] ?? '').trim().toUpperCase() : '';
-      const level = ['G', 'M', 'E'].includes(rawLvl) ? rawLvl : 'M';
-
-      students.push({
-        id: stuId,
-        name: stuName,
-        level,
-        is_not_graded: false,
-      });
-
-      colToAssessmentId.forEach((assessId, colIdx) => {
-        const cellVal = row[colIdx];
-        if (cellVal === null || cellVal === undefined || String(cellVal).trim() === '') {
-          return;
-        }
-        const strVal = String(cellVal).trim().toUpperCase();
-        if (strVal === 'K' || strVal === 'ATTEST') {
-          grades.push({
-            student_id: stuId,
-            assessment_id: assessId,
-            status: 'excused',
-            percent_value: null,
-            raw_points: null,
-            direct_grade_value: null,
-            comment: 'Aus Excel importiert (Attest)',
-          });
-          return;
-        }
-        const num = parseFloat(strVal.replace(',', '.'));
-        if (!isNaN(num)) {
-          const clampedPct = Math.max(0, Math.min(100, num));
-          const assess = assessments.find((a) => a.id === assessId);
-          const maxPts = assess?.max_points ?? 15;
-          grades.push({
-            student_id: stuId,
-            assessment_id: assessId,
-            status: 'graded',
-            percent_value: clampedPct,
-            raw_points: Math.round((clampedPct / 100) * maxPts * 10) / 10,
-            direct_grade_value: null,
-            comment: null,
-          });
-        }
-      });
-    });
-
-    const newDataset: ClassroomSubjectDataset = {
-      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ensureValidUuid(`class_xlsx_${Date.now()}`),
+    const newDataset = buildClassroomFromExcel({
       schoolName,
       schoolYear,
       className,
       subjectName,
-      shortName: `${subjectName.slice(0, 2).toUpperCase()} ${className.replace(/[^0-9a-zA-Z]/g, '')}`,
-      description: `Importiert aus ${excelFileName} (${students.length} Schüler:innen, ${assessments.length} Prüfungen)`,
-      config: {
-        scale_id: scaleId,
-        weighting_mode: 'category_buckets',
-        scale_empty_categories: true,
-        enable_student_levels: true,
-        level_threshold_offsets: { G: -5, M: 0, E: 3 },
-        custom_thresholds: null,
-      },
-      categories,
-      assessments,
-      students,
-      grades,
-      reportCardOverrides: {},
-    };
+      scaleId,
+      excelFileName,
+      detectedColumns,
+      excelRows,
+    });
 
     onCreateClass(newDataset);
     onClose();
@@ -622,25 +761,42 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
                         </select>
 
                         {col.role === 'assessment' && (
-                          <select
-                            value={col.categoryKey}
-                            onChange={(e) => {
-                              const newCat = e.target.value as DetectedExcelColumn['categoryKey'];
-                              setDetectedColumns((prev) =>
-                                prev.map((c, i) => (i === idx ? { ...c, categoryKey: newCat } : c))
-                              );
-                            }}
-                            className="px-2 py-1 rounded border text-xs font-semibold"
-                            style={{
-                              backgroundColor: 'var(--primary-soft)',
-                              color: 'var(--primary-text)',
-                              borderColor: 'var(--border-subtle)',
-                            }}
-                          >
-                            <option value="lnw">Topf: Große LNW (50%)</option>
-                            <option value="muendl">Topf: Mündlich (30%)</option>
-                            <option value="tests">Topf: Tests (20%)</option>
-                          </select>
+                          <>
+                            <select
+                              value={col.inputMode || 'percent'}
+                              onChange={(e) => {
+                                const newMode = e.target.value as 'percent' | 'grade_scale';
+                                setDetectedColumns((prev) =>
+                                  prev.map((c, i) => (i === idx ? { ...c, inputMode: newMode } : c))
+                                );
+                              }}
+                              className="px-2 py-1 rounded border text-xs"
+                              style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                            >
+                              <option value="grade_scale">Noten (1–6 / Tendenz)</option>
+                              <option value="percent">Prozent / Punkte (%)</option>
+                            </select>
+
+                            <select
+                              value={col.categoryKey}
+                              onChange={(e) => {
+                                const newCat = e.target.value as DetectedExcelColumn['categoryKey'];
+                                setDetectedColumns((prev) =>
+                                  prev.map((c, i) => (i === idx ? { ...c, categoryKey: newCat } : c))
+                                );
+                              }}
+                              className="px-2 py-1 rounded border text-xs font-semibold"
+                              style={{
+                                backgroundColor: 'var(--primary-soft)',
+                                color: 'var(--primary-text)',
+                                borderColor: 'var(--border-subtle)',
+                              }}
+                            >
+                              <option value="lnw">Topf: Große LNW (50%)</option>
+                              <option value="muendl">Topf: Mündlich (30%)</option>
+                              <option value="tests">Topf: Tests (20%)</option>
+                            </select>
+                          </>
                         )}
                       </div>
                     </div>

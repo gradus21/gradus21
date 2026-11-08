@@ -162,6 +162,10 @@ describe('nativeBiometric utilities', () => {
           expect.objectContaining({ allowDeviceCredential: false })
         );
 
+        const storedRaw = localStorage.getItem(`gradus21_native_bio_dek_${mockUid}`) || '';
+        expect(storedRaw.startsWith('v2_idb:')).toBe(true);
+        expect(storedRaw).not.toContain(mockDek);
+
         const unlocked = await unlockWithNativeBiometric(mockUid);
         expect(mockBiometricCipher).not.toHaveBeenCalled();
         expect(unlocked.dekB64).toBe(mockDek);

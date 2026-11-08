@@ -11,6 +11,7 @@ import {
   wasm_wrap_dek_with_recovery,
 } from '../wasm-pkg/gradus21_core';
 import { ensureWasmLoaded } from '../utils/wasmLoader';
+import { restoreSessionCredentials } from '../hooks/useVaultWorkspaceSync';
 import { escapeHtml } from './ExportAndPrintHelpers';
 import { FlowRibbonLogo } from './FlowRibbonLogo';
 import { LegalModal, LegalTab } from './LegalModal';
@@ -68,8 +69,6 @@ import {
   arrayBufferToBase64Url,
 } from './vault/vaultTypes';
 import { printRecoverySheetDocument } from './vault/RecoveryKeyPrintSheet';
-import { PasswordUnlockTab } from './vault/PasswordUnlockTab';
-import { PasskeyUnlockTab } from './vault/PasskeyUnlockTab';
 import { RecoveryUnlockTab } from './vault/RecoveryUnlockTab';
 import { VaultRegistrationWizard } from './vault/VaultRegistrationWizard';
 import { CryptoEnvelopeInspector } from './vault/CryptoEnvelopeInspector';
@@ -234,6 +233,19 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   const [showRegTotpManualSecret, setShowRegTotpManualSecret] = useState(false);
   const [copiedRegTotpSecret, setCopiedRegTotpSecret] = useState(false);
   const [loginRequiresTotp, setLoginRequiresTotp] = useState(false);
+  const [inviteToken] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const hash = window.location.hash || '';
+    const match = hash.match(/invite=([^&]+)/);
+    if (match) return match[1];
+    return new URLSearchParams(window.location.search).get('invite');
+  });
+
+  useEffect(() => {
+    if (inviteToken) {
+      setAuthTab('register');
+    }
+  }, [inviteToken]);
 
   useEffect(() => {
     const store = loadLocalPasskeys();
@@ -644,35 +656,11 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               return false;
             }
           } else {
-            const res = await fetch(apiUrl('/api/auth/passkey/register'), {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${activeSession.token}`,
-              },
-              body: JSON.stringify({
-                credential_id: canonicalCredentialId,
-                label: deviceLabel,
-                passkey_encrypted_dek: passkeyEncryptedDek,
-                passkey_prf_salt_b64: isPrfEnabled ? prfSaltB64 : undefined,
-                kdf_salt_b64: activeSession.kdfSaltB64,
-                encrypted_dek: activeSession.encryptedDek,
-                recovery_encrypted_dek: activeSession.recoveryEncryptedDek,
-                recovery_auth_key_b64: recoveryAuthKeyB64,
-              }),
-            });
-
-            if (res.ok) {
-              const data = await res.json();
-              if (data.token) dataToken = data.token;
-            } else {
-              const errText = await res.text().catch(() => '');
-              setStatusMsg(null);
-              setErrorMsg(
-                `Passkey-Registrierung fehlgeschlagen: ${errText || res.statusText}`
-              );
-              return false;
-            }
+            setStatusMsg(null);
+            setErrorMsg(
+              'Passkey-Registrierung auf dem Server fehlgeschlagen: Kein gültiger WebAuthn-Challenge-Handshake vom Server erhalten.'
+            );
+            return false;
           }
         } catch (serverErr: any) {
           setStatusMsg(null);
@@ -1046,7 +1034,6 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       };
 
       sessionStorage.setItem(`gradus21_dek_${effectiveUserId}`, res.dekB64);
-      sessionStorage.setItem(`bte_notenflow_dek_${effectiveUserId}`, res.dekB64);
 
       setStatusMsg('Freigabe erfolgreich! Tresor wird entsperrt...');
       await onUnlockSuccess(unlockedSession);
@@ -1729,6 +1716,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               encrypted_dek: bundle.encrypted_dek,
               recovery_encrypted_dek: bundle.recovery_encrypted_dek,
               recovery_auth_key_b64: bundle.recovery_auth_key_b64,
+              ...(inviteToken ? { invite_token: inviteToken } : {}),
             }),
           });
 
@@ -2129,9 +2117,30 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         }
       }
 
-      // Offline 2FA check when vault has 2FA enabled
+      // Offline 2FA check when vault has 2FA enabled (decrypts totpSecretBase32 from AEAD envelope using unlocked DEK)
+      const candidateUserIdForCreds =
+        loginData?.user_id || session?.userId || localCached?.userId || 'user_local';
+      const restoredOfflineCreds = !loginData && unlocked?.dek_b64
+        ? restoreSessionCredentials({
+            token: '',
+            userId: candidateUserIdForCreds,
+            email: cleanEmail,
+            kdfSaltB64: usedSalt,
+            authKeyB64: unlocked.auth_key_b64,
+            dekB64: unlocked.dek_b64,
+            encryptedDek: usedEncryptedDek,
+            recoveryEncryptedDek: '',
+            totpEnabled: Boolean(localCached?.totpEnabled || session?.totpEnabled),
+            totpSecretBase32: session?.totpSecretBase32,
+            serverSyncedCount: 0,
+          })
+        : null;
+
       if (!loginData && (localCached?.totpEnabled || session?.totpEnabled)) {
-        const secret = session?.totpSecretBase32 || localCached?.totpSecretBase32;
+        const secret =
+          session?.totpSecretBase32 ||
+          restoredOfflineCreds?.totpSecretBase32 ||
+          localCached?.totpSecretBase32;
         if (secret) {
           if (!totpCode || !totpCode.trim()) {
             setLoginRequiresTotp(true);
@@ -2258,6 +2267,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         totpSecretBase32:
           loginData?.totp_secret_base32 ||
           session?.totpSecretBase32 ||
+          restoredOfflineCreds?.totpSecretBase32 ||
           localCached?.totpSecretBase32,
         passkeyCredentialId: loginData?.passkey_credential_id,
         passkeyLabel: loginData?.passkey_label,
@@ -2363,6 +2373,14 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       const rewrappedJson = wasm_rewrap_dek(recoveredDekB64, targetNewPassword);
       const rewrapped = JSON.parse(rewrappedJson);
 
+      if ((saltData?.totp_enabled || session?.totpEnabled) && !totpCode.trim()) {
+        setLoginRequiresTotp(true);
+        setErrorMsg(
+          'Für dieses Konto ist 2FA aktiv. Bitte gib zusätzlich den 6-stelligen Code aus deiner Authenticator-App ein.'
+        );
+        return;
+      }
+
       const recRes = await fetch(apiUrl('/api/auth/recover'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2375,11 +2393,20 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           new_encrypted_dek: rewrapped.encrypted_dek,
           new_recovery_encrypted_dek: wrappedRecovery.recovery_encrypted_dek,
           new_recovery_auth_key_b64: wrappedRecovery.recovery_auth_key_b64,
+          totp_code: totpCode.trim() || undefined,
         }),
       });
 
       if (!recRes.ok) {
-        setErrorMsg(await recRes.text());
+        const errText = await recRes.text();
+        if (errText.includes('2FA_REQUIRED')) {
+          setLoginRequiresTotp(true);
+          setErrorMsg(
+            'Für dieses Konto ist 2FA aktiv. Bitte gib zusätzlich den 6-stelligen Code aus deiner Authenticator-App ein.'
+          );
+          return;
+        }
+        setErrorMsg(errText);
         return;
       }
 
@@ -2436,12 +2463,31 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     setErrorMsg(null);
     setStatusMsg('Neuer 2FA-Einrichtungsschlüssel wird generiert...');
 
+    let authKey = session.authKeyB64;
+    let totpCodeCandidate: string | undefined;
+
+    if (!authKey && session.totpEnabled) {
+      const code = window.prompt(
+        'Sicherheitsabfrage: Bitte gib zur Neueinrichtung von 2FA deinen aktuellen 6-stelligen 2FA-Code ein:'
+      );
+      if (!code || !code.trim()) {
+        setStatusMsg(null);
+        return;
+      }
+      totpCodeCandidate = code.trim();
+    }
+
     try {
       const res = await fetch(apiUrl('/api/auth/2fa/reconfigure'), {
         method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           Authorization: `Bearer ${session.token}`,
         },
+        body: JSON.stringify({
+          auth_key_b64: authKey || undefined,
+          totp_code: totpCodeCandidate || undefined,
+        }),
       });
 
       if (!res.ok) {
@@ -2491,12 +2537,31 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     setErrorMsg(null);
     setStatusMsg('2FA wird deaktiviert...');
 
+    let authKey = session.authKeyB64;
+    let totpCodeCandidate: string | undefined;
+
+    if (!authKey && session.totpEnabled) {
+      const code = window.prompt(
+        'Sicherheitsabfrage: Bitte gib zur Deaktivierung von 2FA deinen aktuellen 6-stelligen 2FA-Code ein:'
+      );
+      if (!code || !code.trim()) {
+        setStatusMsg(null);
+        return;
+      }
+      totpCodeCandidate = code.trim();
+    }
+
     try {
       const res = await fetch(apiUrl('/api/auth/2fa/disable'), {
         method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           Authorization: `Bearer ${session.token}`,
         },
+        body: JSON.stringify({
+          auth_key_b64: authKey || undefined,
+          totp_code: totpCodeCandidate || undefined,
+        }),
       });
 
       if (!res.ok) {
@@ -2562,6 +2627,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           body: JSON.stringify({
             recovery_encrypted_dek: recEncryptedDek,
             recovery_auth_key_b64: recAuthKeyB64,
+            auth_key_b64: session.authKeyB64 || undefined,
           }),
         });
 
@@ -3121,6 +3187,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               setRecoveryKey={setRecoveryKeyInput}
               newPassword={newPasswordInput}
               setNewPassword={setNewPasswordInput}
+              totpCode={totpCode}
+              setTotpCode={setTotpCode}
+              requiresTotp={Boolean(session?.totpEnabled || loginRequiresTotp)}
               isLoading={false}
               onRecover={handleRecoverWithKey}
               onBackToLogin={() => setAuthTab('login')}

@@ -5,9 +5,8 @@ use crate::crypto::{
     wrap_dek_with_recovery_key, KdfParams,
 };
 use crate::grading::{
-    calculate_class_report, simulate_needed_score_for_target, simulate_needed_score_v2,
-    AssessmentConfig, CategoryConfig, GradeEntry, StudentCalculatedSummary, StudentProfile,
-    SubjectGradingConfig,
+    calculate_class_report, simulate_needed_score_v2, AssessmentConfig,
+    CategoryConfig, GradeEntry, StudentCalculatedSummary, StudentProfile, SubjectGradingConfig,
 };
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
@@ -146,29 +145,6 @@ pub fn wasm_calculate_class_report(input_json: &str) -> Result<String, JsValue> 
         input.term_filter.as_deref(),
     );
     serde_json::to_string(&report).map_err(|e| JsValue::from_str(&e.to_string()))
-}
-
-#[wasm_bindgen]
-pub fn wasm_simulate_needed_score(
-    summary_json: &str,
-    categories_json: &str,
-    target_category_id: &str,
-    target_overall_percent: f64,
-) -> Result<JsValue, JsValue> {
-    let summary: StudentCalculatedSummary =
-        serde_json::from_str(summary_json).map_err(|e| JsValue::from_str(&e.to_string()))?;
-    let categories: Vec<CategoryConfig> =
-        serde_json::from_str(categories_json).map_err(|e| JsValue::from_str(&e.to_string()))?;
-    let res = simulate_needed_score_for_target(
-        &summary,
-        &categories,
-        target_category_id,
-        target_overall_percent,
-    );
-    Ok(match res {
-        Some(v) => JsValue::from_f64(v),
-        None => JsValue::NULL,
-    })
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -126,12 +126,6 @@ export const Student360View: React.FC<Student360ViewProps> = ({
   const simulatedNeededPercent: number | null = useMemo(() => {
     if (!wasmReady || !activeStudentSummary || !activeStudent) return null;
     try {
-      const levelOffset =
-        activeDataset.config.enable_student_levels && activeStudent?.level
-          ? activeDataset.config.level_threshold_offsets[activeStudent.level] ?? 0
-          : 0;
-      const effectiveTargetPercent = Math.max(0, Math.min(100, simTargetPercent + levelOffset));
-
       const simInput = {
         config: activeDataset.config,
         categories: activeDataset.categories,
@@ -140,7 +134,7 @@ export const Student360View: React.FC<Student360ViewProps> = ({
         student: activeStudent,
         current_summary: activeStudentSummary,
         target_category_id: simCategoryId,
-        target_overall_percent: effectiveTargetPercent,
+        target_overall_percent: simTargetPercent,
         term_filter: activeTerm === 'all' ? null : activeTerm,
         simulated_weight: 1.0,
         simulated_max_points: 20.0,

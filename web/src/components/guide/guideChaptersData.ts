@@ -252,49 +252,28 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         badge: 'Konfigurator',
       },
       {
-        id: 'cgm_scale_mode',
-        title: '1. Notenskala & Berechnungsmodell 🎯',
-        content:
-          'Wähle zunächst deine gewünschte Notenskala:\n\n' +
-          '- **Klassische Noten 1–6**: Mit Feinstufen und Tendenzen (`+` und `-`)\n' +
-          '- **Oberstufe 0–15 MSS-Punkte**: Inklusive Defizit-Kennzeichnung\n' +
-          '- **US Letter Grades**: Von A+ bis F\n\n' +
-          'Darunter wählst du dein Modell: **Kategorien-Töpfe (Standard)**, **Freie Faktoren (1x, 2x)** oder **Punktesammler (Total Points)**.',
-        targetId: 'configurator-scale-mode',
-        placement: 'top',
-        targetMode: 'configurator',
-        badge: 'Skala & Modell',
-      },
-      {
         id: 'cgm_categories',
-        title: '2. Kategorien anlegen, gewichten & Streichnoten 📊',
+        title: '1. Kategorien, Prozent-Waage & Streichnoten 📊',
         content:
-          'Hier stellst du deine Säulen ein – z. B. **50 % LNW**, **30 % Mündlich**, **20 % Tests**. Du kannst neue Kategorien anlegen, Namen ändern und sogar **Streichnoten** festlegen (z. B. "Schlechtester Vokabeltest wird gestrichen").',
+          'Hier stellst du deine Säulen ein – z. B. **50 % Klassenarbeiten**, **30 % Mündlich**, **20 % Tests**:\n\n' +
+          '- **Prozent-Waage & Auto-Balancing**: Schieberegler gleichen sich automatisch auf 100 % aus.\n' +
+          '- **Schloss-Funktion 🔒**: Fixiere einzelne Kategorien (z. B. Klassenarbeiten auf 50 %), während du andere Regler anpasst.\n' +
+          '- **Verhältnis-Modus (2 : 1 : 1)**: Wenn du lieber in Faktoren denkst („Klausuren zählen doppelt, mündlich einfach“).\n' +
+          '- **Streichnoten**: Definiere z. B. "1x Streichen" für den schwächsten Kurztest mit einem Klick.',
         targetId: 'configurator-categories',
         placement: 'top',
         targetMode: 'configurator',
         badge: 'Kategorien & Töpfe',
-        tip: 'Die Schieberegler normalisieren sich automatisch auf 100 %, sodass keine Rundungsverluste entstehen.',
-      },
-      {
-        id: 'cgm_templates',
-        title: '3. Als eigene Vorlage sichern oder globale Vorlagen nutzen 💾',
-        content:
-          'Hast du dein ideales Modell gebaut? Mit einem Klick auf **Als eigene Vorlage speichern** sicherst du es in deinem Profil. So kannst du es für jede weitere Klasse mit einem Klick wiederverwenden.',
-        targetId: 'configurator-templates',
-        placement: 'top',
-        targetMode: 'configurator',
-        badge: 'Wiederverwendbarkeit',
+        tip: 'Über die [–] und [+] Tasten kannst du Werte in 5 %-Schritten anpassen oder jede beliebige Zahl (auch krumme Werte wie 33,3 %) direkt eintippen.',
       },
       {
         id: 'cgm_curve_editor',
-        title: '4. Notenschlüssel & Schwellenwerte einstellen 📐',
+        title: '2. Notenschlüssel-Spektrum & Bestehensgrenze 🎯',
         content:
-          'Wähle bewährte Vorlagen für Schwellenwerte oder passe sie stufenlos an:\n\n' +
-          '- **Sek-I Standard**: Klassische prozentuale Verteilung\n' +
-          '- **IHK 50 %-Hürde**: Note 4 ab exakt 50 % der Gesamtpunkte\n' +
-          '- **Pädagogisch Mild / Streng**: Angepasst an Leistungsniveau und Bundesland\n\n' +
-          'Unten siehst du live die 16er-Feinstufen-Tabelle von 1+ bis 6 mit genauen Prozentgrenzen.',
+          'Passe den Notenschlüssel für dein Fach und Bundesland an:\n\n' +
+          '- **Kontinuierliches Farbspektrum**: Visualisiert alle Notenstufen von 1 bis 6 in einem Band.\n' +
+          '- **⚡ Bestehensgrenze (Note 4)**: Prominent hervorgehoben (z. B. ab 45 % oder 50 %).\n' +
+          '- **16 Feinstufen**: Alle Tendenzen (1+, 1, 1- ... 6) passen sich automatisch proportional an.',
         targetId: 'configurator-curve-editor',
         placement: 'top',
         targetMode: 'configurator',
@@ -303,13 +282,52 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
       },
       {
         id: 'cgm_differentiation',
-        title: '5. Binnendifferenzierung (G / M / E Niveaustufen) 🌈',
+        title: '3. Binnendifferenzierung (G / M / E Niveaustufen) 🌈',
         content:
-          'Unterrichtest du heterogene Lerngruppen? Aktiviere die Binnendifferenzierung für **G** (Grundlegend), **M** (Mittleres) und **E** (Erweitertes Niveau). Du kannst für jede Stufe prozentuale Verschiebungen definieren und die Vergleichstabelle live prüfen.',
+          'Unterrichtest du heterogene Lerngruppen? Aktiviere die Binnendifferenzierung:\n\n' +
+          '- **G (Grundlegend)**: Prozent-Hürde senken (z. B. -5 %)\n' +
+          '- **M (Mittel)**: Regulärer Standard-Maßstab (0 %)\n' +
+          '- **E (Erweitert)**: Anspruch erhöhen (z. B. +3 %)\n\n' +
+          'Die Live-Tabelle zeigt dir für jede Note sofort den exakten Schnitt je Niveau.',
         targetId: 'configurator-differentiation',
         placement: 'top',
         targetMode: 'configurator',
         badge: 'G / M / E Niveau',
+      },
+      {
+        id: 'cgm_scale_mode',
+        title: '4. Basis-Setup (Skala & Berechnungsmodell) ⚙️',
+        content:
+          'Im Tab **Basis-Setup** wählst du das fundamentale Bewertungssystem:\n\n' +
+          '- **Klassische Noten 1–6**, **Oberstufe 0–15 Punkte (MSS)** oder **US Letter Grades**\n' +
+          '- **Kategorien-Töpfe (Standard)**, **Freie Faktoren (1x, 2x)** oder **Total Points**\n' +
+          '- **Leere Kategorien**: Automatische proportionale Skalierung, wenn im Halbjahr z.B. noch keine Klassenarbeit geschrieben wurde.',
+        targetId: 'configurator-scale-mode',
+        placement: 'top',
+        targetMode: 'configurator',
+        badge: 'Skala & Modell',
+      },
+      {
+        id: 'cgm_live_simulator',
+        title: '5. Live-Vertrauens-Check & 🧪 Sandbox 🔬',
+        content:
+          'In der rechten Spalte siehst du sofort die Auswirkung auf deine Noten:\n\n' +
+          '- **Klassen-Check**: Wähle ein Kind aus deiner Klasse und schalte zwischen Niveaustufen um.\n' +
+          '- **🧪 Sandbox**: Schiebe Testnoten frei hin und her oder wähle Schnell-Szenarien (*„Klassenbester“*, *„Bestehen“*, *„Kritisch“*), um deine Fachlogik vorab auf Herz und Nieren zu testen.',
+        targetId: 'configurator-live-check',
+        placement: 'left',
+        targetMode: 'configurator',
+        badge: 'Live-Simulator',
+      },
+      {
+        id: 'cgm_templates',
+        title: '6. Vorlagen speichern & schulweit teilen 💾',
+        content:
+          'Hast du dein ideales Modell konfiguriert? Klicke auf **Als Vorlage speichern**, um es für all deine weiteren Klassen und Schuljahre mit einem Klick wiederzuverwenden.\n\nGlobale Schulvorlagen stehen zudem automatisch oben zur 1-Klick-Übernahme bereit.',
+        targetId: 'configurator-templates',
+        placement: 'bottom',
+        targetMode: 'configurator',
+        badge: 'Wiederverwendbarkeit',
       },
     ],
   },

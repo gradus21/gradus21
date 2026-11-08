@@ -25,13 +25,13 @@ describe('API & Server URL Configuration', () => {
     expect(getServerUrl()).not.toBe('https://custom.schule.de');
   });
 
-  it('sanitizes legacy gradus21.de and tauri.localhost URLs back to https://gradus21.app', () => {
+  it('sanitizes legacy gradus21.de and tauri.localhost URLs back to valid origin or default', () => {
     localStorage.setItem('gradus21_custom_server_url', 'https://gradus21.de');
-    expect(getServerUrl()).toBe('https://gradus21.app');
+    expect(getServerUrl()).toBe(window.location.origin);
     expect(localStorage.getItem('gradus21_custom_server_url')).toBeNull();
 
     localStorage.setItem('gradus21_custom_server_url', 'http://tauri.localhost');
-    expect(getServerUrl()).toBe('https://gradus21.app');
+    expect(getServerUrl()).toBe(window.location.origin);
     expect(localStorage.getItem('gradus21_custom_server_url')).toBeNull();
   });
 });

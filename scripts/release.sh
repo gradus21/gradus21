@@ -91,12 +91,12 @@ else
     NEW_VERSION="${POSITIONAL_ARGS[0]}"
     RELEASE_TITLE="${POSITIONAL_ARGS[1]:-v$NEW_VERSION}"
     TAG_NAME="v$NEW_VERSION"
+fi
 
-    # SemVer oder CalVer Validation (z.B. 1.2.8 oder 26.11.1 oder 26.11.1-beta.1)
-    if ! [[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
-        log_error "Ungültiges Versionsformat: '$NEW_VERSION'. Erwartet wird SemVer/CalVer (z.B. 26.11.1 oder 1.2.8)."
-        exit 1
-    fi
+# SemVer oder CalVer Validation (z.B. 1.2.8 oder 26.11.1 oder 26.11.1-beta.1)
+if ! [[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+    log_error "Ungültiges Versionsformat: '$NEW_VERSION'. Erwartet wird SemVer/CalVer (z.B. 26.11.1 oder 1.2.8)."
+    exit 1
 fi
 
 if [ "$DEPLOY_ONLY" = false ]; then
@@ -149,6 +149,7 @@ if [ "$DEPLOY_ONLY" = false ]; then
 
     # Extrahiere die Release Notes für diese Version aus dem CHANGELOG
     TEMP_NOTES_FILE="$(mktemp /tmp/gradus21-notes-XXXXXX.md)"
+    trap 'rm -f "$TEMP_NOTES_FILE"' EXIT
     awk -v ver="$NEW_VERSION" '
         $0 ~ "^## \\[" ver "\\]" { capture=1; next }
         capture && $0 ~ "^## \\[" { capture=0; exit }
@@ -160,7 +161,6 @@ if [ "$DEPLOY_ONLY" = false ]; then
 
     if [ ! -s "$TEMP_NOTES_FILE" ]; then
         log_error "Konnte keine Release Notes für [$NEW_VERSION] aus CHANGELOG.md extrahieren."
-        rm -f "$TEMP_NOTES_FILE"
         exit 1
     fi
 
@@ -178,8 +178,8 @@ if [ "$DEPLOY_ONLY" = false ]; then
     # src-tauri/tauri.conf.json
     sed -i -E "s/\"version\":[[:space:]]*\"[^\"]+\"/\"version\": \"$NEW_VERSION\"/" src-tauri/tauri.conf.json
 
-    # web/package.json
-    sed -i -E "s/\"version\":[[:space:]]*\"[^\"]+\"/\"version\": \"$NEW_VERSION\"/" web/package.json
+    # web/package.json & web/package-lock.json
+    (cd web && npm version "$NEW_VERSION" --no-git-tag-version --allow-same-version)
 
     # web/src/version.ts
     if [ -f "web/src/version.ts" ]; then
@@ -200,11 +200,11 @@ EOF
     log_info "Verifiziere TypeScript & Web-Build..."
     (cd web && npm run build:client --silent)
 
-    log_success "Alle 8 Versionsstellen erfolgreich aktualisiert und validiert."
+    log_success "Alle Versionsstellen erfolgreich aktualisiert und validiert."
 
     # 5. Git Commit & Tag
     log_info "Erstelle Release-Commit und annotierten Tag..."
-    git add Cargo.toml Cargo.lock src-tauri/Cargo.toml src-tauri/tauri.conf.json web/package.json web/src/version.ts README.md CHANGELOG.md
+    git add Cargo.toml Cargo.lock src-tauri/Cargo.toml src-tauri/tauri.conf.json web/package.json web/package-lock.json web/src/version.ts README.md CHANGELOG.md
 
     git commit -m "chore(release): bump version to $NEW_VERSION"
 
@@ -224,6 +224,7 @@ EOF
         --notes-file "$TEMP_NOTES_FILE"
 
     rm -f "$TEMP_NOTES_FILE"
+    trap - EXIT
     log_success "GitHub Release '$TAG_NAME' erfolgreich angelegt!"
 fi
 
@@ -277,7 +278,10 @@ if [ "$SKIP_PLESK" = false ]; then
 
         # Optional: Push zu origin
         if git -C "$WEBSITE_DIR" remote | grep -q '^origin$'; then
-            git -C "$WEBSITE_DIR" push origin main 2>/dev/null || true
+            log_info "Pushe Website zu Origin (GitHub)..."
+            if ! git -C "$WEBSITE_DIR" push origin main 2>/dev/null; then
+                log_warn "Push zu Website-Origin (GitHub) fehlgeschlagen (Rechte / URL prüfen). Plesk Deployment war jedoch erfolgreich."
+            fi
         fi
 
         # Healthcheck
@@ -293,20 +297,30 @@ fi
 # ==============================================================================
 # 9. Homelab Docker-VM Deployment (g21-dev.kallidat.com)
 # ==============================================================================
-DOCKER_VM_IP="192.168.0.100"
-DOCKER_VM_USER="dockeradmin"
-DOCKER_VM_STACK_DIR="/mnt/docker-appdata/dockhand/data/stacks/TrueNAS/gradus21-dev"
+DOCKER_VM_IP="${DOCKER_VM_IP:-192.168.0.100}"
+DOCKER_VM_USER="${DOCKER_VM_USER:-dockeradmin}"
+DOCKER_VM_STACK_DIR="${DOCKER_VM_STACK_DIR:-/mnt/docker-appdata/dockhand/data/stacks/TrueNAS/gradus21-dev}"
 
 if [ "$SKIP_DOCKER_VM" = false ]; then
     log_info "Prüfe Erreichbarkeit der Homelab Docker-VM ($DOCKER_VM_IP)..."
     if ping -c 1 -W 2 "$DOCKER_VM_IP" &>/dev/null; then
         if [ "$NO_WAIT" = false ] && [ "$DEPLOY_ONLY" = false ]; then
-            log_info "Warte kurz auf Registrierung des Docker CI Builds auf GitHub Actions..."
-            sleep 5
-            RUN_ID=$(gh run list --workflow=docker.yml --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || echo "")
+            log_info "Warte auf Registrierung des Docker CI Builds auf GitHub Actions..."
+            RELEASE_COMMIT="$(git rev-parse HEAD)"
+            RUN_ID=""
+            for attempt in $(seq 1 12); do
+                RUN_ID=$(gh run list --workflow=docker.yml --commit "$RELEASE_COMMIT" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || echo "")
+                if [ -n "$RUN_ID" ]; then
+                    break
+                fi
+                sleep 3
+            done
+
             if [ -n "$RUN_ID" ]; then
                 log_info "Warte auf Fertigstellung des Docker CI Builds (Run ID: $RUN_ID)..."
                 gh run watch "$RUN_ID" --exit-status || log_warn "Docker CI Run nicht mit 0 beendet. Fahre fort..."
+            else
+                log_warn "Kein aktiver Docker CI Run für Commit $RELEASE_COMMIT gefunden. Fahre fort..."
             fi
         fi
 

@@ -74,6 +74,9 @@ async fn native_save_file(
     filename: String,
     content_base64: String,
 ) -> Result<String, String> {
+    if content_base64.len() > 32 * 1024 * 1024 {
+        return Err("Export-Datei überschreitet die maximale Größe von 24 MB.".into());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         use base64::Engine;
         let bytes = base64::engine::general_purpose::STANDARD
@@ -88,12 +91,29 @@ async fn native_save_file(
             .or_else(|_| app.path().document_dir())
             .unwrap_or_else(|_| std::path::PathBuf::from("."));
 
+        let safe_filename = std::path::Path::new(&filename)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|s| {
+                s.chars()
+                    .map(|c| {
+                        if c.is_alphanumeric() || matches!(c, '.' | '-' | '_' | ' ') {
+                            c
+                        } else {
+                            '_'
+                        }
+                    })
+                    .collect::<String>()
+            })
+            .filter(|s| !s.is_empty() && s != "." && s != "..")
+            .ok_or_else(|| "Ungültiger Dateiname.".to_string())?;
+
         // Save into a dedicated staging subfolder so that Android plugins
         // that copy sourceFile to activity.cacheDir (such as tauri-plugin-sharekit)
         // never attempt to copy a file onto itself (which would truncate the file to 0 bytes via O_TRUNC).
         let dir = base_dir.join("gradus21_exports");
         let _ = std::fs::create_dir_all(&dir);
-        let target_file = dir.join(&filename);
+        let target_file = dir.join(&safe_filename);
         std::fs::write(&target_file, &bytes)
             .map_err(|e| format!("Datei '{}' konnte nicht geschrieben werden: {}", target_file.display(), e))?;
 

@@ -261,7 +261,7 @@ export interface WriteVaultDirectoryOptions {
   maxSnapshots?: number; // default: 20
 }
 
-let lastSnapshotTimestamp = 0;
+const lastSnapshotTimestampsByUser = new Map<string, number>();
 
 /**
  * Writes the encrypted vault bundle into the connected directory handle.
@@ -305,13 +305,14 @@ export async function writeVaultToDirectory(
   // 2. Periodic or forced snapshot (at most once every 15 minutes by default)
   const snapshotInterval = options?.snapshotIntervalMs ?? 15 * 60 * 1000;
   const maxSnapshots = options?.maxSnapshots ?? 20;
+  const lastSnapshotTimestamp = lastSnapshotTimestampsByUser.get(safeUserId) ?? 0;
   const timeSinceLastSnapshot = Date.now() - lastSnapshotTimestamp;
   const shouldCreateSnapshot = options?.forceSnapshot || timeSinceLastSnapshot >= snapshotInterval;
 
   let savedSnapshotName = mainFilename;
 
   if (shouldCreateSnapshot) {
-    lastSnapshotTimestamp = Date.now();
+    lastSnapshotTimestampsByUser.set(safeUserId, Date.now());
     const snapshotFilename = `gradus21_vault_backup_${safeUserId}_${dateStr}.gradus21`;
     savedSnapshotName = snapshotFilename;
 
@@ -323,11 +324,15 @@ export async function writeVaultToDirectory(
     // 3. Local Retention Rotation: Clean up snapshots exceeding maxSnapshots
     try {
       const snapshotFiles: string[] = [];
+      const userSnapshotPrefix = `gradus21_vault_backup_${safeUserId}_`;
       // @ts-expect-error - Chromium directory iterator
       for await (const entry of dirHandle.values()) {
+        const matchesUser =
+          entry.name.startsWith(userSnapshotPrefix) ||
+          (safeUserId === 'default' && entry.name.startsWith('gradus21-vault-'));
         if (
           entry.kind === 'file' &&
-          (entry.name.startsWith('gradus21_vault_backup_') || entry.name.startsWith('gradus21-vault-')) &&
+          matchesUser &&
           entry.name.endsWith('.gradus21') &&
           !entry.name.endsWith(`${safeUserId}.gradus21`) &&
           !entry.name.includes('latest')

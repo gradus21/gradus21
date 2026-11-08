@@ -36,7 +36,7 @@ pub fn create_app_router(state: AppState, cors: CorsLayer) -> Router {
             "/api/auth/passkey/:id",
             delete(delete_user_passkey_by_id).patch(rename_user_passkey),
         )
-        .route("/api/auth/passkey/register", post(register_passkey))
+        .route("/api/auth/passkey/register", post(legacy_passkey_register_disabled))
         .route("/api/auth/passkey/login", post(legacy_passkey_login_disabled))
         .route("/api/auth/passkey", delete(delete_passkey))
         .route("/api/auth/desktop-relay/init", post(desktop_relay_init))

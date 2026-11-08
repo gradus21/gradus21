@@ -6,17 +6,18 @@ use axum::{
 };
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use chrono::Utc;
-use gradus21_core::crypto::KdfParams;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 use webauthn_rs::prelude::*;
 
-use crate::middleware::{authenticate_request, check_auth_rate_limit, hash_client_key, issue_jwt};
+use crate::middleware::{
+    authenticate_request, check_auth_rate_limit, extract_client_ip, hash_client_key, issue_jwt,
+};
 use crate::routes::auth::AuthResponse;
 use crate::state::{
-    delete_passkey_from_pg, persist_to_disk, sync_passkey_to_pg, sync_user_to_pg, AppState,
-    UserPasskeyRecord, UserRecord,
+    delete_all_passkeys_for_user_from_pg, delete_passkey_from_pg, persist_to_disk,
+    sync_passkey_to_pg, sync_user_to_pg, AppState, UserPasskeyRecord, UserRecord,
 };
 
 #[derive(Deserialize)]
@@ -98,6 +99,7 @@ pub async fn passkey_register_start(
     let claims = authenticate_request(&state, &headers)?;
     let user_id = Uuid::parse_str(&claims.sub)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
+    check_auth_rate_limit(&state, &format!("passkey_reg_start:{}", user_id))?;
 
     let user = {
         let users = state.mem_users.read().unwrap();
@@ -142,6 +144,12 @@ pub async fn passkey_register_start(
         let mut map = state.reg_challenges.write().unwrap();
         let now = Instant::now();
         map.retain(|_, (created, _, _)| now.duration_since(*created) < Duration::from_secs(120));
+        if map.len() >= 2048 {
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                "Zu viele gleichzeitige Passkey-Registrierungen aktiv. Bitte kurz warten.".into(),
+            ));
+        }
         map.insert(session_id.clone(), (now, reg_state, user_id));
     }
 
@@ -239,19 +247,28 @@ pub async fn passkey_register_finish(
         if let Some(prf) = &req.passkey_prf_salt_b64 {
             u.passkey_prf_salt = Some(prf.clone());
         }
+        // Architectural Invariant (I-2): Initial crypto metadata (`kdf_salt`, `encrypted_dek`,
+        // `recovery_encrypted_dek`, `recovery_auth_key_hash`) may only be populated during initial
+        // passkey-only onboarding when those fields are still empty, never overwritten later.
         if let Some(salt) = req.kdf_salt_b64.as_ref().filter(|s| !s.is_empty()) {
             if u.kdf_salt.is_empty() {
                 u.kdf_salt = salt.clone();
             }
         }
         if let Some(enc_dek) = req.encrypted_dek.as_ref().filter(|s| !s.is_empty()) {
-            u.encrypted_dek = enc_dek.clone();
+            if u.encrypted_dek.is_empty() {
+                u.encrypted_dek = enc_dek.clone();
+            }
         }
         if let Some(rec_dek) = req.recovery_encrypted_dek.as_ref().filter(|s| !s.is_empty()) {
-            u.recovery_encrypted_dek = rec_dek.clone();
+            if u.recovery_encrypted_dek.is_empty() {
+                u.recovery_encrypted_dek = rec_dek.clone();
+            }
         }
         if let Some(rec_hash) = &rec_hash_opt {
-            u.recovery_auth_key_hash = rec_hash.clone();
+            if u.recovery_auth_key_hash.is_empty() {
+                u.recovery_auth_key_hash = rec_hash.clone();
+            }
         }
         u.clone()
     };
@@ -272,6 +289,7 @@ pub async fn passkey_register_finish(
 
 pub async fn passkey_login_start(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<PasskeyLoginStartRequest>,
 ) -> Result<Json<PasskeyLoginStartResponse>, (StatusCode, String)> {
     let has_requested_email = req.email.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false);
@@ -281,7 +299,8 @@ pub async fn passkey_login_start(
         let users = state.mem_users.read().unwrap();
         users.values().find(|u| u.email.to_lowercase() == clean).cloned()
     } else {
-        check_auth_rate_limit(&state, "passkey_start:discoverable")?;
+        let client_ip = extract_client_ip(&headers);
+        check_auth_rate_limit(&state, &format!("passkey_start:discoverable:{}", client_ip))?;
         None
     };
 
@@ -350,6 +369,12 @@ pub async fn passkey_login_start(
         let mut map = state.auth_challenges.write().unwrap();
         let now = Instant::now();
         map.retain(|_, (created, _, _)| now.duration_since(*created) < Duration::from_secs(120));
+        if map.len() >= 2048 {
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                "Zu viele gleichzeitige Passkey-Anmeldungen aktiv. Bitte kurz warten.".into(),
+            ));
+        }
         map.insert(session_id.clone(), (now, auth_state, user_opt.map(|u| u.id)));
     }
 
@@ -426,6 +451,12 @@ pub async fn passkey_login_finish(
 
     passkey_rec.last_used_at = Some(Utc::now());
     if let Some(mut data) = passkey_rec.passkey_data.clone() {
+        if let Ok(mut pk) = serde_json::from_value::<Passkey>(data.clone()) {
+            let _ = pk.update_credential(&auth_result);
+            if let Ok(updated_val) = serde_json::to_value(&pk) {
+                data = updated_val;
+            }
+        }
         data["sign_counter"] = serde_json::json!(auth_result.counter());
         passkey_rec.passkey_data = Some(data);
     }
@@ -536,6 +567,13 @@ pub async fn delete_user_passkey_by_id(
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
 
     let removed = {
+        let users = state.mem_users.read().unwrap();
+        let is_passkey_only = users
+            .get(&user_id)
+            .map(|u| u.auth_key_hash.is_empty())
+            .unwrap_or(false);
+        drop(users);
+
         let mut pks = state.mem_passkeys.write().unwrap();
         if let Some(entry) = pks.get(&passkey_id) {
             if entry.user_id != user_id {
@@ -543,6 +581,15 @@ pub async fn delete_user_passkey_by_id(
                     StatusCode::FORBIDDEN,
                     "Keine Berechtigung für diesen Passkey".into(),
                 ));
+            }
+            if is_passkey_only {
+                let user_pk_count = pks.values().filter(|p| p.user_id == user_id).count();
+                if user_pk_count <= 1 {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        "Der letzte Passkey eines Passkey-only-Kontos kann nicht gelöscht werden, da sonst keine Anmeldung mehr möglich wäre.".into(),
+                    ));
+                }
             }
             pks.remove(&passkey_id)
         } else {
@@ -655,6 +702,25 @@ pub async fn rename_user_passkey(
     })))
 }
 
+pub async fn legacy_passkey_register_disabled(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<PasskeyRegisterRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let client_ip = extract_client_ip(&headers);
+    let _ = check_auth_rate_limit(&state, &format!("passkey_reg_legacy:{}:{}", client_ip, req.credential_id));
+
+    tracing::warn!(
+        "Abgelehnt: Aufruf des veralteten Passkey-Registrierungs-Endpoints ohne WebAuthn-Attestierung für cred_id {}",
+        req.credential_id
+    );
+    Err((
+        StatusCode::GONE,
+        "POST /api/auth/passkey/register wurde aus Sicherheitsgründen entfernt. Passkey-Registrierung erfordert den kryptografischen WebAuthn-Handshake über /api/auth/passkey/register/start und /finish.".into(),
+    ))
+}
+
+#[cfg(test)]
 pub async fn register_passkey(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -665,14 +731,6 @@ pub async fn register_passkey(
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
 
     let issued_token = issue_jwt(&state.jwt_secret, user_id, &claims.email, claims.is_admin, true)?;
-    let rec_hash_opt = match req
-        .recovery_auth_key_b64
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-    {
-        Some(rec_key) => Some(hash_client_key(rec_key)?),
-        None => None,
-    };
 
     let passkey_id = Uuid::new_v4();
     let passkey_rec = UserPasskeyRecord {
@@ -702,24 +760,6 @@ pub async fn register_passkey(
             if let Some(prf_salt) = &req.passkey_prf_salt_b64 {
                 user.passkey_prf_salt = Some(prf_salt.clone());
             }
-            if let Some(salt) = req.kdf_salt_b64.as_ref().filter(|s| !s.is_empty()) {
-                if user.kdf_salt.is_empty() {
-                    user.kdf_salt = salt.clone();
-                }
-            }
-            if let Some(enc_dek) = req.encrypted_dek.as_ref().filter(|s| !s.is_empty()) {
-                user.encrypted_dek = enc_dek.clone();
-            }
-            if let Some(rec_dek) = req
-                .recovery_encrypted_dek
-                .as_ref()
-                .filter(|s| !s.is_empty())
-            {
-                user.recovery_encrypted_dek = rec_dek.clone();
-            }
-            if let Some(rec_hash) = &rec_hash_opt {
-                user.recovery_auth_key_hash = rec_hash.clone();
-            }
         };
 
         if let Some(user) = users.get_mut(&user_id) {
@@ -729,37 +769,7 @@ pub async fn register_passkey(
             update_existing(user);
             user.clone()
         } else {
-            let new_user = UserRecord {
-                id: user_id,
-                email: claims.email.clone(),
-                auth_key_hash: String::new(),
-                kdf_salt: req.kdf_salt_b64.clone().unwrap_or_default(),
-                kdf_params: KdfParams::default(),
-                encrypted_dek: req
-                    .encrypted_dek
-                    .clone()
-                    .unwrap_or_else(|| req.passkey_encrypted_dek.clone()),
-                recovery_encrypted_dek: req.recovery_encrypted_dek.clone().unwrap_or_default(),
-                recovery_auth_key_hash: rec_hash_opt.unwrap_or_default(),
-                totp_secret_server_encrypted: None,
-                totp_enabled: false,
-                passkey_credential_id: Some(req.credential_id.clone()),
-                passkey_label: Some(req.label.clone()),
-                passkey_encrypted_dek: Some(req.passkey_encrypted_dek.clone()),
-                passkey_prf_salt: req.passkey_prf_salt_b64.clone(),
-                ui_preferences: serde_json::json!({ "theme": "teal", "mode": "light" }),
-                is_admin: claims.is_admin,
-                is_active: true,
-                created_at: Some(Utc::now()),
-                last_login_at: Some(Utc::now()),
-                email_verified: false,
-                email_verification_code: None,
-                email_verification_expires_at: None,
-                email_verification_attempts: 0,
-                email_verification_cooldown_until: None,
-            };
-            users.insert(user_id, new_user.clone());
-            new_user
+            return Err((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()));
         }
     };
     sync_user_to_pg(&state, &updated_record).await;
@@ -785,6 +795,12 @@ pub async fn delete_passkey(
         let user = users
             .get_mut(&user_id)
             .ok_or((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()))?;
+        if user.auth_key_hash.is_empty() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Passkey-only-Konten können nicht alle Passkeys löschen, ohne zuvor ein Master-Passwort einzurichten.".into(),
+            ));
+        }
         user.passkey_credential_id = None;
         user.passkey_label = None;
         user.passkey_encrypted_dek = None;
@@ -796,12 +812,7 @@ pub async fn delete_passkey(
         let mut pks = state.mem_passkeys.write().unwrap();
         pks.retain(|_, p| p.user_id != user_id);
     }
-    if let Some(pool) = &state.db {
-        let _ = sqlx::query("DELETE FROM user_passkeys WHERE user_id = $1")
-            .bind(user_id)
-            .execute(pool)
-            .await;
-    }
+    delete_all_passkeys_for_user_from_pg(&state, user_id).await;
 
     sync_user_to_pg(&state, &updated_record).await;
     persist_to_disk(&state);

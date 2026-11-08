@@ -241,8 +241,9 @@ mod tests {
         assert_eq!(vincent.overall_percent, None);
         assert_eq!(vincent.overall_display_grade, "—");
 
-        let needed_in_lnw = simulate_needed_score_for_target(safia, &categories, "cat_lnw", 80.0)
-            .expect("simulation result");
+        let needed_in_lnw =
+            simulate_needed_score_for_target_with_scale(safia, &categories, "cat_lnw", 80.0, true)
+                .expect("simulation result");
         assert!((needed_in_lnw - 82.8).abs() < 0.15);
 
         // Verify JSON deserialization of GradingScaleId from frontend strings
@@ -611,5 +612,139 @@ mod tests {
         });
         let verify_tp_report = calculate_class_report(&config, &categories, &assessments, &students, &grades, None);
         assert!(verify_tp_report.student_summaries[0].overall_percent.unwrap() >= 70.0);
+    }
+
+    #[test]
+    fn test_simulation_unscaled_empty_categories() {
+        let config = SubjectGradingConfig {
+            scale_id: GradingScaleId::DeClassic1To6,
+            weighting_mode: WeightingMode::CategoryBuckets,
+            scale_empty_categories: false,
+            enable_student_levels: false,
+            level_threshold_offsets: HashMap::new(),
+            custom_thresholds: None,
+        };
+
+        let categories = vec![
+            CategoryConfig {
+                id: "cat_a".into(),
+                name: "Cat A".into(),
+                short_code: "A".into(),
+                weight: 1.0,
+                drop_lowest_count: 0,
+            },
+            CategoryConfig {
+                id: "cat_b".into(),
+                name: "Cat B".into(),
+                short_code: "B".into(),
+                weight: 1.0,
+                drop_lowest_count: 0,
+            },
+            CategoryConfig {
+                id: "cat_c".into(),
+                name: "Cat C (empty initially)".into(),
+                short_code: "C".into(),
+                weight: 2.0,
+                drop_lowest_count: 0,
+            },
+        ];
+
+        let mut assessments = vec![
+            AssessmentConfig {
+                id: "a1".into(),
+                category_id: "cat_a".into(),
+                title: "A1".into(),
+                term_id: "hj1".into(),
+                weight: 1.0,
+                input_mode: AssessmentInputMode::Percent,
+                max_points: None,
+            },
+            AssessmentConfig {
+                id: "b1".into(),
+                category_id: "cat_b".into(),
+                title: "B1".into(),
+                term_id: "hj1".into(),
+                weight: 1.0,
+                input_mode: AssessmentInputMode::Percent,
+                max_points: None,
+            },
+        ];
+
+        let student = StudentProfile {
+            id: "s_unscaled".into(),
+            name: "Unscaled Student".into(),
+            level: None,
+            is_not_graded: false,
+            is_archived: false,
+        };
+        let students = vec![student.clone()];
+
+        let mut grades = vec![
+            GradeEntry {
+                student_id: "s_unscaled".into(),
+                assessment_id: "a1".into(),
+                status: GradeStatus::Graded,
+                percent_value: Some(60.0),
+                raw_points: None,
+                direct_grade_value: None,
+                comment: None,
+            },
+            GradeEntry {
+                student_id: "s_unscaled".into(),
+                assessment_id: "b1".into(),
+                status: GradeStatus::Graded,
+                percent_value: Some(80.0),
+                raw_points: None,
+                direct_grade_value: None,
+                comment: None,
+            },
+        ];
+
+        // Total weight = 1 + 1 + 2 = 4.0.
+        // Current weighted sum = 60*1 + 80*1 = 140.
+        // Current overall_percent = 140 / 4.0 = 35.0%
+        let report = calculate_class_report(&config, &categories, &assessments, &students, &grades, None);
+        assert_eq!(report.student_summaries[0].overall_percent, Some(35.0));
+
+        // We want target 50.0% by adding an assignment in cat_c (weight 2.0).
+        // Needed: (50.0 * 4.0 - 140.0) / 2.0 = (200 - 140) / 2.0 = 30.0%
+        let target_pct = 50.0;
+        let sim_needed = simulate_needed_score_v2(
+            &config,
+            &categories,
+            &assessments,
+            &grades,
+            &student,
+            &report.student_summaries[0],
+            "cat_c",
+            target_pct,
+            None,
+            None,
+            None,
+        ).expect("simulation result");
+        assert_eq!(sim_needed, 30.0);
+
+        // Verify: add new assessment in cat_c with 30.0%
+        assessments.push(AssessmentConfig {
+            id: "c1".into(),
+            category_id: "cat_c".into(),
+            title: "C1".into(),
+            term_id: "hj1".into(),
+            weight: 1.0,
+            input_mode: AssessmentInputMode::Percent,
+            max_points: None,
+        });
+        grades.push(GradeEntry {
+            student_id: "s_unscaled".into(),
+            assessment_id: "c1".into(),
+            status: GradeStatus::Graded,
+            percent_value: Some(sim_needed),
+            raw_points: None,
+            direct_grade_value: None,
+            comment: None,
+        });
+
+        let verify_report = calculate_class_report(&config, &categories, &assessments, &students, &grades, None);
+        assert_eq!(verify_report.student_summaries[0].overall_percent, Some(50.0));
     }
 }

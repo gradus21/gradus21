@@ -356,6 +356,7 @@ export function gradeToPercent(
   grade: number,
   config?: SubjectGradingConfig
 ): number {
+  if (!Number.isFinite(grade)) return 0;
   const scale = config?.scale_id || 'de_classic_1_to_6';
   const thresholds =
     config?.custom_thresholds && config.custom_thresholds.length > 0
@@ -363,17 +364,36 @@ export function gradeToPercent(
       : getDefaultThresholds(scale);
 
   if (scale === 'de_oberstufe_0_to_15') {
-    const match = thresholds.find((t) => Math.abs(t.numeric_value - grade) < 0.25);
+    const clamped = Math.max(0, Math.min(15, grade));
+    const match = thresholds.find((t) => Math.abs(t.numeric_value - clamped) < 0.25);
     if (match) return match.min_percent;
-    return Math.max(0, Math.min(100, (grade / 15) * 100));
+    return Math.max(0, Math.min(100, (clamped / 15) * 100));
   } else if (scale === 'us_letter_gpa') {
-    return Math.max(0, Math.min(100, (grade / 4) * 100));
+    const clamped = Math.max(0, Math.min(4, grade));
+    const match = thresholds.find((t) => Math.abs(t.numeric_value - clamped) < 0.15);
+    if (match) return match.min_percent;
+    return Math.max(0, Math.min(100, (clamped / 4) * 100));
   } else {
     // classic 1 to 6
-    const match = thresholds.find((t) => Math.abs(t.numeric_value - grade) < 0.15);
+    const clamped = Math.max(0.75, Math.min(6, grade));
+    const match = thresholds.find((t) => Math.abs(t.numeric_value - clamped) < 0.15);
     if (match) return match.min_percent;
-    return Math.max(0, Math.min(100, ((6 - grade) / 5) * 100));
+    return Math.max(0, Math.min(100, ((6 - clamped) / 5) * 100));
   }
+}
+
+export function formatGradeDisplayLabel(
+  grade: number,
+  config?: SubjectGradingConfig
+): string {
+  const scale = config?.scale_id || 'de_classic_1_to_6';
+  const thresholds =
+    config?.custom_thresholds && config.custom_thresholds.length > 0
+      ? config.custom_thresholds
+      : getDefaultThresholds(scale);
+  const match = thresholds.find((t) => Math.abs(t.numeric_value - grade) < 0.15);
+  if (match) return match.display_label;
+  return String(grade);
 }
 
 /**

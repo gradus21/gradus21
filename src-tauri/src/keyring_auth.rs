@@ -1,21 +1,56 @@
+pub fn validate_keyring_params(service: &str, user: &str) -> Result<(), String> {
+    let clean_service = service.trim();
+    if clean_service != "de.gradus21.app" && !clean_service.starts_with("de.gradus21.") {
+        return Err(
+            "Ungültiger Keyring-Service-Namespace (nur 'de.gradus21.app' erlaubt).".into(),
+        );
+    }
+    let clean_user = user.trim();
+    if clean_user.is_empty() || clean_user.len() > 128 {
+        return Err("Ungültige Benutzer-Kennung für den Schlüsselbund.".into());
+    }
+    Ok(())
+}
+
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn save_secret(service: &str, user: &str, secret: &str) -> Result<(), String> {
-    let entry = keyring::Entry::new(service, user).map_err(|e| e.to_string())?;
+    validate_keyring_params(service, user)?;
+    if secret.is_empty() || secret.len() > 4096 {
+        return Err("Ungültige Schlüsselgröße für den Schlüsselbund.".into());
+    }
+    let entry = keyring::Entry::new(service.trim(), user.trim()).map_err(|e| e.to_string())?;
     entry.set_password(secret).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn get_secret(service: &str, user: &str) -> Result<String, String> {
-    let entry = keyring::Entry::new(service, user).map_err(|e| e.to_string())?;
+    validate_keyring_params(service, user)?;
+    let entry = keyring::Entry::new(service.trim(), user.trim()).map_err(|e| e.to_string())?;
     entry.get_password().map_err(|e| e.to_string())
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn delete_secret(service: &str, user: &str) -> Result<(), String> {
-    let entry = keyring::Entry::new(service, user).map_err(|e| e.to_string())?;
+    validate_keyring_params(service, user)?;
+    let entry = keyring::Entry::new(service.trim(), user.trim()).map_err(|e| e.to_string())?;
     let _ = entry.delete_credential();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_keyring_params;
+
+    #[test]
+    fn test_keyring_namespace_isolation() {
+        assert!(validate_keyring_params("de.gradus21.app", "user-123").is_ok());
+        assert!(validate_keyring_params("de.gradus21.desktop", "user-123").is_ok());
+        assert!(validate_keyring_params("chrome", "user-123").is_err());
+        assert!(validate_keyring_params("ssh", "user-123").is_err());
+        assert!(validate_keyring_params("de.gradus21.app", "").is_err());
+        assert!(validate_keyring_params("de.gradus21.app", &"x".repeat(129)).is_err());
+    }
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]

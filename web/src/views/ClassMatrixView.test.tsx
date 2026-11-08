@@ -123,4 +123,33 @@ describe('ClassMatrixView Mobile Pupil Card Slider & Haptics', () => {
     const thirdStudent = mockDataset.students[2];
     expect(screen.getByTitle(`Nächste:r: ${thirdStudent.name}`)).toBeInTheDocument();
   });
+
+  it('buffers local input while typing so commas and decimals are not stripped', () => {
+    const updateGradeMock = vi.fn();
+    const { container } = render(<ClassMatrixView {...defaultProps} updateGradeEntry={updateGradeMock} />);
+
+    const gradeInput = container.querySelector<HTMLInputElement>('input[data-card-grade-input="true"]');
+    expect(gradeInput).not.toBeNull();
+    if (!gradeInput) return;
+
+    // Focus input
+    fireEvent.focus(gradeInput);
+
+    // Type 18,
+    fireEvent.change(gradeInput, { target: { value: '18,' } });
+    expect(gradeInput.value).toBe('18,');
+    expect(updateGradeMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      '18,',
+      expect.any(String)
+    );
+
+    // Type 18,5
+    fireEvent.change(gradeInput, { target: { value: '18,5' } });
+    expect(gradeInput.value).toBe('18,5');
+
+    // Blur input
+    fireEvent.blur(gradeInput);
+  });
 });

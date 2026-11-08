@@ -471,4 +471,12 @@ describe('ExportAndPrintHelpers - Document Printing and Native Share Dialog', ()
     expect(confHtml).toContain('Zeugniskonferenz-Liste');
     expect(confHtml).toContain('size: A4 portrait');
   });
+
+  it('neutralizes CSV/Excel formula injection characters while preserving negative numbers', () => {
+    expect(escapeCsvCell("=CMD|'/C calc'!A0", ';')).toBe("'=CMD|'/C calc'!A0");
+    expect(escapeCsvCell('@SUM(A1:A2)', ';')).toBe("'@SUM(A1:A2)");
+    expect(escapeCsvCell('+evil@schule.de', ';')).toBe("'+evil@schule.de");
+    expect(escapeCsvCell('-5', ';')).toBe('-5');
+    expect(escapeCsvCell('-3,5', ';')).toBe('-3,5');
+  });
 });

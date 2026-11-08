@@ -21,6 +21,23 @@ pub struct JwtClaims {
     pub exp: usize,
 }
 
+pub fn extract_client_ip(headers: &HeaderMap) -> String {
+    headers
+        .get("x-real-ip")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            headers
+                .get("x-forwarded-for")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.split(',').next_back())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+        .unwrap_or_else(|| "local".to_string())
+}
+
 pub fn check_auth_rate_limit(state: &AppState, key: &str) -> Result<(), (StatusCode, String)> {
     const WINDOW: Duration = Duration::from_secs(60);
     const MAX_ATTEMPTS: usize = 12;
@@ -28,12 +45,29 @@ pub fn check_auth_rate_limit(state: &AppState, key: &str) -> Result<(), (StatusC
     let now = Instant::now();
     let mut map = state.auth_rate_limits.write().unwrap();
 
-    // Prevent unbounded memory growth from random attacker email addresses
+    // Prevent unbounded memory growth from random attacker email addresses without wiping active lockouts
     if map.len() > 1024 {
         map.retain(|_, timestamps| {
             timestamps.retain(|t| now.duration_since(*t) < WINDOW);
             !timestamps.is_empty()
         });
+        while map.len() > 2048 {
+            // Evict only the single entry with the oldest latest attempt, preserving active lockouts
+            if let Some(oldest_key) = map
+                .iter()
+                .filter(|(_, ts)| ts.len() < MAX_ATTEMPTS)
+                .min_by_key(|(_, ts)| ts.last().copied().unwrap_or(now))
+                .or_else(|| {
+                    map.iter()
+                        .min_by_key(|(_, ts)| ts.last().copied().unwrap_or(now))
+                })
+                .map(|(k, _)| k.clone())
+            {
+                map.remove(&oldest_key);
+            } else {
+                break;
+            }
+        }
     }
 
     let sanitized_key = if key.len() > 128 { &key[..128] } else { key };
@@ -100,18 +134,31 @@ pub fn authenticate_request(
     )
     .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültiges oder abgelaufenes JWT".into()))?;
 
-    if let Ok(uid) = Uuid::parse_str(&token_data.claims.sub) {
+    let mut claims = token_data.claims;
+    let uid = Uuid::parse_str(&claims.sub)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige Benutzer-ID im JWT".into()))?;
+
+    {
+        // shortcut: in-memory user verification assumes single-node or startup-loaded users; upgrade authenticate_request to async and query PostgreSQL on cache misses for multi-replica horizontal scaling
         let users = state.mem_users.read().unwrap();
-        if let Some(user) = users.get(&uid) {
-            if !user.is_active {
-                return Err((
-                    StatusCode::FORBIDDEN,
-                    "Dieses Benutzerkonto wurde von der Administration vorübergehend deaktiviert.".into(),
-                ));
-            }
+        let Some(user) = users.get(&uid) else {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "Dieses Benutzerkonto existiert nicht mehr.".into(),
+            ));
+        };
+        if !user.is_active {
+            return Err((
+                StatusCode::FORBIDDEN,
+                "Dieses Benutzerkonto wurde von der Administration vorübergehend deaktiviert.".into(),
+            ));
         }
+        // Invariant I-6: Always synchronize mutable role/email claims from the live UserRecord
+        // so demoted admins immediately lose privileges without waiting for 7-day JWT expiry.
+        claims.is_admin = user.is_admin;
+        claims.email = user.email.clone();
     }
 
-    Ok(token_data.claims)
+    Ok(claims)
 }
 

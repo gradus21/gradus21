@@ -21,7 +21,6 @@ use std::{
 };
 use axum::http::HeaderValue;
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
-use chrono::Utc;
 use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPoolOptions;
 use tower_http::cors::{AllowHeaders, AllowMethods, CorsLayer};
@@ -35,17 +34,43 @@ async fn main() {
         )
         .init();
 
+    let app_env = resolve_app_env(
+        std::env::var("APP_ENV").ok(),
+        std::env::var("ENVIRONMENT").ok(),
+        std::env::var("NODE_ENV").ok(),
+        cfg!(debug_assertions),
+    );
+    let is_prod = is_production_env(&app_env);
+
     let jwt_secret = match std::env::var("JWT_SECRET") {
-        Ok(s) if !s.trim().is_empty() => s,
+        Ok(s) if !s.trim().is_empty() => {
+            let trimmed = s.trim().to_string();
+            if is_prod && is_insecure_jwt(&trimmed) {
+                panic!("FATAL: Running in production with default or weak secrets (< 32 chars) is forbidden. Change JWT_SECRET!");
+            }
+            trimmed
+        }
         _ => {
+            if is_prod {
+                panic!("FATAL: Running in production with default secrets is forbidden. Set JWT_SECRET!");
+            }
             tracing::warn!("JWT_SECRET not set — using development fallback secret. Set JWT_SECRET in production!");
             "gradus21_jwt_signing_secret_2026_zero_knowledge".into()
         }
     };
 
     let raw_server_key = match std::env::var("SERVER_ENCRYPTION_KEY") {
-        Ok(s) if !s.trim().is_empty() => s,
+        Ok(s) if !s.trim().is_empty() => {
+            let trimmed = s.trim().to_string();
+            if is_prod && is_insecure_server_key(&trimmed) {
+                panic!("FATAL: Running in production with default or weak keys (< 32 chars) is forbidden. Change SERVER_ENCRYPTION_KEY!");
+            }
+            trimmed
+        }
         _ => {
+            if is_prod {
+                panic!("FATAL: Running in production with default secrets is forbidden. Set SERVER_ENCRYPTION_KEY!");
+            }
             tracing::warn!("SERVER_ENCRYPTION_KEY not set — using development fallback key. Set SERVER_ENCRYPTION_KEY in production!");
             "0123456789abcdef0123456789abcdef".into()
         }
@@ -104,29 +129,7 @@ async fn main() {
     };
 
     // Migrate legacy passkeys from users into initial_disk.passkeys if not already present
-    for user in initial_disk.users.values() {
-        if let Some(cred_id) = &user.passkey_credential_id {
-            if !cred_id.trim().is_empty()
-                && !initial_disk.passkeys.values().any(|p| p.user_id == user.id && p.credential_id == *cred_id)
-            {
-                let pid = Uuid::new_v4();
-                let label = user.passkey_label.clone().unwrap_or_else(|| "Passkey (Standard)".into());
-                let enc_dek = user.passkey_encrypted_dek.clone().unwrap_or_else(|| user.encrypted_dek.clone());
-                let rec = UserPasskeyRecord {
-                    id: pid,
-                    user_id: user.id,
-                    credential_id: cred_id.clone(),
-                    passkey_label: label,
-                    passkey_encrypted_dek: enc_dek,
-                    passkey_prf_salt: user.passkey_prf_salt.clone(),
-                    passkey_data: None,
-                    created_at: user.created_at.unwrap_or_else(Utc::now),
-                    last_used_at: user.last_login_at,
-                };
-                initial_disk.passkeys.insert(pid, rec);
-            }
-        }
-    }
+    crate::state::migrate_legacy_user_passkeys(&initial_disk.users, &mut initial_disk.passkeys);
 
     let admin_emails: Vec<String> = std::env::var("ADMIN_EMAILS")
         .unwrap_or_default()
@@ -146,10 +149,6 @@ async fn main() {
 
     let webauthn = create_webauthn();
     let legal_config = LegalConfig::default();
-    let app_env = std::env::var("APP_ENV")
-        .or_else(|_| std::env::var("ENVIRONMENT"))
-        .or_else(|_| std::env::var("NODE_ENV"))
-        .unwrap_or_else(|_| "production".into());
 
     let mut normalized_envelopes = HashMap::new();
     for (_, mut env) in initial_disk.envelopes {

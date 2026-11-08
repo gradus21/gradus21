@@ -8,6 +8,9 @@ interface RecoveryUnlockTabProps {
   setRecoveryKey: (key: string) => void;
   newPassword: string;
   setNewPassword: (password: string) => void;
+  totpCode?: string;
+  setTotpCode?: (code: string) => void;
+  requiresTotp?: boolean;
   isLoading: boolean;
   onRecover: (e: React.FormEvent) => void;
   onBackToLogin: () => void;
@@ -20,6 +23,9 @@ export const RecoveryUnlockTab: React.FC<RecoveryUnlockTabProps> = ({
   setRecoveryKey,
   newPassword,
   setNewPassword,
+  totpCode = '',
+  setTotpCode,
+  requiresTotp = false,
   isLoading,
   onRecover,
   onBackToLogin,
@@ -110,6 +116,33 @@ export const RecoveryUnlockTab: React.FC<RecoveryUnlockTabProps> = ({
             />
           </div>
         </div>
+
+        {/* Optional 2FA Code when 2FA is active on account */}
+        {requiresTotp && setTotpCode && (
+          <div>
+            <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
+              6-stelliger 2FA-Sicherheitscode (vom Handy)
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={6}
+              autoComplete="one-time-code"
+              value={totpCode}
+              onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ''))}
+              placeholder="123456"
+              required
+              disabled={isLoading}
+              className="w-full px-3.5 py-2.5 rounded-xl border font-mono text-center tracking-widest text-xs focus:ring-2 focus:ring-teal-500 outline-none"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--text-primary)',
+              }}
+            />
+          </div>
+        )}
       </div>
 
       <button

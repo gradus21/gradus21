@@ -15,7 +15,9 @@ use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
 use crate::admin;
-use crate::middleware::{authenticate_request, check_auth_rate_limit, hash_client_key, issue_jwt};
+use crate::middleware::{
+    authenticate_request, check_auth_rate_limit, extract_client_ip, hash_client_key, issue_jwt,
+};
 use crate::state::{
     find_user_by_email, persist_to_disk, sync_user_to_pg, AppState, EmailVerificationEntry,
     LegalConfig, UserRecord,
@@ -95,6 +97,8 @@ pub struct RegisterRequest {
     pub totp_secret_base32: Option<String>,
     #[serde(default)]
     pub totp_enabled: Option<bool>,
+    #[serde(default)]
+    pub invite_token: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -153,12 +157,18 @@ pub struct RecoverPasswordRequest {
     pub new_recovery_encrypted_dek: Option<String>,
     #[serde(default)]
     pub new_recovery_auth_key_b64: Option<String>,
+    #[serde(default)]
+    pub totp_code: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct RotateRecoveryKeyRequest {
     pub recovery_encrypted_dek: String,
     pub recovery_auth_key_b64: String,
+    #[serde(default)]
+    pub auth_key_b64: Option<String>,
+    #[serde(default)]
+    pub totp_code: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -243,7 +253,11 @@ pub async fn register_user(
     let email = req.email.trim().to_lowercase();
     check_auth_rate_limit(&state, &format!("register:{}", email))?;
 
-    let auth_key_hash = hash_client_key(&req.auth_key_b64)?;
+    let auth_key_hash = if req.auth_key_b64.trim().is_empty() {
+        String::new()
+    } else {
+        hash_client_key(&req.auth_key_b64)?
+    };
     let recovery_auth_key_hash = match req
         .recovery_auth_key_b64
         .as_deref()
@@ -277,7 +291,27 @@ pub async fn register_user(
         let users = state.mem_users.read().unwrap();
         users.is_empty()
     };
-    let is_admin = is_first_user || state.admin_emails.contains(&email);
+
+    // Check invite token if present
+    let mut invited_admin = false;
+    let mut invite_to_remove: Option<String> = None;
+    if let Some(ref inv) = req.invite_token {
+        let trimmed_inv = inv.trim();
+        if !trimmed_inv.is_empty() {
+            let settings = state.mem_settings.read().unwrap();
+            if let Some(invites) = settings.get("pending_invites").and_then(|v| v.as_object()) {
+                if let Some(invite_data) = invites.get(trimmed_inv) {
+                    let inv_email = invite_data.get("email").and_then(|e| e.as_str()).unwrap_or("");
+                    if inv_email.eq_ignore_ascii_case(&email) {
+                        invited_admin = invite_data.get("is_admin").and_then(|a| a.as_bool()).unwrap_or(false);
+                        invite_to_remove = Some(trimmed_inv.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    let is_admin = is_first_user || invited_admin || state.admin_emails.contains(&email);
     let is_active = true;
     let now = Utc::now();
 
@@ -295,7 +329,7 @@ pub async fn register_user(
             .get(&email)
             .map(|v| v.code.is_empty() && v.expires_at >= now)
             .unwrap_or(false)
-    };
+    } || invite_to_remove.is_some();
 
     if !is_first_user && state.is_test_or_production_env() && !was_verified {
         return Err((
@@ -336,12 +370,26 @@ pub async fn register_user(
         record
     };
     sync_user_to_pg(&state, &new_user).await;
-    persist_to_disk(&state);
 
     if was_verified {
         let mut verifs = state.mem_email_verifications.write().unwrap();
         verifs.remove(&email);
     }
+
+    if let Some(inv_key) = invite_to_remove {
+        let updated_invites = {
+            let mut settings = state.mem_settings.write().unwrap();
+            let mut invites = settings.get("pending_invites").cloned().unwrap_or_else(|| serde_json::json!({}));
+            if let Some(map) = invites.as_object_mut() {
+                map.remove(&inv_key);
+            }
+            settings.insert("pending_invites".into(), invites.clone());
+            invites
+        };
+        crate::admin::save_setting_to_pg(&state, "pending_invites", &updated_invites).await;
+    }
+
+    persist_to_disk(&state);
 
     let token = issue_jwt(&state.jwt_secret, user_id, &email, is_admin, true)?;
     Ok(Json(AuthResponse {
@@ -383,6 +431,13 @@ pub async fn login_user(
         ));
     }
 
+    if user.auth_key_hash.is_empty() || req.auth_key_b64.trim().is_empty() {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "Dieses Konto nutzt Passkey-only-Anmeldung. Bitte melde dich mit deinem Passkey an.".into(),
+        ));
+    }
+
     let parsed_hash = PasswordHash::new(&user.auth_key_hash)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Hash-Fehler".into()))?;
     Argon2::default()
@@ -404,29 +459,26 @@ pub async fn login_user(
         )
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "2FA Entschlüsselungsfehler".into()))?;
 
-        if !totp::verify_totp_code(&secret_b32, code) {
-            return Err((StatusCode::UNAUTHORIZED, "Ungültiger 6-stelliger 2FA-TOTP-Code".into()));
+        if !totp::verify_totp_code_once(user.id, &secret_b32, code) {
+            return Err((StatusCode::UNAUTHORIZED, "Ungültiger oder bereits verwendeter 6-stelliger 2FA-TOTP-Code".into()));
         }
     }
 
-    let is_admin = user.is_admin || state.admin_emails.contains(&user.email.to_lowercase());
+    // Invariant I-6: Admin role is governed by the persisted UserRecord (`user.is_admin`),
+    // never silently re-promoted from `state.admin_emails` after an admin demotes the account.
+    let is_admin = user.is_admin;
     let now = Utc::now();
     {
         let mut users = state.mem_users.write().unwrap();
         if let Some(u) = users.get_mut(&user.id) {
             u.last_login_at = Some(now);
-            if is_admin && !u.is_admin {
-                u.is_admin = true;
-            }
         }
     }
     if let Some(mut updated_user) = find_user_by_email(&state, &email).await {
         updated_user.last_login_at = Some(now);
-        if is_admin {
-            updated_user.is_admin = true;
-        }
         sync_user_to_pg(&state, &updated_user).await;
     }
+    persist_to_disk(&state);
 
     let token = issue_jwt(&state.jwt_secret, user.id, &user.email, is_admin, true)?;
     Ok(Json(AuthResponse {
@@ -487,6 +539,21 @@ pub async fn recover_password(
             )
         })?;
 
+    // Invariant I-6: When 2FA (TOTP) is enabled on the account, password recovery must also
+    // verify a single-use TOTP code via verify_user_step_up_auth so possession of the paper
+    // recovery sheet alone cannot bypass 2FA.
+    if existing_user.totp_enabled {
+        let Some(code) = req.totp_code.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
+            return Err((StatusCode::UNAUTHORIZED, "2FA_REQUIRED".into()));
+        };
+        if !verify_user_step_up_auth(&state, &existing_user, None, Some(code)) {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "Ungültiger oder bereits verwendeter 6-stelliger 2FA-Sicherheitscode".into(),
+            ));
+        }
+    }
+
     let new_hash = hash_client_key(&req.new_auth_key_b64)?;
     let new_rec_hash_opt = match req
         .new_recovery_auth_key_b64
@@ -518,6 +585,11 @@ pub async fn recover_password(
         }
         user.clone()
     };
+    state
+        .reg_challenges
+        .write()
+        .unwrap()
+        .remove(&existing_user.id.to_string());
     sync_user_to_pg(&state, &updated_user).await;
     persist_to_disk(&state);
 
@@ -542,6 +614,45 @@ pub async fn recover_password(
     }))
 }
 
+/// Architectural Invariant (I-1 & I-2): Single source of truth for step-up authentication
+/// (verifying either the user's Master Password `auth_key_b64` or a single-use TOTP code).
+fn verify_user_step_up_auth(
+    state: &AppState,
+    user: &UserRecord,
+    auth_key_b64: Option<&str>,
+    totp_code: Option<&str>,
+) -> bool {
+    if let Some(auth_key) = auth_key_b64 {
+        if !user.auth_key_hash.is_empty() {
+            if let Ok(parsed) = PasswordHash::new(&user.auth_key_hash) {
+                if Argon2::default()
+                    .verify_password(auth_key.as_bytes(), &parsed)
+                    .is_ok()
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    if user.totp_enabled {
+        if let Some(code) = totp_code {
+            if let Some(ref enc) = user.totp_secret_server_encrypted {
+                if let Ok(totp_secret) = decrypt_entity_envelope(
+                    &state.server_encryption_key_b64,
+                    "server",
+                    &user.id.to_string(),
+                    enc,
+                ) {
+                    if totp::verify_totp_code_once(user.id, &totp_secret, code) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 pub async fn rotate_recovery_key(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -550,6 +661,7 @@ pub async fn rotate_recovery_key(
     let claims = authenticate_request(&state, &headers)?;
     let user_id = Uuid::parse_str(&claims.sub)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
+    check_auth_rate_limit(&state, &format!("rotate_recovery:{}", user_id))?;
 
     let rec_hash = hash_client_key(&req.recovery_auth_key_b64)?;
 
@@ -558,6 +670,20 @@ pub async fn rotate_recovery_key(
         let user = users
             .get_mut(&user_id)
             .ok_or((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()))?;
+
+        let authorized = verify_user_step_up_auth(
+            &state,
+            user,
+            req.auth_key_b64.as_deref(),
+            req.totp_code.as_deref(),
+        );
+        if !authorized && !user.auth_key_hash.is_empty() {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "Zur Erneuerung des Notfall-Schlüssels ist dein Master-Passwort oder ein 2FA-Code erforderlich.".into(),
+            ));
+        }
+
         user.recovery_encrypted_dek = req.recovery_encrypted_dek.clone();
         user.recovery_auth_key_hash = rec_hash;
         user.clone()
@@ -627,42 +753,7 @@ pub async fn get_2fa_setup_info(
             let maybe_saved = if created { Some(user.clone()) } else { None };
             (user.totp_enabled, user.email.clone(), secret, maybe_saved)
         } else {
-            let secret = totp::generate_totp_secret_base32();
-            let enc = encrypt_entity_envelope(
-                &state.server_encryption_key_b64,
-                "server",
-                &user_id.to_string(),
-                &secret,
-            )
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-            let new_user = UserRecord {
-                id: user_id,
-                email: claims.email.clone(),
-                auth_key_hash: String::new(),
-                kdf_salt: String::new(),
-                kdf_params: KdfParams::default(),
-                encrypted_dek: String::new(),
-                recovery_encrypted_dek: String::new(),
-                recovery_auth_key_hash: String::new(),
-                totp_secret_server_encrypted: Some(enc),
-                totp_enabled: false,
-                passkey_credential_id: None,
-                passkey_label: None,
-                passkey_encrypted_dek: None,
-                passkey_prf_salt: None,
-                ui_preferences: serde_json::json!({ "theme": "teal", "mode": "light" }),
-                is_admin: claims.is_admin,
-                is_active: true,
-                created_at: Some(Utc::now()),
-                last_login_at: Some(Utc::now()),
-                email_verified: false,
-                email_verification_code: None,
-                email_verification_expires_at: None,
-                email_verification_attempts: 0,
-                email_verification_cooldown_until: None,
-            };
-            users.insert(user_id, new_user.clone());
-            (false, claims.email.clone(), secret, Some(new_user))
+            return Err((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()));
         }
     };
 
@@ -707,7 +798,7 @@ pub async fn verify_and_enable_2fa(
                 )
                 .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "2FA Fehler".into()))?;
 
-                if !totp::verify_totp_code(&secret_b32, &req.totp_code) {
+                if !totp::verify_totp_enrollment_code(&secret_b32, &req.totp_code) {
                     return Err((StatusCode::BAD_REQUEST, "6-stelliger 2FA-Code ist ungültig".into()));
                 }
                 user.totp_enabled = true;
@@ -726,14 +817,25 @@ pub async fn verify_and_enable_2fa(
     Ok(Json(serde_json::json!({ "totp_enabled": true })))
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct Reconfigure2faRequest {
+    #[serde(default)]
+    pub auth_key_b64: Option<String>,
+    #[serde(default)]
+    pub totp_code: Option<String>,
+}
+
 pub async fn reconfigure_2fa(
     State(state): State<AppState>,
     headers: HeaderMap,
+    payload: Option<Json<Reconfigure2faRequest>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let claims = authenticate_request(&state, &headers)?;
     let user_id = Uuid::parse_str(&claims.sub)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
     check_auth_rate_limit(&state, &format!("2fa_reconfigure:{}", user_id))?;
+
+    let req = payload.map(|Json(r)| r).unwrap_or_default();
 
     let new_secret_b32 = totp::generate_totp_secret_base32();
     let enc = encrypt_entity_envelope(
@@ -753,8 +855,23 @@ pub async fn reconfigure_2fa(
         };
 
         if let Some(user) = user_opt {
+            if user.totp_enabled {
+                if !verify_user_step_up_auth(
+                    &state,
+                    user,
+                    req.auth_key_b64.as_deref(),
+                    req.totp_code.as_deref(),
+                ) {
+                    return Err((
+                        StatusCode::UNAUTHORIZED,
+                        "Zur Neukonfiguration von 2FA ist dein Master-Passwort oder ein aktueller 2FA-Code erforderlich.".into(),
+                    ));
+                }
+            }
+
             user.totp_secret_server_encrypted = Some(enc);
             user.totp_enabled = false;
+            totp::clear_totp_replay_state(user.id);
             (user.email.clone(), user.clone())
         } else {
             return Err((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()));
@@ -772,14 +889,25 @@ pub async fn reconfigure_2fa(
     })))
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct Disable2faRequest {
+    #[serde(default)]
+    pub auth_key_b64: Option<String>,
+    #[serde(default)]
+    pub totp_code: Option<String>,
+}
+
 pub async fn disable_2fa(
     State(state): State<AppState>,
     headers: HeaderMap,
+    payload: Option<Json<Disable2faRequest>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let claims = authenticate_request(&state, &headers)?;
     let user_id = Uuid::parse_str(&claims.sub)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
     check_auth_rate_limit(&state, &format!("2fa_disable:{}", user_id))?;
+
+    let req = payload.map(|Json(r)| r).unwrap_or_default();
 
     let updated_user = {
         let mut users = state.mem_users.write().unwrap();
@@ -790,7 +918,22 @@ pub async fn disable_2fa(
         };
 
         if let Some(user) = user_opt {
+            if user.totp_enabled {
+                if !verify_user_step_up_auth(
+                    &state,
+                    user,
+                    req.auth_key_b64.as_deref(),
+                    req.totp_code.as_deref(),
+                ) {
+                    return Err((
+                        StatusCode::UNAUTHORIZED,
+                        "Zur Deaktivierung von 2FA ist dein Master-Passwort oder ein aktueller 2FA-Code erforderlich.".into(),
+                    ));
+                }
+            }
+
             user.totp_enabled = false;
+            totp::clear_totp_replay_state(user.id);
             user.clone()
         } else {
             return Err((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()));
@@ -806,9 +949,13 @@ pub async fn disable_2fa(
     })))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct UpdateUserEmailRequest {
     pub new_email: String,
+    #[serde(default)]
+    pub auth_key_b64: Option<String>,
+    #[serde(default)]
+    pub totp_code: Option<String>,
 }
 
 pub async fn update_user_email(
@@ -819,6 +966,7 @@ pub async fn update_user_email(
     let claims = authenticate_request(&state, &headers)?;
     let user_id = Uuid::parse_str(&claims.sub)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
+    check_auth_rate_limit(&state, &format!("email_update:{}", user_id))?;
 
     let new_email = req.new_email.trim().to_lowercase();
     if !new_email.contains('@') || new_email.len() < 5 {
@@ -832,7 +980,33 @@ pub async fn update_user_email(
         })));
     }
 
-    // Check if new_email is already used by another account
+    // 1. Prevent privilege escalation to admin accounts (Finding 1) & require mandatory step-up auth (Invariant I-2)
+    {
+        let users = state.mem_users.read().unwrap();
+        if let Some(user) = users.get(&user_id) {
+            if !user.is_admin && state.admin_emails.contains(&new_email) {
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    "Diese E-Mail-Adresse ist für Administrator:innen reserviert.".into(),
+                ));
+            }
+            if (!user.auth_key_hash.is_empty() || user.totp_enabled)
+                && !verify_user_step_up_auth(
+                    &state,
+                    user,
+                    req.auth_key_b64.as_deref(),
+                    req.totp_code.as_deref(),
+                )
+            {
+                return Err((
+                    StatusCode::UNAUTHORIZED,
+                    "Zur Änderung der E-Mail-Adresse ist die Bestätigung durch dein Master-Passwort oder einen 2FA-Code erforderlich.".into(),
+                ));
+            }
+        }
+    }
+
+    // 2. Check if new_email is already used by another account
     {
         let users = state.mem_users.read().unwrap();
         if users.values().any(|u| u.email == new_email && u.id != user_id) {
@@ -840,11 +1014,34 @@ pub async fn update_user_email(
         }
     }
 
+    // 3. In test/production environment, require verified ownership of the new email address
+    let was_verified = {
+        let verifs = state.mem_email_verifications.read().unwrap();
+        verifs
+            .get(&new_email)
+            .map(|v| v.code.is_empty() && v.expires_at >= Utc::now())
+            .unwrap_or(false)
+    };
+
+    if state.is_test_or_production_env() && !was_verified {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Die neue E-Mail-Adresse muss vor der Übernahme über den Verifikations-Code bestätigt werden.".into(),
+        ));
+    }
+
+    // Clean up consumed verification entry
+    if was_verified {
+        let mut verifs = state.mem_email_verifications.write().unwrap();
+        verifs.remove(&new_email);
+    }
+
     let updated_user = {
         let mut users = state.mem_users.write().unwrap();
         let user = users.get_mut(&user_id)
             .ok_or_else(|| (StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()))?;
         user.email = new_email.clone();
+        user.email_verified = true;
         user.clone()
     };
 
@@ -930,6 +1127,14 @@ pub async fn verify_email_start(
 
     {
         let mut verifs = state.mem_email_verifications.write().unwrap();
+        // Prune expired entries to prevent unbounded RAM growth under automated scans
+        verifs.retain(|_, v| v.expires_at >= now);
+        if !verifs.contains_key(&email) && verifs.len() >= 2048 {
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                "Zu viele gleichzeitige E-Mail-Verifikationen aktiv. Bitte kurz warten.".into(),
+            ));
+        }
         verifs.insert(email.clone(), entry);
     }
 
@@ -947,6 +1152,7 @@ pub async fn verify_email_start(
     let smtp_cfg = admin::get_smtp_config_internal(&state);
     let smtp_configured = smtp_cfg.is_some() && !smtp_cfg.as_ref().unwrap().host.is_empty();
 
+    let is_prod = state.is_production_env();
     let mut dev_code = None;
     let mut mail_error = None;
 
@@ -959,18 +1165,24 @@ pub async fn verify_email_start(
             );
             if let Err(e) = admin::send_email_internal(&cfg, &email, subject, &body).await {
                 tracing::warn!("Fehler beim SMTP-Versand des Verifikations-Codes an {}: {}", email, e);
-                tracing::info!("Verifikationscode für {}: {}", email, code);
-                dev_code = Some(code);
+                if !is_prod {
+                    tracing::info!("Verifikationscode für {}: {}", email, code);
+                    dev_code = Some(code);
+                }
                 mail_error = Some(format!("SMTP-Versand fehlgeschlagen: {}", e));
             }
         } else {
-            tracing::info!("SMTP nicht konfiguriert. Verifikationscode für {}: {}", email, code);
-            dev_code = Some(code);
+            if !is_prod {
+                tracing::info!("SMTP nicht konfiguriert. Verifikationscode für {}: {}", email, code);
+                dev_code = Some(code);
+            }
             mail_error = Some("SMTP-Mailversand ist auf diesem Server nicht konfiguriert.".into());
         }
     } else {
-        tracing::info!("SMTP nicht konfiguriert. Verifikationscode für {}: {}", email, code);
-        dev_code = Some(code);
+        if !is_prod {
+            tracing::info!("SMTP nicht konfiguriert. Verifikationscode für {}: {}", email, code);
+            dev_code = Some(code);
+        }
         mail_error = Some("SMTP-Mailversand ist auf diesem Server nicht konfiguriert.".into());
     }
 
@@ -990,6 +1202,13 @@ pub async fn verify_email_confirm(
     let email = req.email.trim().to_lowercase();
     let submitted_code = req.code.trim();
 
+    if submitted_code.len() != 6 || !submitted_code.chars().all(|c| c.is_ascii_digit()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Bitte gib einen gültigen 6-stelligen Bestätigungscode ein.".into(),
+        ));
+    }
+
     check_auth_rate_limit(&state, &format!("verify_confirm:{}", email))?;
 
     let now = Utc::now();
@@ -1000,11 +1219,13 @@ pub async fn verify_email_confirm(
             "Kein aktiver Bestätigungscode für diese E-Mail gefunden. Bitte fordere einen neuen Code an.".into(),
         ))?;
 
-        if entry.expires_at < now {
-            verifs.remove(&email);
+        if entry.expires_at < now || entry.code.is_empty() {
+            if entry.expires_at < now {
+                verifs.remove(&email);
+            }
             return Err((
                 StatusCode::BAD_REQUEST,
-                "Der Bestätigungscode ist abgelaufen. Bitte fordere einen neuen Code an.".into(),
+                "Der Bestätigungscode ist bereits eingelöst oder abgelaufen. Bitte fordere bei Bedarf einen neuen Code an.".into(),
             ));
         }
 
@@ -1086,7 +1307,10 @@ pub struct DesktopRelayPollResponse {
 
 pub async fn desktop_relay_init(
     State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> Result<Json<DesktopRelayInitResponse>, (StatusCode, String)> {
+    let client_ip = extract_client_ip(&headers);
+    check_auth_rate_limit(&state, &format!("relay_init:{}", client_ip))?;
     let mut rng = rand::thread_rng();
     let mut token_bytes = [0u8; 32];
     rng.fill(&mut token_bytes);
@@ -1099,6 +1323,14 @@ pub async fn desktop_relay_init(
 
     // Prune expired entries older than 300 seconds
     sessions.retain(|_, entry| entry.created_at.elapsed().as_secs() < 300);
+
+    // Invariant I-6: Cap total active relay sessions to prevent unbounded memory growth
+    if sessions.len() >= 1024 {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "Zu viele aktive Desktop-Autorisierungssitzungen. Bitte versuche es in Kürze erneut.".into(),
+        ));
+    }
 
     sessions.insert(
         session_token.clone(),
@@ -1119,6 +1351,14 @@ pub async fn desktop_relay_complete(
     if token.is_empty() || payload.encrypted_payload.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "Ungültige Parameter".into()));
     }
+    // Invariant I-6: Reject oversized relay payloads (> 16 KB) at the boundary
+    if payload.encrypted_payload.len() > 16_384 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Verschlüsselte Relay-Nutzlast überschreitet das zulässige Größenlimit (max. 16 KB).".into(),
+        ));
+    }
+    check_auth_rate_limit(&state, &format!("relay_complete:{}", token))?;
 
     let mut sessions = state
         .desktop_relay_sessions
