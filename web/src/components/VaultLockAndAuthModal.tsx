@@ -347,13 +347,28 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           Authorization: `Bearer ${session.token}`,
         },
       })
-        .then((r) => (r.ok ? r.json() : null))
+        .then(async (r) => {
+          if (r.status === 409) {
+            // 2FA ist auf dem Server bereits aktiv -> lokalen Sitzungsstatus synchronisieren
+            if (!cancelled) {
+              onUnlockSuccess({
+                ...session,
+                totpEnabled: true,
+              });
+            }
+            return null;
+          }
+          return r.ok ? r.json() : null;
+        })
         .then((data) => {
           if (cancelled || !data) return;
           if (data.totp_setup_uri) {
             renderQr(data.totp_setup_uri);
           }
-          if (data.totp_secret_base32 && data.totp_secret_base32 !== session.totpSecretBase32) {
+          if (
+            (data.totp_secret_base32 && data.totp_secret_base32 !== session.totpSecretBase32) ||
+            (data.totp_setup_uri && data.totp_setup_uri !== session.totpSetupUri)
+          ) {
             onUnlockSuccess({
               ...session,
               totpEnabled: data.totp_enabled ?? session.totpEnabled,
@@ -2436,32 +2451,84 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     }
   };
 
-  const handleVerify2FA = async () => {
+  const handleVerify2FA = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!session) return;
     setErrorMsg(null);
     setStatusMsg('Code wird überprüft...');
-    const res = await fetch(apiUrl('/api/auth/2fa/verify'), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.token}`,
-      },
-      body: JSON.stringify({ totp_code: totpVerifyInput }),
-    });
-    if (!res.ok) {
-      setErrorMsg('Der 6-stellige Code stimmt noch nicht. Bitte prüfe die Anzeige auf deinem Handy.');
+
+    const code = totpVerifyInput.trim();
+    if (code.length !== 6) {
+      setErrorMsg('Bitte gib den vollständigen 6-stelligen Code aus deiner Authenticator-App ein.');
       setStatusMsg(null);
       return;
     }
-    setTotpVerifyInput('');
-    onUnlockSuccess({ ...session, totpEnabled: true });
-    setStatusMsg('Zwei-Faktor-Schutz ist jetzt aktiv!');
+
+    if (!session.token) {
+      const isValid = await verifyTotpCode(session.totpSecretBase32 || '', code);
+      if (!isValid) {
+        setErrorMsg('Der 6-stellige Code stimmt noch nicht. Bitte prüfe die Anzeige auf deinem Handy.');
+        setStatusMsg(null);
+        return;
+      }
+      setTotpVerifyInput('');
+      await onUnlockSuccess({ ...session, totpEnabled: true });
+      setStatusMsg('Zwei-Faktor-Schutz ist jetzt aktiv!');
+      return;
+    }
+
+    try {
+      const res = await fetch(apiUrl('/api/auth/2fa/verify'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.token}`,
+        },
+        body: JSON.stringify({ totp_code: code }),
+      });
+      if (!res.ok) {
+        setErrorMsg('Der 6-stellige Code stimmt noch nicht. Bitte prüfe die Anzeige auf deinem Handy.');
+        setStatusMsg(null);
+        return;
+      }
+      setTotpVerifyInput('');
+      await onUnlockSuccess({ ...session, totpEnabled: true });
+      setStatusMsg('Zwei-Faktor-Schutz ist jetzt aktiv!');
+    } catch (err: any) {
+      setErrorMsg('Verbindungsfehler bei der 2FA-Aktivierung: ' + String(err));
+      setStatusMsg(null);
+    }
   };
 
   const handleReconfigure2FA = async () => {
     if (!session) return;
     setErrorMsg(null);
     setStatusMsg('Neuer 2FA-Einrichtungsschlüssel wird generiert...');
+
+    if (!session.token) {
+      const { secretBase32 } = generateTotpSecret();
+      const offlineUri = buildTotpUri(session.email, secretBase32, 'Gradus21 (Lokal)');
+      setTotpVerifyInput('');
+      const updated: ActiveVaultSession = {
+        ...session,
+        totpEnabled: false,
+        totpSecretBase32: secretBase32,
+        totpSetupUri: offlineUri,
+      };
+      await onUnlockSuccess(updated);
+      QRCode.toDataURL(offlineUri, {
+        width: 240,
+        margin: 3,
+        errorCorrectionLevel: 'M',
+        color: { dark: '#000000', light: '#FFFFFF' },
+      })
+        .then((url) => setQrSvgDataUrl(url))
+        .catch(() => setQrSvgDataUrl(null));
+      setStatusMsg(
+        'Neuer 2FA-Schlüssel erstellt! Bitte scanne den neuen QR-Code und gib zur Bestätigung den 6-stelligen Code ein.'
+      );
+      return;
+    }
 
     let authKey = session.authKeyB64;
     let totpCodeCandidate: string | undefined;
@@ -2505,7 +2572,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         totpSecretBase32: data.totp_secret_base32,
         totpSetupUri: data.totp_setup_uri,
       };
-      onUnlockSuccess(updated);
+      await onUnlockSuccess(updated);
       if (data.totp_setup_uri) {
         QRCode.toDataURL(data.totp_setup_uri, {
           width: 240,
@@ -2536,6 +2603,29 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     }
     setErrorMsg(null);
     setStatusMsg('2FA wird deaktiviert...');
+
+    if (!session.token) {
+      const { secretBase32 } = generateTotpSecret();
+      const offlineUri = buildTotpUri(session.email, secretBase32, 'Gradus21 (Lokal)');
+      setTotpVerifyInput('');
+      const updated: ActiveVaultSession = {
+        ...session,
+        totpEnabled: false,
+        totpSecretBase32: secretBase32,
+        totpSetupUri: offlineUri,
+      };
+      await onUnlockSuccess(updated);
+      QRCode.toDataURL(offlineUri, {
+        width: 240,
+        margin: 3,
+        errorCorrectionLevel: 'M',
+        color: { dark: '#000000', light: '#FFFFFF' },
+      })
+        .then((url) => setQrSvgDataUrl(url))
+        .catch(() => setQrSvgDataUrl(null));
+      setStatusMsg('Zwei-Faktor-Authentifizierung wurde deaktiviert.');
+      return;
+    }
 
     let authKey = session.authKeyB64;
     let totpCodeCandidate: string | undefined;
@@ -2571,12 +2661,27 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         return;
       }
 
+      const data = await res.json().catch(() => ({}));
+      setTotpVerifyInput('');
       const updated: ActiveVaultSession = {
         ...session,
         totpEnabled: false,
+        totpSecretBase32: data.totp_secret_base32 || session.totpSecretBase32,
+        totpSetupUri: data.totp_setup_uri || session.totpSetupUri,
       };
-      onUnlockSuccess(updated);
-      setQrSvgDataUrl(null);
+      await onUnlockSuccess(updated);
+      if (data.totp_setup_uri) {
+        QRCode.toDataURL(data.totp_setup_uri, {
+          width: 240,
+          margin: 3,
+          errorCorrectionLevel: 'M',
+          color: { dark: '#000000', light: '#FFFFFF' },
+        })
+          .then((url) => setQrSvgDataUrl(url))
+          .catch(() => setQrSvgDataUrl(null));
+      } else {
+        setQrSvgDataUrl(null);
+      }
       setStatusMsg('Zwei-Faktor-Authentifizierung wurde deaktiviert.');
     } catch (err: any) {
       setErrorMsg('Fehler beim Deaktivieren von 2FA: ' + String(err));

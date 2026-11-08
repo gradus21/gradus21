@@ -838,13 +838,6 @@ pub async fn reconfigure_2fa(
     let req = payload.map(|Json(r)| r).unwrap_or_default();
 
     let new_secret_b32 = totp::generate_totp_secret_base32();
-    let enc = encrypt_entity_envelope(
-        &state.server_encryption_key_b64,
-        "server",
-        &user_id.to_string(),
-        &new_secret_b32,
-    )
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let (email, updated_user) = {
         let mut users = state.mem_users.write().unwrap();
@@ -868,6 +861,14 @@ pub async fn reconfigure_2fa(
                     ));
                 }
             }
+
+            let enc = encrypt_entity_envelope(
+                &state.server_encryption_key_b64,
+                "server",
+                &user.id.to_string(),
+                &new_secret_b32,
+            )
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
             user.totp_secret_server_encrypted = Some(enc);
             user.totp_enabled = false;
@@ -909,7 +910,9 @@ pub async fn disable_2fa(
 
     let req = payload.map(|Json(r)| r).unwrap_or_default();
 
-    let updated_user = {
+    let new_secret_b32 = totp::generate_totp_secret_base32();
+
+    let (email, updated_user) = {
         let mut users = state.mem_users.write().unwrap();
         let user_opt = if let Some(u) = users.get_mut(&user_id) {
             Some(u)
@@ -932,9 +935,18 @@ pub async fn disable_2fa(
                 }
             }
 
+            let enc = encrypt_entity_envelope(
+                &state.server_encryption_key_b64,
+                "server",
+                &user.id.to_string(),
+                &new_secret_b32,
+            )
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+            user.totp_secret_server_encrypted = Some(enc);
             user.totp_enabled = false;
             totp::clear_totp_replay_state(user.id);
-            user.clone()
+            (user.email.clone(), user.clone())
         } else {
             return Err((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()));
         }
@@ -943,9 +955,12 @@ pub async fn disable_2fa(
     sync_user_to_pg(&state, &updated_user).await;
     persist_to_disk(&state);
 
+    let uri = totp::build_otpauth_uri(&email, &new_secret_b32);
     Ok(Json(serde_json::json!({
         "success": true,
-        "totp_enabled": false
+        "totp_enabled": false,
+        "totp_secret_base32": new_secret_b32,
+        "totp_setup_uri": uri
     })))
 }
 

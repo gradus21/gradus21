@@ -9,6 +9,7 @@ import {
   getStoredDek,
   getStoredToken,
   getStoredAuthKey,
+  persistEncryptedSessionCredentialsToCache,
 } from './useVaultWorkspaceSync';
 import { findLocalCachedVault } from '../components/vault/vaultTypes';
 import { wasm_encrypt_envelope, wasm_decrypt_envelope } from '../wasm-pkg/gradus21_core';
@@ -540,5 +541,48 @@ describe('useVaultWorkspaceSync - handleImportEncryptedBackup', () => {
 
     const storedAfter = JSON.parse(localStorage.getItem(userCacheKey) || '{}');
     expect(storedAfter.classEnvelopes?.[zombieUuid]).toBeUndefined();
+  });
+
+  it('synchronously persists updated totpEnabled state to localStorage even when kdfSaltB64 and encryptedDek already exist', () => {
+    const userId = '33333333-4444-4555-8666-777777777777';
+    const userCacheKey = getUserEncryptedCacheKey(userId);
+
+    localStorage.setItem(
+      userCacheKey,
+      JSON.stringify({
+        userId,
+        session: {
+          userId,
+          email: 'totp-reenable@gradus21.de',
+          kdfSaltB64: 'existing-salt',
+          encryptedDek: 'existing-enc-dek',
+          recoveryEncryptedDek: 'existing-rec-dek',
+          totpEnabled: false,
+          serverSyncedCount: 2,
+        },
+        classEnvelopes: {},
+      })
+    );
+
+    persistEncryptedSessionCredentialsToCache({
+      userId,
+      email: 'totp-reenable@gradus21.de',
+      dekB64: 'in-memory-secret-dek',
+      token: 'in-memory-jwt',
+      authKeyB64: 'in-memory-auth-key',
+      kdfSaltB64: 'existing-salt',
+      encryptedDek: 'existing-enc-dek',
+      recoveryEncryptedDek: 'existing-rec-dek',
+      totpEnabled: true,
+      totpSecretBase32: 'JBSWY3DPEHPK3PXP',
+      serverSyncedCount: 2,
+    });
+
+    const storedAfter = JSON.parse(localStorage.getItem(userCacheKey) || '{}');
+    expect(storedAfter.session?.totpEnabled).toBe(true);
+    expect(storedAfter.session?.dekB64).toBe('');
+    expect(storedAfter.session?.token).toBe('');
+    expect(storedAfter.session?.authKeyB64).toBeUndefined();
+    expect(storedAfter.session?.totpSecretBase32).toBeUndefined();
   });
 });

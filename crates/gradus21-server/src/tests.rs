@@ -298,10 +298,28 @@ async fn test_2fa_setup_locks_after_enabling_and_tenant_isolation() {
     .await
     .expect("disable 2fa");
     assert_eq!(disabled_info["totp_enabled"], false);
+    let disabled_rotated_secret = disabled_info["totp_secret_base32"]
+        .as_str()
+        .expect("disable_2fa must return rotated totp_secret_base32")
+        .to_string();
+    assert_ne!(
+        disabled_rotated_secret, new_secret_b32,
+        "Disabling 2FA must rotate the TOTP secret so old authenticator entries are invalidated"
+    );
+    assert!(disabled_info["totp_setup_uri"].as_str().is_some());
 
-    // Re-enable again for remaining tests
-    let valid_code_again = totp::current_totp_code(&new_secret_b32).expect("code again");
-    let _ = verify_and_enable_2fa(
+    // Calling get_2fa_setup_info after disable_2fa returns the newly rotated secret
+    let Json(setup_after_disable) = get_2fa_setup_info(State(state.clone()), headers.clone())
+        .await
+        .expect("2fa setup after disable");
+    assert_eq!(
+        setup_after_disable["totp_secret_base32"].as_str(),
+        Some(disabled_rotated_secret.as_str())
+    );
+
+    // Re-enable again using the newly rotated secret
+    let valid_code_again = totp::current_totp_code(&disabled_rotated_secret).expect("code again");
+    let Json(reenabled_info) = verify_and_enable_2fa(
         State(state.clone()),
         headers.clone(),
         Json(VerifyTotpRequest {
@@ -310,6 +328,7 @@ async fn test_2fa_setup_locks_after_enabling_and_tenant_isolation() {
     )
     .await
     .expect("re-enable 2fa again");
+    assert_eq!(reenabled_info["totp_enabled"], true);
 
     // 4. Upsert envelope and verify tenant isolation + OCC
     let env_id = Uuid::new_v4();

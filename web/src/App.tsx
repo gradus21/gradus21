@@ -18,7 +18,7 @@ import { EmailVerificationModal } from './components/EmailVerificationModal';
 import { VaultPasswordPromptModal } from './components/vault/VaultPasswordPromptModal';
 import { SyncReconciliationModal } from './components/SyncReconciliationModal';
 import { CellDisplayFormat, TermFilterId, INITIAL_CLASS_DATASETS, resolveIsDarkMode } from './data/demoClasses';
-import { useVaultWorkspaceSync } from './hooks/useVaultWorkspaceSync';
+import { useVaultWorkspaceSync, persistEncryptedSessionCredentialsToCache } from './hooks/useVaultWorkspaceSync';
 import { useClassroomCalculations } from './hooks/useClassroomCalculations';
 import { WorkspaceMode } from './types/workspace';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -761,7 +761,10 @@ export const App: React.FC = () => {
           isPersistentStorage={isPersistentStorage}
           session={vaultSession}
           sampleEnvelope={sampleEnvelope}
-          onUnlockSuccess={(updatedSession) => setVaultSession(updatedSession)}
+          onUnlockSuccess={(updatedSession) => {
+            setVaultSession(updatedSession);
+            persistEncryptedSessionCredentialsToCache(updatedSession);
+          }}
           onLockVault={handleLockVault}
           onUpdateVaultEmail={handleUpdateVaultEmail}
         />
@@ -792,7 +795,10 @@ export const App: React.FC = () => {
           isPersistentStorage={isPersistentStorage}
           session={vaultSession}
           sampleEnvelope={sampleEnvelope}
-          onUnlockSuccess={(updatedSession) => setVaultSession(updatedSession)}
+          onUnlockSuccess={(updatedSession) => {
+            setVaultSession(updatedSession);
+            persistEncryptedSessionCredentialsToCache(updatedSession);
+          }}
           onLockVault={handleLockVault}
           onUpdateVaultEmail={handleUpdateVaultEmail}
         />

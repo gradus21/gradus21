@@ -153,31 +153,36 @@ export function restoreSessionCredentials(session: ActiveVaultSession): ActiveVa
 }
 
 export function persistEncryptedSessionCredentialsToCache(session: ActiveVaultSession): void {
-  if (!session.dekB64 || !session.userId) return;
-  const encCreds = encryptSessionCredentials(session.dekB64, session.userId, {
-    token: session.token || getStoredToken(session.userId),
-    authKeyB64: session.authKeyB64 || getStoredAuthKey(session.userId),
-    totpSecretBase32: session.totpSecretBase32,
-  });
-  if (!encCreds) return;
+  if (!session.userId) return;
+  const encCreds = session.dekB64
+    ? encryptSessionCredentials(session.dekB64, session.userId, {
+        token: session.token || getStoredToken(session.userId),
+        authKeyB64: session.authKeyB64 || getStoredAuthKey(session.userId),
+        totpSecretBase32: session.totpSecretBase32,
+      })
+    : undefined;
   try {
     const userCacheKey = getUserEncryptedCacheKey(session.userId);
     const cachedRaw = localStorage.getItem(userCacheKey);
     const parsed = cachedRaw ? JSON.parse(cachedRaw) : { userId: session.userId };
-    parsed.encryptedSessionCredentials = encCreds;
-    if (!parsed.session || !parsed.session.kdfSaltB64 || !parsed.session.encryptedDek) {
-      parsed.session = {
-        ...(parsed.session || {}),
-        ...session,
-        dekB64: '',
-        token: '',
-        authKeyB64: undefined,
-        totpSecretBase32: undefined,
-        recoveryKeyFormatted: undefined,
-      };
-      if (session.kdfParams) {
-        parsed.kdfParams = normalizeKdfParams(session.kdfParams);
-      }
+    if (encCreds) {
+      parsed.encryptedSessionCredentials = encCreds;
+    }
+    const prevSession = parsed.session || {};
+    parsed.session = {
+      ...prevSession,
+      ...session,
+      kdfSaltB64: session.kdfSaltB64 || prevSession.kdfSaltB64 || '',
+      encryptedDek: session.encryptedDek || prevSession.encryptedDek || '',
+      recoveryEncryptedDek: session.recoveryEncryptedDek || prevSession.recoveryEncryptedDek || '',
+      dekB64: '',
+      token: '',
+      authKeyB64: undefined,
+      totpSecretBase32: undefined,
+      recoveryKeyFormatted: undefined,
+    };
+    if (session.kdfParams) {
+      parsed.kdfParams = normalizeKdfParams(session.kdfParams);
     }
     localStorage.setItem(userCacheKey, JSON.stringify(parsed));
   } catch {

@@ -859,7 +859,13 @@ export const CryptoEnvelopeInspector: React.FC<CryptoEnvelopeInspectorProps> = (
             )}
 
             {!session.totpEnabled && (
-              <form onSubmit={onVerify2FAToken} className="flex items-center gap-2 pt-1">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  onVerify2FAToken(e);
+                }}
+                className="flex items-center gap-2 pt-1"
+              >
                 <input
                   type="text"
                   maxLength={6}
