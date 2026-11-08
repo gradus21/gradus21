@@ -63,6 +63,9 @@ jobs:
           file: ./Dockerfile
           target: ${{ matrix.target }}-runtime
           platforms: ${{ matrix.platform }}
+          build-args: |
+            GIT_COMMIT_SHA=${{ github.sha }}
+            GIT_BRANCH=${{ github.ref_name }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: ${{ github.event_name != 'pull_request' && format('type=image,name=ghcr.io/{0}-{1},push-by-digest=true,name-canonical=true,push=true', github.repository, matrix.target) || '' }}
           cache-from: type=gha,scope=${{ matrix.target }}-${{ matrix.platform_tag }}

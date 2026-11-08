@@ -50,7 +50,7 @@ import {
 } from '../utils/localBackupStorage';
 import { useLegalConfig, getDisplayDomain } from '../utils/legalConfig';
 import { checkForAppUpdate, installAppUpdate, UpdateInfo } from '../utils/updater';
-import { APP_VERSION } from '../version';
+import { APP_VERSION, APP_COMMIT_SHA, APP_GIT_BRANCH, isDevEnvironment } from '../version';
 import {
   isTauri,
   isDesktopTauri,
@@ -1772,6 +1772,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <span className="text-[11px] font-mono px-2 py-0.5 rounded font-bold bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200">
                           v{APP_VERSION}
                         </span>
+                        {APP_COMMIT_SHA !== 'unknown' && (
+                          <span
+                            className={`text-[11px] font-mono px-2 py-0.5 rounded font-semibold ${
+                              isDevEnvironment()
+                                ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/25'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                            }`}
+                            title={`Branch: ${APP_GIT_BRANCH} · Commit: ${APP_COMMIT_SHA}`}
+                          >
+                            {isDevEnvironment() ? `dev · #${APP_COMMIT_SHA}` : `#${APP_COMMIT_SHA}`}
+                          </span>
+                        )}
                       </div>
                       <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
                         {isTauri()

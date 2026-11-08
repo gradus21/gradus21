@@ -17,6 +17,10 @@ RUN wasm-pack build crates/gradus21-core --target web --out-dir ../../web/src/wa
 # =============================================================================
 FROM rust:bookworm AS server-builder
 WORKDIR /app
+ARG GIT_COMMIT_SHA=unknown
+ARG GIT_BRANCH=unknown
+ENV GIT_COMMIT_SHA=${GIT_COMMIT_SHA}
+ENV GIT_BRANCH=${GIT_BRANCH}
 
 COPY Cargo.toml Cargo.lock* ./
 COPY crates ./crates
@@ -32,6 +36,10 @@ FROM server-builder AS rust-builder
 # =============================================================================
 FROM node:20-alpine AS web-builder
 WORKDIR /app/web
+ARG GIT_COMMIT_SHA=unknown
+ARG GIT_BRANCH=unknown
+ENV VITE_GIT_COMMIT_SHA=${GIT_COMMIT_SHA}
+ENV VITE_GIT_BRANCH=${GIT_BRANCH}
 COPY web/package*.json ./
 RUN npm ci
 COPY web ./

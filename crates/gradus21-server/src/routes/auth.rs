@@ -183,9 +183,17 @@ pub async fn health_check(State(state): State<AppState>) -> Json<serde_json::Val
     let is_test_or_prod = state.is_test_or_production_env();
     let email_verification_required = is_test_or_prod && !is_first_user;
 
+    let commit_sha = option_env!("GIT_COMMIT_SHA")
+        .map(|s| if s.len() > 7 { &s[..7] } else { s })
+        .unwrap_or("unknown");
+    let git_branch = option_env!("GIT_BRANCH").unwrap_or("unknown");
+
     Json(serde_json::json!({
         "status": "ok",
         "service": "gradus21-server",
+        "version": env!("CARGO_PKG_VERSION"),
+        "commit_sha": commit_sha,
+        "git_branch": git_branch,
         "zero_knowledge_e2ee": true,
         "storage_mode": if state.db.is_some() { "postgresql" } else { "persistent_disk_vault" },
         "registered_users": user_count,

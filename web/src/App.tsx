@@ -33,7 +33,7 @@ import { UpdateNotificationBanner } from './components/UpdateNotificationBanner'
 import { checkForAppUpdate, UpdateInfo } from './utils/updater';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useInteractiveGuide } from './hooks/useInteractiveGuide';
-import { APP_VERSION } from './version';
+import { APP_VERSION, APP_COMMIT_SHA, APP_GIT_BRANCH, isDevEnvironment } from './version';
 
 export type ActiveModal =
   | { type: 'classWizard' }
@@ -645,6 +645,14 @@ export const App: React.FC = () => {
       <footer className="mt-auto py-3 px-3 sm:px-6 border-t border-slate-200/60 dark:border-slate-800/60 hidden md:flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500 dark:text-slate-400">
         <div className="flex items-center gap-2 font-medium">
           <span className="font-bold text-slate-700 dark:text-slate-300">Gradus21 v{APP_VERSION}</span>
+          {isDevEnvironment() && APP_COMMIT_SHA !== 'unknown' && (
+            <span
+              className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/25 font-semibold"
+              title={`Entwicklungsversion (${APP_GIT_BRANCH}) · Commit ${APP_COMMIT_SHA}`}
+            >
+              dev · #{APP_COMMIT_SHA}
+            </span>
+          )}
           <span>·</span>
           <span>Zero-Knowledge E2EE & Client-Side Rust/WASM</span>
         </div>
