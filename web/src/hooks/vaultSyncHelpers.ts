@@ -3,8 +3,11 @@ import { ActiveVaultSession, normalizeKdfParams } from '../components/vault/vaul
 import { apiUrl, fetchWithTimeout } from '../utils/apiConfig';
 import { generateTotpCode } from '../utils/totp';
 import {
+  AssessmentConfig,
+  CategoryConfig,
   ClassroomSubjectDataset,
   GradeEntry,
+  StudentProfile,
   ensureValidUuid,
 } from '../data/demoClasses';
 
