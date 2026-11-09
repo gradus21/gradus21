@@ -479,4 +479,48 @@ describe('ExportAndPrintHelpers - Document Printing and Native Share Dialog', ()
     expect(escapeCsvCell('-5', ';')).toBe('-5');
     expect(escapeCsvCell('-3,5', ';')).toBe('-3,5');
   });
+
+  it('renders direct grade entries in student report html and matrix_full export', () => {
+    const dsWithDirectGrade = {
+      ...dummyDataset,
+      assessments: [
+        {
+          id: 'a1',
+          category_id: 'c1',
+          title: 'Test 1',
+          term_id: 'hj1',
+          weight: 1.0,
+          input_mode: 'grade_scale' as const,
+          max_points: null,
+        },
+      ],
+      grades: [
+        {
+          student_id: 's1',
+          assessment_id: 'a1',
+          status: 'graded' as const,
+          percent_value: null,
+          raw_points: null,
+          direct_grade_value: 2.0,
+          comment: null,
+        },
+      ],
+    };
+
+    // 1. Student report HTML contains Note 2 instead of dash
+    const stuHtml = generateStudentParentReportHtml(dsWithDirectGrade, dsWithDirectGrade.students[0], undefined, 'hj1');
+    expect(stuHtml).toContain('Note 2');
+    expect(stuHtml).not.toContain('<strong>—</strong>');
+
+    // 2. Full matrix export has '2' in the assessment column
+    const { rows } = buildExportTableData(dsWithDirectGrade, null, {
+      ...DEFAULT_EXPORT_OPTIONS,
+      format: 'csv',
+      presetId: 'matrix_full',
+      delimiter: ';',
+      decimalSeparator: ',',
+      term: 'hj1',
+    });
+    expect(rows[0]).toContain('2');
+  });
 });

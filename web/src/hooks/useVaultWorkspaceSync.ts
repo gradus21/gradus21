@@ -124,6 +124,10 @@ export function useVaultWorkspaceSync() {
   const envelopeVersionsRef = useRef<Map<string, number>>(new Map());
   const lastSerializedPerClassRef = useRef<Map<string, string>>(new Map());
   const lastSerializedSettingsRef = useRef<string>('');
+  const datasetsRef = useRef(datasets);
+  datasetsRef.current = datasets;
+  const lastServerUpdatedAtRef = useRef<string | null>(null);
+  const lastServerEnvelopeCountRef = useRef<number | null>(null);
 
   // Local persistent storage & automated backup directory
   const [isPersistentStorage, setIsPersistentStorage] = useState<boolean>(false);
@@ -1440,6 +1444,34 @@ export function useVaultWorkspaceSync() {
           return;
         }
 
+        // Optimization (Finding 4): Check /api/envelopes/summary first.
+        // It returns { envelope_count, class_count, class_ids, last_updated_at } in ~80 bytes.
+        // If last_updated_at and envelope_count match our last known state, no remote changes exist!
+        try {
+          const sumRes = await fetch(apiUrl('/api/envelopes/summary'), {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (sumRes.ok) {
+            const summary = await sumRes.json();
+            const remoteLastUpdated = summary.last_updated_at || null;
+            const remoteCount = summary.envelope_count ?? null;
+            if (
+              lastServerUpdatedAtRef.current !== null &&
+              lastServerEnvelopeCountRef.current !== null &&
+              lastServerUpdatedAtRef.current === remoteLastUpdated &&
+              lastServerEnvelopeCountRef.current === remoteCount
+            ) {
+              // Server state is identical to our last fetch; skip downloading payloads!
+              isPolling = false;
+              return;
+            }
+            lastServerUpdatedAtRef.current = remoteLastUpdated;
+            lastServerEnvelopeCountRef.current = remoteCount;
+          }
+        } catch {
+          // If summary fails or server does not support it, fall back to /api/envelopes/sync
+        }
+
         const res = await fetch(apiUrl('/api/envelopes/sync'), {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -1473,7 +1505,7 @@ export function useVaultWorkspaceSync() {
         if (hasNewerRemote) {
           // Check if local has dirty uncommitted changes or unsynced new classes
           let hasLocalDirty = false;
-          for (const ds of datasets) {
+          for (const ds of datasetsRef.current) {
             const lastSer = lastSerializedPerClassRef.current.get(ds.id);
             const knownServerVer = envelopeVersionsRef.current.get(ds.id);
             const isStarterPlaceholder =
@@ -1580,7 +1612,6 @@ export function useVaultWorkspaceSync() {
     isVaultLocked,
     userSettings.cloudSyncEnabled,
     loadedUserId,
-    datasets,
   ]);
 
   const updateSubjectConfig = (

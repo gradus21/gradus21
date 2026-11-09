@@ -368,7 +368,10 @@ export async function startDesktopBrowserAuth(
   } catch (err: any) {
     if (pollIntervalId) clearInterval(pollIntervalId);
     if (err && err.errors && err.errors.length > 0) {
-      const meaningfulErr = err.errors.find((e: any) => e?.message) || err.errors[0];
+      // Prioritize meaningful business errors over socket bind failures on mobile sandboxes
+      const meaningfulErr =
+        err.errors.find((e: any) => e?.message && !e.message.toLowerCase().includes('loopback')) ||
+        err.errors[0];
       throw meaningfulErr;
     }
     throw err;

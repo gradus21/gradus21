@@ -435,6 +435,8 @@ pub fn calculate_class_report(
             let raw_w = if categories[idx].weight.is_finite() { categories[idx].weight.max(0.0) } else { 0.0 };
             if cr.graded_count > 0 && active_cat_weight_sum > 0.0 && config.scale_empty_categories {
                 cr.effective_weight_percent = round1((raw_w / active_cat_weight_sum) * 100.0);
+            } else if config.scale_empty_categories && cr.graded_count == 0 {
+                cr.effective_weight_percent = 0.0;
             } else if total_defined_cat_weight > 0.0 {
                 cr.effective_weight_percent = round1((raw_w / total_defined_cat_weight) * 100.0);
             }
@@ -665,6 +667,75 @@ pub fn simulate_needed_score_v2(
 
     match config.weighting_mode {
         WeightingMode::CategoryBuckets => {
+            let cat_opt = categories.iter().find(|c| c.id == target_category_id);
+            if let Some(cat) = cat_opt {
+                if cat.drop_lowest_count > 0 {
+                    let target_assessments: Vec<&AssessmentConfig> = assessments
+                        .iter()
+                        .filter(|a| a.category_id == cat.id)
+                        .filter(|a| match term_filter {
+                            None | Some("all") => true,
+                            Some(t) => a.term_id == t,
+                        })
+                        .collect();
+                    let student_grades: HashMap<&str, &GradeEntry> = grades
+                        .iter()
+                        .filter(|g| g.student_id == student.id)
+                        .map(|g| (g.assessment_id.as_str(), g))
+                        .collect();
+                    let mut existing_scores: Vec<f64> = Vec::new();
+                    for a in target_assessments {
+                        if let Some(entry) = student_grades.get(a.id.as_str()) {
+                            if let Some(pct) = resolve_entry_percent_with_config(entry, a, config) {
+                                existing_scores.push(pct);
+                            }
+                        }
+                    }
+                    if existing_scores.len() >= cat.drop_lowest_count {
+                        let mut low = 0.0f64;
+                        let mut high = 100.0f64;
+                        let mut best = None;
+                        for _ in 0..25 {
+                            let mid = (low + high) / 2.0;
+                            let mut test_scores = existing_scores.clone();
+                            test_scores.push(mid);
+                            test_scores.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                            let kept = &test_scores[cat.drop_lowest_count..];
+                            let avg_mid = if kept.is_empty() { 0.0 } else { kept.iter().sum::<f64>() / kept.len() as f64 };
+
+                            let mut other_weighted_sum = 0.0;
+                            let mut active_total_w = 0.0;
+                            for c in categories {
+                                let c_w = if c.weight.is_finite() { c.weight.max(0.0) } else { 0.0 };
+                                if c.id == target_category_id {
+                                    active_total_w += c_w;
+                                } else if let Some(r) = current_summary.category_results.iter().find(|cr| cr.category_id == c.id) {
+                                    if let Some(avg) = r.average_percent {
+                                        other_weighted_sum += avg * c_w;
+                                        active_total_w += c_w;
+                                    }
+                                }
+                            }
+                            let denom = if config.scale_empty_categories {
+                                active_total_w
+                            } else {
+                                categories.iter().map(|c| if c.weight.is_finite() { c.weight.max(0.0) } else { 0.0 }).sum()
+                            };
+                            let cat_w = if cat.weight.is_finite() { cat.weight.max(0.0) } else { 0.0 };
+                            let overall = if denom > 0.0 { (other_weighted_sum + avg_mid * cat_w) / denom } else { 0.0 };
+                            if overall >= target_overall_percent {
+                                best = Some(round1(mid));
+                                high = mid;
+                            } else {
+                                low = mid;
+                            }
+                        }
+                        if let Some(res) = best {
+                            return Some(res);
+                        }
+                    }
+                }
+            }
             simulate_needed_score_for_target_with_scale(
                 current_summary,
                 categories,

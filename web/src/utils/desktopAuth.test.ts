@@ -233,5 +233,42 @@ describe('desktopAuth utilities', () => {
 
       delete (window as any).__TAURI_INTERNALS__;
     });
+
+    it('rejects with descriptive error when server relay session expires', async () => {
+      (window as any).__TAURI_INTERNALS__ = {};
+
+      vi.doMock('@tauri-apps/api/core', () => ({
+        invoke: vi.fn().mockImplementation((cmd: string) => {
+          if (cmd === 'start_desktop_browser_auth') {
+            return Promise.reject(new Error('Loopback socket prohibited'));
+          }
+          return Promise.resolve();
+        }),
+      }));
+
+      const fetchMock = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/api/auth/desktop-relay/init')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ session_token: 'relay_expired_token' }),
+          });
+        }
+        if (url.includes('/api/auth/desktop-relay/poll')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ status: 'expired', encrypted_payload: null }),
+          });
+        }
+        return Promise.reject(new Error('Unhandled url'));
+      });
+      global.fetch = fetchMock;
+
+      const { startDesktopBrowserAuth } = await import('./desktopAuth');
+      await expect(
+        startDesktopBrowserAuth('https://gradus21.de', 'test@schule.de')
+      ).rejects.toThrow('Die Autorisierungssitzung ist abgelaufen.');
+
+      delete (window as any).__TAURI_INTERNALS__;
+    });
   });
 });

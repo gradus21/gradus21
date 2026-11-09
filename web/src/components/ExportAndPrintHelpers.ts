@@ -1,5 +1,6 @@
 import {
   ClassroomSubjectDataset,
+  formatGradeDisplayLabel,
   StudentProfile,
   TermFilterId,
 } from '../data/demoClasses';
@@ -181,7 +182,7 @@ export function buildExportTableData(
   report: ClassReportForExport | null,
   options: ConfigurableExportOptions
 ): { headers: string[]; rows: Array<Array<string | number>> } {
-  const activeTerm = options.term;
+  const activeTerm = options.term || 'all';
   const dec = options.decimalSeparator;
 
   // SchILD-NRW official 9-column export format
@@ -274,10 +275,19 @@ export function buildExportTableData(
         );
         if (!entry) return '';
         if (entry.status === 'excused') return 'Attest';
-        if (entry.percent_value == null) return '';
-        return dec === ','
-          ? String(entry.percent_value).replace('.', ',')
-          : entry.percent_value;
+        if (entry.percent_value != null) {
+          return dec === ','
+            ? String(entry.percent_value).replace('.', ',')
+            : entry.percent_value;
+        }
+        if (entry.direct_grade_value != null) {
+          return formatGradeDisplayLabel(entry.direct_grade_value, dataset.config);
+        }
+        if (entry.raw_points != null && a.max_points && a.max_points > 0) {
+          const calcPct = Math.round(((entry.raw_points / a.max_points) * 100) * 10) / 10;
+          return dec === ',' ? String(calcPct).replace('.', ',') : calcPct;
+        }
+        return '';
       });
 
       const catCells = dataset.categories.map((c) => {
@@ -1034,6 +1044,10 @@ export function generateStudentParentReportHtml(
           ? 'Entschuldigt (Attest)'
           : g?.percent_value != null
           ? `${escapeHtml(g.percent_value)}% (${escapeHtml(g.raw_points ?? '—')}/${escapeHtml(a.max_points ?? 15)} Pkt)`
+          : g?.direct_grade_value != null
+          ? `Note ${escapeHtml(formatGradeDisplayLabel(g.direct_grade_value, dataset.config))}`
+          : g?.raw_points != null && a.max_points
+          ? `${escapeHtml(g.raw_points)} / ${escapeHtml(a.max_points)} Pkt`
           : '—';
       return `<tr>
         <td>${escapeHtml(a.title)}</td>
@@ -1406,6 +1420,10 @@ export function generateStudentParentReportPdf(
         ? 'Entschuldigt (Attest)'
         : g?.percent_value != null
         ? `${g.percent_value}% (${g.raw_points ?? '—'}/${a.max_points ?? 15} Pkt)`
+        : g?.direct_grade_value != null
+        ? `Note ${formatGradeDisplayLabel(g.direct_grade_value, dataset.config)}`
+        : g?.raw_points != null && a.max_points
+        ? `${g.raw_points} / ${a.max_points} Pkt`
         : '—';
     return [a.title || 'Leistungsnachweis', cat?.name || '—', valStr];
   });

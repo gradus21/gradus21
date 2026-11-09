@@ -747,4 +747,82 @@ mod tests {
         let verify_report = calculate_class_report(&config, &categories, &assessments, &students, &grades, None);
         assert_eq!(verify_report.student_summaries[0].overall_percent, Some(50.0));
     }
+
+    #[test]
+    fn test_empty_category_effective_weight_zero_when_scaling() {
+        let mut config = SubjectGradingConfig {
+            scale_id: GradingScaleId::DeClassic1To6,
+            weighting_mode: WeightingMode::CategoryBuckets,
+            scale_empty_categories: true,
+            enable_student_levels: false,
+            level_threshold_offsets: HashMap::new(),
+            custom_thresholds: None,
+        };
+
+        let categories = vec![
+            CategoryConfig {
+                id: "c_active".into(),
+                name: "Active Cat".into(),
+                short_code: "ACT".into(),
+                weight: 1.0,
+                drop_lowest_count: 0,
+            },
+            CategoryConfig {
+                id: "c_empty".into(),
+                name: "Empty Cat".into(),
+                short_code: "EMP".into(),
+                weight: 1.0,
+                drop_lowest_count: 0,
+            },
+        ];
+
+        let assessments = vec![
+            AssessmentConfig {
+                id: "act_1".into(),
+                category_id: "c_active".into(),
+                title: "Test 1".into(),
+                term_id: "hj1".into(),
+                weight: 1.0,
+                input_mode: AssessmentInputMode::Percent,
+                max_points: None,
+            },
+        ];
+
+        let students = vec![
+            StudentProfile {
+                id: "stu_1".into(),
+                name: "Test Student".into(),
+                level: None,
+                is_not_graded: false,
+                is_archived: false,
+            },
+        ];
+
+        let grades = vec![
+            GradeEntry {
+                student_id: "stu_1".into(),
+                assessment_id: "act_1".into(),
+                status: GradeStatus::Graded,
+                percent_value: Some(85.0),
+                raw_points: None,
+                direct_grade_value: None,
+                comment: None,
+            },
+        ];
+
+        // 1. With scale_empty_categories = true:
+        // Active category scales to 100%, empty category must be 0% (Finding 3)
+        let report = calculate_class_report(&config, &categories, &assessments, &students, &grades, None);
+        let summary = &report.student_summaries[0];
+        assert_eq!(summary.category_results[0].effective_weight_percent, 100.0);
+        assert_eq!(summary.category_results[1].effective_weight_percent, 0.0);
+
+        // 2. With scale_empty_categories = false:
+        // Nominal weights are displayed (each 50%)
+        config.scale_empty_categories = false;
+        let report_unscaled = calculate_class_report(&config, &categories, &assessments, &students, &grades, None);
+        let summary_unscaled = &report_unscaled.student_summaries[0];
+        assert_eq!(summary_unscaled.category_results[0].effective_weight_percent, 50.0);
+        assert_eq!(summary_unscaled.category_results[1].effective_weight_percent, 50.0);
+    }
 }
