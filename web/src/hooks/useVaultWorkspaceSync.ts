@@ -1305,6 +1305,24 @@ export function useVaultWorkspaceSync() {
           const conflictData = await batchRes.json().catch(() => null);
           const conflictEnv = conflictData?.conflict_envelope;
 
+          // If the conflict is solely on the singleton user_settings envelope, silently align version
+          // and prevent hijacking user with a class-reconciliation dialog
+          const isOnlySettingsConflict =
+            conflictData?.envelope_id === '00000000-0000-4000-8000-000000000002' ||
+            conflictEnv?.entity_type === 'user_settings';
+          if (isOnlySettingsConflict) {
+            const serverVer = conflictData?.server_version ?? conflictEnv?.version;
+            if (serverVer) {
+              envelopeVersionsRef.current.set(
+                '00000000-0000-4000-8000-000000000002',
+                serverVer
+              );
+            }
+            lastSerializedSettingsRef.current = serializedSettings;
+            setSyncStatus('synced');
+            return;
+          }
+
           setReconciliationMeta({
             localClassCount: datasets.length,
             remoteClassCount: datasets.length,
@@ -2218,6 +2236,7 @@ export function useVaultWorkspaceSync() {
 
   const handleCancelReconciliation = () => {
     setIsReconciliationOpen(false);
+    setReconciliationMeta(null);
   };
 
   const executeReconciliation = async (
@@ -2244,6 +2263,7 @@ export function useVaultWorkspaceSync() {
     }
     if (!token || !vaultSession?.dekB64) {
       setIsReconciliationOpen(false);
+      setReconciliationMeta(null);
       return;
     }
 
@@ -2282,11 +2302,34 @@ export function useVaultWorkspaceSync() {
 
       // Populate server versions for OCC
       remoteEnvelopes.forEach((env) => {
+        const canonicalId = ensureValidUuid(env.id);
+        envelopeVersionsRef.current.set(canonicalId, env.version);
         envelopeVersionsRef.current.set(env.id, env.version);
         if (env.entity_type === 'user_settings') {
           envelopeVersionsRef.current.set('00000000-0000-4000-8000-000000000002', env.version);
         }
       });
+
+      // Decrypt remote user settings if present
+      let remoteSyncedSettings: UserSyncSettings | null = null;
+      for (const env of remoteEnvelopes) {
+        if (env.entity_type === 'user_settings') {
+          try {
+            const decSettings = wasm_decrypt_envelope(
+              vaultSession.dekB64,
+              vaultSession.userId,
+              'user_sync_settings_v1',
+              env.encrypted_payload
+            );
+            const parsed = JSON.parse(decSettings);
+            if (parsed && typeof parsed === 'object') {
+              remoteSyncedSettings = parsed;
+            }
+          } catch (e) {
+            console.warn('Remote Settings konnten nicht entschlüsselt werden:', e);
+          }
+        }
+      }
 
       // Decrypt remote class envelopes
       const decryptedRemoteClasses: ClassroomSubjectDataset[] = [];
@@ -2370,6 +2413,7 @@ export function useVaultWorkspaceSync() {
         });
         setDatasets(finalClasses);
         setActiveClassId(finalClasses[0].id);
+        lastSerializedPerClassRef.current.clear();
         for (const cls of finalClasses) {
           lastSerializedPerClassRef.current.set(cls.id, JSON.stringify(cls));
         }
@@ -2409,16 +2453,65 @@ export function useVaultWorkspaceSync() {
         if (batchRes.ok) {
           const updatedEnvs: Array<{ id: string; version: number }> = await batchRes.json();
           updatedEnvs.forEach((env) => {
+            const canonicalId = ensureValidUuid(env.id);
+            envelopeVersionsRef.current.set(canonicalId, env.version);
             envelopeVersionsRef.current.set(env.id, env.version);
           });
         }
       }
 
-      setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: true }));
-      lastSerializedSettingsRef.current = '';
+      // Update local storage cache immediately with reconciled envelopes so auto-save & fresh sessions match
+      if (vaultSession?.userId) {
+        const userCacheKey = getUserEncryptedCacheKey(vaultSession.userId);
+        const existingCacheRaw = localStorage.getItem(userCacheKey);
+        try {
+          const parsedCache = existingCacheRaw ? JSON.parse(existingCacheRaw) : {};
+          const syncedEnvelopes: Record<
+            string,
+            { encryptedPayload: string; version: number; dirty?: boolean }
+          > = {};
+
+          for (const cls of finalClasses) {
+            const canonicalId = ensureValidUuid(cls.id);
+            const ver = envelopeVersionsRef.current.get(canonicalId) ?? 1;
+            const remoteEnv = remoteEnvelopes.find(
+              (e) => ensureValidUuid(e.id) === canonicalId
+            );
+            const encPayload =
+              remoteEnv?.encrypted_payload ||
+              wasm_encrypt_envelope(
+                vaultSession.dekB64,
+                vaultSession.userId,
+                canonicalId,
+                JSON.stringify(cls)
+              );
+            syncedEnvelopes[canonicalId] = {
+              encryptedPayload: encPayload,
+              version: ver,
+              dirty: false,
+            };
+          }
+
+          parsedCache.classEnvelopes = syncedEnvelopes;
+          parsedCache.updatedAt = new Date().toISOString();
+          localStorage.setItem(userCacheKey, JSON.stringify(parsedCache));
+        } catch (cacheErr) {
+          console.warn('Cache-Update nach Reconciliation fehlgeschlagen:', cacheErr);
+        }
+      }
+
+      const nextSettings: UserSyncSettings = {
+        ...(remoteSyncedSettings && strategy === 'download_remote'
+          ? remoteSyncedSettings
+          : userSettings),
+        cloudSyncEnabled: true,
+      };
+      setUserSettings(nextSettings);
+      lastSerializedSettingsRef.current = JSON.stringify(nextSettings);
       setSyncStatus('synced');
       setSyncConflictNotice(null);
       setIsReconciliationOpen(false);
+      setReconciliationMeta(null);
       alert('Synchronisations-Abgleich erfolgreich abgeschlossen!');
     } catch (err) {
       console.error('Fehler bei der Reconciliation:', err);

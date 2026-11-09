@@ -321,30 +321,71 @@ export function mergeClassroomDatasets(
   hadGradeCollisions: boolean;
   conflictCopy?: ClassroomSubjectDataset;
 } {
-  const serverStudentIds = new Set(serverDs.students.map((s) => s.id));
-  const mergedStudents = [...serverDs.students];
-  for (const localStudent of localDs.students) {
-    if (!serverStudentIds.has(localStudent.id)) {
-      mergedStudents.push(localStudent);
+  // 1. Students: Merge existing by ID (local edits win over server fields) and include additions from both sides
+  const localStudentsMap = new Map(localDs.students.map((s) => [s.id, s]));
+  const mergedStudents: StudentProfile[] = [];
+  const seenStudentIds = new Set<string>();
+
+  for (const sStudent of serverDs.students) {
+    const lStudent = localStudentsMap.get(sStudent.id);
+    if (lStudent) {
+      // Local changes override server fields
+      mergedStudents.push({ ...sStudent, ...lStudent });
+    } else {
+      mergedStudents.push(sStudent);
+    }
+    seenStudentIds.add(sStudent.id);
+  }
+  for (const lStudent of localDs.students) {
+    if (!seenStudentIds.has(lStudent.id)) {
+      mergedStudents.push(lStudent);
+      seenStudentIds.add(lStudent.id);
     }
   }
 
-  const serverCategoryIds = new Set(serverDs.categories.map((c) => c.id));
-  const mergedCategories = [...serverDs.categories];
-  for (const localCat of localDs.categories) {
-    if (!serverCategoryIds.has(localCat.id)) {
-      mergedCategories.push(localCat);
+  // 2. Categories: Merge existing by ID (local edits win) and include additions from both sides
+  const localCatMap = new Map(localDs.categories.map((c) => [c.id, c]));
+  const mergedCategories: CategoryConfig[] = [];
+  const seenCatIds = new Set<string>();
+
+  for (const sCat of serverDs.categories) {
+    const lCat = localCatMap.get(sCat.id);
+    if (lCat) {
+      mergedCategories.push({ ...sCat, ...lCat });
+    } else {
+      mergedCategories.push(sCat);
+    }
+    seenCatIds.add(sCat.id);
+  }
+  for (const lCat of localDs.categories) {
+    if (!seenCatIds.has(lCat.id)) {
+      mergedCategories.push(lCat);
+      seenCatIds.add(lCat.id);
     }
   }
 
-  const serverAssessmentIds = new Set(serverDs.assessments.map((a) => a.id));
-  const mergedAssessments = [...serverDs.assessments];
-  for (const localAss of localDs.assessments) {
-    if (!serverAssessmentIds.has(localAss.id)) {
-      mergedAssessments.push(localAss);
+  // 3. Assessments: Merge existing by ID (local edits win) and include additions from both sides
+  const localAssMap = new Map(localDs.assessments.map((a) => [a.id, a]));
+  const mergedAssessments: AssessmentConfig[] = [];
+  const seenAssIds = new Set<string>();
+
+  for (const sAss of serverDs.assessments) {
+    const lAss = localAssMap.get(sAss.id);
+    if (lAss) {
+      mergedAssessments.push({ ...sAss, ...lAss });
+    } else {
+      mergedAssessments.push(sAss);
+    }
+    seenAssIds.add(sAss.id);
+  }
+  for (const lAss of localDs.assessments) {
+    if (!seenAssIds.has(lAss.id)) {
+      mergedAssessments.push(lAss);
+      seenAssIds.add(lAss.id);
     }
   }
 
+  // 4. Grades: Local grades take precedence in active dataset; server snapshot preserved on conflict
   const serverGradesMap = new Map<string, GradeEntry>();
   for (const g of serverDs.grades) {
     serverGradesMap.set(`${g.student_id}:${g.assessment_id}`, g);
@@ -358,24 +399,31 @@ export function mergeClassroomDatasets(
   const mergedGradesMap = new Map<string, GradeEntry>();
   let hadGradeCollisions = false;
 
+  // Initialize with server grades
   for (const [key, sGrade] of serverGradesMap.entries()) {
     mergedGradesMap.set(key, sGrade);
   }
 
+  // Reconcile with local grades
   for (const [key, lGrade] of localGradesMap.entries()) {
     const sGrade = serverGradesMap.get(key);
     if (!sGrade) {
+      // Grade only exists locally -> adopt local
       mergedGradesMap.set(key, lGrade);
     } else {
       if (areGradesEqual(lGrade, sGrade)) {
         continue;
       }
       if (isGradeEmpty(sGrade) && !isGradeEmpty(lGrade)) {
+        // Server was empty, local has a grade -> local wins
         mergedGradesMap.set(key, lGrade);
       } else if (!isGradeEmpty(sGrade) && isGradeEmpty(lGrade)) {
+        // Local was empty, server has a grade -> server wins
         mergedGradesMap.set(key, sGrade);
       } else {
-        mergedGradesMap.set(key, sGrade);
+        // True collision: Both sides have different non-empty grades.
+        // Active device represents current user edits -> local wins in active dataset
+        mergedGradesMap.set(key, lGrade);
         hadGradeCollisions = true;
       }
     }
@@ -388,6 +436,7 @@ export function mergeClassroomDatasets(
 
   const mergedDs: ClassroomSubjectDataset = {
     ...serverDs,
+    ...localDs, // Local class metadata & grading config wins for active work
     students: mergedStudents,
     categories: mergedCategories,
     assessments: mergedAssessments,
@@ -402,10 +451,10 @@ export function mergeClassroomDatasets(
         ? crypto.randomUUID()
         : ensureValidUuid(`class_conflict_${Date.now()}`);
     conflictCopy = {
-      ...localDs,
+      ...serverDs,
       id: newId,
-      className: `${localDs.className} (Lokale Noten-Kopie)`,
-      shortName: `${localDs.shortName || ''} (Lokal)`.trim(),
+      className: `${serverDs.className} (Cloud-Kopie vor Merge)`,
+      shortName: `${serverDs.shortName || ''} (Cloud)`.trim(),
     };
   }
 
