@@ -1,6 +1,6 @@
 import { ActiveVaultSession, bytesToBase64, base64ToBytes } from '../components/vault/vaultTypes';
 import { isTauri } from './platform';
-import { apiUrl } from './apiConfig';
+import { apiUrl, fetchWithTimeout } from './apiConfig';
 
 export interface DesktopAuthParams {
   port?: number;
@@ -205,7 +205,7 @@ export async function sendDesktopAuthCallback(
   // 1. Primärer robuster Kanal: Server-Relay (Same-Origin HTTPS)
   if (params.sessionToken && encryptedPayload) {
     try {
-      const relayRes = await fetch(apiUrl('/api/auth/desktop-relay/complete'), {
+      const relayRes = await fetchWithTimeout(apiUrl('/api/auth/desktop-relay/complete'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -75,7 +75,7 @@ import { CryptoEnvelopeInspector } from './vault/CryptoEnvelopeInspector';
 import { useLegalConfig, getDisplayDomain, formatApiErrorMessage } from '../utils/legalConfig';
 import { EmailVerificationModal } from './EmailVerificationModal';
 import { TermsOfServiceModal } from './TermsOfServiceModal';
-import { apiUrl, getServerUrl, setServerUrl } from '../utils/apiConfig';
+import { apiUrl, getServerUrl, setServerUrl, fetchWithTimeout } from '../utils/apiConfig';
 import { generateTotpSecret, buildTotpUri, verifyTotpCode } from '../utils/totp';
 import { ensureValidUuid } from '../data/demoClasses';
 import {
@@ -207,7 +207,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
   const fetchUserPasskeys = async () => {
     if (!session?.token) return;
     try {
-      const res = await fetch(apiUrl('/api/auth/passkey/list'), {
+      const res = await fetchWithTimeout(apiUrl('/api/auth/passkey/list'), {
         headers: {
           Authorization: `Bearer ${session.token}`,
         },
@@ -342,7 +342,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
     // Hole das 2FA-Setup nur dann vom Server, wenn 2FA noch nicht aktiviert ist
     if (session.token && !isLockedScreen && !session.totpEnabled) {
-      fetch(apiUrl('/api/auth/2fa/setup'), {
+      fetchWithTimeout(apiUrl('/api/auth/2fa/setup'), {
         headers: {
           Authorization: `Bearer ${session.token}`,
         },
@@ -444,7 +444,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       let creationPublicKey: any = null;
       if (activeSession.token) {
         try {
-          const startRes = await fetch(apiUrl('/api/auth/passkey/register/start'), {
+          const startRes = await fetchWithTimeout(apiUrl('/api/auth/passkey/register/start'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -640,7 +640,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               type: cred.type,
             };
 
-            const finishRes = await fetch(apiUrl('/api/auth/passkey/register/finish'), {
+            const finishRes = await fetchWithTimeout(apiUrl('/api/auth/passkey/register/finish'), {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -736,7 +736,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
     try {
       if (session.token) {
-        const res = await fetch(apiUrl(`/api/auth/passkey/${passkeyId}`), {
+        const res = await fetchWithTimeout(apiUrl(`/api/auth/passkey/${passkeyId}`), {
           method: 'DELETE',
           headers: {
             Authorization: `Bearer ${session.token}`,
@@ -779,7 +779,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     if (!clean) return;
 
     try {
-      const res = await fetch(apiUrl(`/api/auth/passkey/${passkeyId}`), {
+      const res = await fetchWithTimeout(apiUrl(`/api/auth/passkey/${passkeyId}`), {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -813,7 +813,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
     try {
       if (session.token) {
-        const res = await fetch(apiUrl('/api/auth/passkey'), {
+        const res = await fetchWithTimeout(apiUrl('/api/auth/passkey'), {
           method: 'DELETE',
           headers: {
             Authorization: `Bearer ${session.token}`,
@@ -1162,7 +1162,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       let serverSessionId: string | null = null;
       let serverPublicKey: any = null;
       try {
-        const startRes = await fetch(apiUrl('/api/auth/passkey/login/start'), {
+        const startRes = await fetchWithTimeout(apiUrl('/api/auth/passkey/login/start'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1342,7 +1342,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             type: assertion.type,
           };
 
-          const finishRes = await fetch(apiUrl('/api/auth/passkey/login/finish'), {
+          const finishRes = await fetchWithTimeout(apiUrl('/api/auth/passkey/login/finish'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1694,7 +1694,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
     let emailVerificationRequiredByServer = false;
     try {
-      const healthRes = await fetch(apiUrl('/api/health'));
+      const healthRes = await fetchWithTimeout(apiUrl('/api/health'));
       if (healthRes.ok) {
         const healthData = await healthRes.json();
         if (healthData.email_verification_required) {
@@ -1720,7 +1720,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
         let data: any = null;
         try {
-          const res = await fetch(apiUrl('/api/auth/register'), {
+          const res = await fetchWithTimeout(apiUrl('/api/auth/register'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1867,7 +1867,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     }
 
     try {
-      const res = await fetch(apiUrl('/api/auth/2fa/verify'), {
+      const res = await fetchWithTimeout(apiUrl('/api/auth/2fa/verify'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1995,7 +1995,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
       if (!isServerOffline) {
         try {
-          const saltRes = await fetch(apiUrl('/api/auth/salt'), {
+          const saltRes = await fetchWithTimeout(apiUrl('/api/auth/salt'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email: cleanEmail }),
@@ -2102,7 +2102,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       let loginData: any = null;
       if (!isServerOffline && saltData) {
         try {
-          const loginRes = await fetch(apiUrl('/api/auth/login'), {
+          const loginRes = await fetchWithTimeout(apiUrl('/api/auth/login'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -2319,7 +2319,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     try {
       let saltData: any = null;
       try {
-        const saltRes = await fetch(apiUrl('/api/auth/salt'), {
+        const saltRes = await fetchWithTimeout(apiUrl('/api/auth/salt'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email }),
@@ -2396,7 +2396,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         return;
       }
 
-      const recRes = await fetch(apiUrl('/api/auth/recover'), {
+      const recRes = await fetchWithTimeout(apiUrl('/api/auth/recover'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2478,7 +2478,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     }
 
     try {
-      const res = await fetch(apiUrl('/api/auth/2fa/verify'), {
+      const res = await fetchWithTimeout(apiUrl('/api/auth/2fa/verify'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2545,7 +2545,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     }
 
     try {
-      const res = await fetch(apiUrl('/api/auth/2fa/reconfigure'), {
+      const res = await fetchWithTimeout(apiUrl('/api/auth/2fa/reconfigure'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2642,7 +2642,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     }
 
     try {
-      const res = await fetch(apiUrl('/api/auth/2fa/disable'), {
+      const res = await fetchWithTimeout(apiUrl('/api/auth/2fa/disable'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2723,7 +2723,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       const recAuthKeyB64: string = recBundle.recovery_auth_key_b64;
 
       if (session.token) {
-        const res = await fetch(apiUrl('/api/auth/recovery/rotate'), {
+        const res = await fetchWithTimeout(apiUrl('/api/auth/recovery/rotate'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { apiUrl } from './apiConfig';
+import { apiUrl, fetchWithTimeout } from './apiConfig';
 
 export interface LegalConfigData {
   name: string;
@@ -45,7 +45,7 @@ export async function fetchLegalConfig(): Promise<LegalConfigData> {
   if (isFetching) return cachedConfig;
   isFetching = true;
   try {
-    const res = await fetch(apiUrl('/api/legal/info'));
+    const res = await fetchWithTimeout(apiUrl('/api/legal/info'), {}, 5000);
     if (res.ok) {
       const data = await res.json();
       if (data && typeof data === 'object') {

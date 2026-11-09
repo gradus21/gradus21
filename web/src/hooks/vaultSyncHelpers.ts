@@ -1,6 +1,6 @@
 import { wasm_decrypt_envelope, wasm_encrypt_envelope } from '../wasm-pkg/gradus21_core';
 import { ActiveVaultSession, normalizeKdfParams } from '../components/vault/vaultTypes';
-import { apiUrl } from '../utils/apiConfig';
+import { apiUrl, fetchWithTimeout } from '../utils/apiConfig';
 import { generateTotpCode } from '../utils/totp';
 import {
   ClassroomSubjectDataset,
@@ -202,7 +202,7 @@ export async function renewTokenIfNeeded(
     const totpCode = totpSecretBase32
       ? await generateTotpCode(totpSecretBase32).catch(() => null)
       : null;
-    const res = await fetch(apiUrl('/api/auth/login'), {
+    const res = await fetchWithTimeout(apiUrl('/api/auth/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

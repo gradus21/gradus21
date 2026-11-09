@@ -14,7 +14,7 @@ import {
 } from '../components/vault/vaultTypes';
 import type { GlobalTemplateRecord } from '../types/templates';
 import { SyncReconciliationStrategy } from '../components/SyncReconciliationModal';
-import { apiUrl } from '../utils/apiConfig';
+import { apiUrl, fetchWithTimeout } from '../utils/apiConfig';
 import { generateTotpCode } from '../utils/totp';
 import {
   ClassroomSubjectDataset,
@@ -190,7 +190,7 @@ export function useVaultWorkspaceSync() {
         if (vaultSession?.token) {
           headers['Authorization'] = `Bearer ${vaultSession.token}`;
         }
-        const res = await fetch(apiUrl('/api/templates'), { headers });
+        const res = await fetchWithTimeout(apiUrl('/api/templates'), { headers });
         if (res.ok) {
           const list = await res.json();
           if (isMounted && Array.isArray(list)) {
@@ -513,7 +513,7 @@ export function useVaultWorkspaceSync() {
     if (effectiveToken && wantsServerSync) {
       try {
         setSyncStatus('syncing');
-        let res = await fetch(apiUrl('/api/envelopes/sync'), {
+        let res = await fetchWithTimeout(apiUrl('/api/envelopes/sync'), {
           headers: {
             Authorization: `Bearer ${effectiveToken}`,
           },
@@ -531,7 +531,7 @@ export function useVaultWorkspaceSync() {
             effectiveToken = refreshedToken;
             setVaultSession((prev) => (prev ? { ...prev, token: refreshedToken } : null));
             persistEncryptedSessionCredentialsToCache({ ...enrichedSession, token: refreshedToken });
-            res = await fetch(apiUrl('/api/envelopes/sync'), {
+            res = await fetchWithTimeout(apiUrl('/api/envelopes/sync'), {
               headers: { Authorization: `Bearer ${refreshedToken}` },
             });
           }
@@ -647,7 +647,7 @@ export function useVaultWorkspaceSync() {
             }
             // Migration cleanup: delete legacy workspace envelope if still on server
             if (wsEnvelope) {
-              fetch(apiUrl(`/api/envelopes/${wsEnvelope.id}`), {
+              fetchWithTimeout(apiUrl(`/api/envelopes/${wsEnvelope.id}`), {
                 method: 'DELETE',
                 headers: { Authorization: `Bearer ${effectiveToken}` },
               }).catch(() => {});
@@ -676,7 +676,7 @@ export function useVaultWorkspaceSync() {
                 envelopeVersionsRef.current.clear();
 
                 // Clean up legacy workspace envelope on server
-                fetch(apiUrl(`/api/envelopes/${wsEnvelope.id}`), {
+                fetchWithTimeout(apiUrl(`/api/envelopes/${wsEnvelope.id}`), {
                   method: 'DELETE',
                   headers: { Authorization: `Bearer ${effectiveToken}` },
                 }).catch(() => {});
@@ -1249,7 +1249,7 @@ export function useVaultWorkspaceSync() {
         };
 
         let [batchRes, prefRes] = await Promise.all([
-          fetch(apiUrl('/api/envelopes/batch'), {
+          fetchWithTimeout(apiUrl('/api/envelopes/batch'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1259,7 +1259,7 @@ export function useVaultWorkspaceSync() {
               envelopes: batchPayload,
             }),
           }),
-          fetch(apiUrl('/api/preferences'), {
+          fetchWithTimeout(apiUrl('/api/preferences'), {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
@@ -1282,7 +1282,7 @@ export function useVaultWorkspaceSync() {
             setVaultSession((prev) => (prev ? { ...prev, token: newToken } : null));
             persistEncryptedSessionCredentialsToCache(updatedSession);
             if (batchRes.status === 401) {
-              batchRes = await fetch(apiUrl('/api/envelopes/batch'), {
+              batchRes = await fetchWithTimeout(apiUrl('/api/envelopes/batch'), {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
@@ -1292,7 +1292,7 @@ export function useVaultWorkspaceSync() {
               });
             }
             if (prefRes.status === 401) {
-              prefRes = await fetch(apiUrl('/api/preferences'), {
+              prefRes = await fetchWithTimeout(apiUrl('/api/preferences'), {
                 method: 'PUT',
                 headers: {
                   'Content-Type': 'application/json',
@@ -1448,7 +1448,7 @@ export function useVaultWorkspaceSync() {
         // It returns { envelope_count, class_count, class_ids, last_updated_at } in ~80 bytes.
         // If last_updated_at and envelope_count match our last known state, no remote changes exist!
         try {
-          const sumRes = await fetch(apiUrl('/api/envelopes/summary'), {
+          const sumRes = await fetchWithTimeout(apiUrl('/api/envelopes/summary'), {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (sumRes.ok) {
@@ -1472,7 +1472,7 @@ export function useVaultWorkspaceSync() {
           // If summary fails or server does not support it, fall back to /api/envelopes/sync
         }
 
-        const res = await fetch(apiUrl('/api/envelopes/sync'), {
+        const res = await fetchWithTimeout(apiUrl('/api/envelopes/sync'), {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -1659,7 +1659,7 @@ export function useVaultWorkspaceSync() {
     // Call DELETE /api/envelopes/:id on the server (nur wenn Cloud-Sync aktiv ist)
     if (userSettings.cloudSyncEnabled && vaultSession?.token) {
       try {
-        await fetch(apiUrl(`/api/envelopes/${canonicalId}`), {
+        await fetchWithTimeout(apiUrl(`/api/envelopes/${canonicalId}`), {
           method: 'DELETE',
           headers: {
             Authorization: `Bearer ${vaultSession.token}`,
@@ -1743,7 +1743,7 @@ export function useVaultWorkspaceSync() {
         }
       }
 
-      const logRes = await fetch(apiUrl('/api/auth/login'), {
+      const logRes = await fetchWithTimeout(apiUrl('/api/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1779,7 +1779,7 @@ export function useVaultWorkspaceSync() {
 
     // 2. Falls noch nicht registriert, Registrierung durchführen
     try {
-      const regRes = await fetch(apiUrl('/api/auth/register'), {
+      const regRes = await fetchWithTimeout(apiUrl('/api/auth/register'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1855,7 +1855,7 @@ export function useVaultWorkspaceSync() {
     let newToken = vaultSession.token;
     if (vaultSession.token) {
       try {
-        const res = await fetch(apiUrl('/api/auth/email/update'), {
+        const res = await fetchWithTimeout(apiUrl('/api/auth/email/update'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1999,7 +1999,7 @@ export function useVaultWorkspaceSync() {
       // Falls Salt fehlt (z. B. nach rein biometrischem Unlock), prüfe Server-Salt für diese E-Mail:
       if (!candidateSalt && vaultSession.email) {
         try {
-          const saltRes = await fetch(apiUrl('/api/auth/salt'), {
+          const saltRes = await fetchWithTimeout(apiUrl('/api/auth/salt'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email: vaultSession.email.trim().toLowerCase() }),
@@ -2177,7 +2177,7 @@ export function useVaultWorkspaceSync() {
 
     try {
       setSyncStatus('syncing');
-      let sumRes = await fetch(apiUrl('/api/envelopes/summary'), {
+      let sumRes = await fetchWithTimeout(apiUrl('/api/envelopes/summary'), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (sumRes.status === 401 && activeSession?.userId) {
@@ -2193,7 +2193,7 @@ export function useVaultWorkspaceSync() {
           activeSession = updatedSession;
           setVaultSession((prev) => (prev ? { ...prev, token: refreshed } : null));
           persistEncryptedSessionCredentialsToCache(updatedSession);
-          sumRes = await fetch(apiUrl('/api/envelopes/summary'), {
+          sumRes = await fetchWithTimeout(apiUrl('/api/envelopes/summary'), {
             headers: { Authorization: `Bearer ${refreshed}` },
           });
         }
@@ -2302,7 +2302,7 @@ export function useVaultWorkspaceSync() {
       setSyncStatus('syncing');
 
       // 1. Fetch remote envelopes
-      let res = await fetch(apiUrl('/api/envelopes/sync'), {
+      let res = await fetchWithTimeout(apiUrl('/api/envelopes/sync'), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.status === 401 && vaultSession?.userId) {
@@ -2317,7 +2317,7 @@ export function useVaultWorkspaceSync() {
           const updatedSession = { ...vaultSession, token: refreshed };
           setVaultSession((prev) => (prev ? { ...prev, token: refreshed } : null));
           persistEncryptedSessionCredentialsToCache(updatedSession);
-          res = await fetch(apiUrl('/api/envelopes/sync'), {
+          res = await fetchWithTimeout(apiUrl('/api/envelopes/sync'), {
             headers: { Authorization: `Bearer ${refreshed}` },
           });
         }
@@ -2472,7 +2472,7 @@ export function useVaultWorkspaceSync() {
           };
         });
 
-        const batchRes = await fetch(apiUrl('/api/envelopes/batch'), {
+        const batchRes = await fetchWithTimeout(apiUrl('/api/envelopes/batch'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -2556,7 +2556,7 @@ export function useVaultWorkspaceSync() {
       (vaultSession?.userId ? getStoredToken(vaultSession.userId) : '');
     try {
       if (token) {
-        const sumRes = await fetch(apiUrl('/api/envelopes/summary'), {
+        const sumRes = await fetchWithTimeout(apiUrl('/api/envelopes/summary'), {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (sumRes.ok) {
@@ -2618,7 +2618,7 @@ export function useVaultWorkspaceSync() {
     }
 
     try {
-      let res = await fetch(apiUrl('/api/envelopes'), {
+      let res = await fetchWithTimeout(apiUrl('/api/envelopes'), {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${effectiveToken}`,
@@ -2637,7 +2637,7 @@ export function useVaultWorkspaceSync() {
           effectiveToken = refreshedToken;
           setVaultSession((prev) => (prev ? { ...prev, token: refreshedToken } : null));
           persistEncryptedSessionCredentialsToCache({ ...vaultSession, token: refreshedToken });
-          res = await fetch(apiUrl('/api/envelopes'), {
+          res = await fetchWithTimeout(apiUrl('/api/envelopes'), {
             method: 'DELETE',
             headers: {
               Authorization: `Bearer ${refreshedToken}`,

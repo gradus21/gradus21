@@ -98,3 +98,57 @@ export function apiUrl(endpoint: string): string {
   const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   return `${base}${path}`;
 }
+
+/**
+ * Executes a fetch request with a configurable timeout (default: 8000ms).
+ * Prevents requests from hanging indefinitely on stalled or dropped networks
+ * (e.g. Wi-Fi NAT loopback drops or Android Private DNS stalls).
+ */
+export async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  timeoutMs: number = 8000
+): Promise<Response> {
+  const controller = new AbortController();
+  let timedOut = false;
+
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort(new DOMException(`Request timed out after ${timeoutMs}ms`, 'TimeoutError'));
+  }, timeoutMs);
+
+  let signal = controller.signal;
+  if (init?.signal) {
+    const callerSignal = init.signal;
+    if (callerSignal.aborted) {
+      clearTimeout(timer);
+      controller.abort(callerSignal.reason);
+      throw callerSignal.reason;
+    }
+    callerSignal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        controller.abort(callerSignal.reason);
+      },
+      { once: true }
+    );
+  }
+
+  try {
+    const response = await fetch(input, {
+      ...init,
+      signal,
+    });
+    return response;
+  } catch (error: any) {
+    if (timedOut || error?.name === 'TimeoutError') {
+      const err = new Error(`Netzwerk-Timeout: Server antwortet nicht nach ${timeoutMs / 1000}s`);
+      err.name = 'TimeoutError';
+      throw err;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
