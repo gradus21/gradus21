@@ -1,24 +1,24 @@
 Architectures: amd64
 Codename: stable
 Components: main
-Date: Fri, 06 Nov 2026 07:29:54 +0000
+Date: Mon, 09 Nov 2026 00:10:40 +0000
 Description: Gradus21 Official APT Repository for Debian, Ubuntu and Pop!_OS
 Label: Gradus21 Official APT Repository
 Origin: Gradus21
 Suite: stable
 MD5Sum:
- b9962d86b87a4b7939fa027d125b7e24              241 Release
- 3454af4dda2d5f02d89b34726df955f6             7323 main/binary-amd64/Packages
- e363da365808fd34ba10128f430129eb             1641 main/binary-amd64/Packages.gz
+ 7062c4a96984bc12bab6ba9d30ff7445              241 Release
+ beceb5c722285ab7e098ac1ff8ef64b2             7920 main/binary-amd64/Packages
+ 9b5da904a48588d26380e40394356738             1747 main/binary-amd64/Packages.gz
 SHA1:
- 6316cd0f75349b4485d5b56389e3a412b44ecf66              241 Release
- 671935457b7c500f41e318803ae73818eb6a4ef2             7323 main/binary-amd64/Packages
- c574f6e99d4e9db5c1b3020bca6e73f8a81a607c             1641 main/binary-amd64/Packages.gz
+ b8614cc6c0a88e349725be5cb209c7c1597b841c              241 Release
+ 8ad621443f0035f1c64fdaeca12b0e4a265ab1cb             7920 main/binary-amd64/Packages
+ cd5ce28435a967a181b5d1644ed4f22a2f2c12a7             1747 main/binary-amd64/Packages.gz
 SHA256:
- 101767d6ce06c9a7c85197a8b9dc93a8b99c2dee8ca2d4be365fec069a0b4c98              241 Release
- 1bc10761615d25aa277104a96b9f68e180c92af181dd65c4167370813204a62f             7323 main/binary-amd64/Packages
- cfda5902f28429929cca55e266d10a17159e3a88286d4ae7c86cf07a7f99519b             1641 main/binary-amd64/Packages.gz
+ 26ea28cd9ce4b29b6f379dfc329734ef7a955a6f39e9c4ced9f8795d1a8d1fff              241 Release
+ a795eebc215608342fc990dabd5487a64e61100814f9c7ae43de6a2f5ca81629             7920 main/binary-amd64/Packages
+ f9b6d12fc972a426f15af7ab911b9e27ba829dee3d374ef0a608f1b44f6c045f             1747 main/binary-amd64/Packages.gz
 SHA512:
- d0b4f51e35029a1fb357a8ac14f1e2990a7c0ee80335ee5d9b7de10112d85fcd4d790642fde378fcdecf084579398ca6011873c9344d0371574186bd33c4ceb8              241 Release
- fc521c820d3e9e7870dc4fb6202f4b98fdfdd9a60d526485e9121344d3aecf17670070f305f0f973b74dd547b84f1a796685e35d634e893c0ea5cbe79a0835a5             7323 main/binary-amd64/Packages
- b8e27584a7fa9dd5c5abae1d9e264ca723fda46c2ddb33a85448715d1cb2169f73b06528f234bf8a62a48840d85af2394f5cf477407e4339cc688fc5f1515dad             1641 main/binary-amd64/Packages.gz
+ efda5c6629a3f7e74c4d9bcf3a2ef17016df71d1b9d158746c09b67a5bdc6bbd409128a7bd2d1ded56fc59b17553e86a0ad2fdc0b5d4b805bd7b50328c807b56              241 Release
+ 43711a258bd99f8cfad10954edd1069a4971dbc7652b5b90400ac1049f6e3f2f970e33d69d4d4dd63354a916b1ac26f578a8097feb9972ed38e860d3bc0fb9d7             7920 main/binary-amd64/Packages
+ f8ef2ad3af6b286bb5ad4bf03fa6ecaa601d72ba1a18399e3acc6c79193398079757f2034fb4f8bfb13a1c668f7926bc376b8f69e013be57d53e0c50dff35ac9             1747 main/binary-amd64/Packages.gz
