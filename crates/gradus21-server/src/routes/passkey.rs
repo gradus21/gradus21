@@ -17,7 +17,7 @@ use crate::middleware::{
 use crate::routes::auth::AuthResponse;
 use crate::state::{
     delete_all_passkeys_for_user_from_pg, delete_passkey_from_pg, persist_to_disk,
-    sync_passkey_to_pg, sync_user_to_pg, AppState, UserPasskeyRecord, UserRecord,
+    sync_passkey_to_pg, sync_user_to_pg, AppState, UserPasskeyRecord,
 };
 
 #[derive(Deserialize)]
