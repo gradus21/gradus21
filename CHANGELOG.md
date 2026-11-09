@@ -3,6 +3,21 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Calendar Versioning](https://calver.org/) (Ubuntu-Style `YY.MM.PATCH`).
 
+## [26.11.2] - 2026-11-09
+
+### Härtung von UI-Lebenszyklen, UTF-8-Indizes & Keyring-Validierung
+- **Stabilität & UI-Lebenszyklus (`SettingsModal`)**:
+  - Automatisches Tracking und Bereinigen von `setTimeout`-Handlern via `registerTimeout` beim Unmount der Einstellungsansicht.
+  - Verhindert Race Conditions, Memory Leaks und unhandled Exceptions bei asynchronen Erfolgsanzeigen (Speichern, Backup-Export, Zwischenablage).
+- **Robuste String-Indizierung & UTF-8 Schutz (`gradus21-server`)**:
+  - Sicheres Slicing von Git-Commit-Hashes via `s.get(..7).unwrap_or(s)` im Server-Healthcheck.
+  - Verhindert Panics an UTF-8 Byte-Grenzen bei Nicht-ASCII Zeichen.
+- **Strikte Hostname-Erkennung (`version.ts`)**:
+  - Präzisierte Subdomain-Grenzen (`dev.`, `.dev.`, `-dev.`, `.dev`, `localhost`, `127.0.0.1`) für die Erkennung von Entwicklungsumgebungen.
+  - Verhindert fälschliche Entwickler-Badges auf Produktions-Domains mit Teilwort-Übereinstimmungen.
+- **Keyring-Namespace-Härtung (`src-tauri`)**:
+  - Striktes ASCII-Alphanumerik- und Sonderzeichen-Whitelisting (`.`, `_`, `-`, `@`) für Service- und Benutzernamen im nativen OS-Schlüsselbund.
+
 ## [26.11.1] - 2026-11-06
 
 ### Umstellung auf CalVer & Behebung des Windows-WebView2-Starts

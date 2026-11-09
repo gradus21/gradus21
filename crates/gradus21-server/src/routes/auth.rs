@@ -184,7 +184,7 @@ pub async fn health_check(State(state): State<AppState>) -> Json<serde_json::Val
     let email_verification_required = is_test_or_prod && !is_first_user;
 
     let commit_sha = option_env!("GIT_COMMIT_SHA")
-        .map(|s| if s.len() > 7 { &s[..7] } else { s })
+        .map(|s| s.get(..7).unwrap_or(s))
         .unwrap_or("unknown");
     let git_branch = option_env!("GIT_BRANCH").unwrap_or("unknown");
 

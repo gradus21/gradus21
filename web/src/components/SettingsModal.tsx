@@ -336,6 +336,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [templatePendingDelete, setTemplatePendingDelete] = useState<{ id: string; name: string } | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [savedIndicator, setSavedIndicator] = useState(false);
+  const timeoutsRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
+  const registerTimeout = (fn: () => void, ms: number) => {
+    const id = setTimeout(() => {
+      timeoutsRef.current = timeoutsRef.current.filter((t) => t !== id);
+      fn();
+    }, ms);
+    timeoutsRef.current.push(id);
+    return id;
+  };
+
+  useEffect(() => {
+    return () => {
+      timeoutsRef.current.forEach((t) => clearTimeout(t));
+      timeoutsRef.current = [];
+    };
+  }, []);
+
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [manualUpdateResult, setManualUpdateResult] = useState<UpdateInfo | null>(null);
   const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
@@ -403,7 +420,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const triggerSaved = () => {
     setSavedIndicator(true);
-    setTimeout(() => setSavedIndicator(false), 2000);
+    registerTimeout(() => setSavedIndicator(false), 2000);
   };
 
   const handleEnableBiometric = async () => {
@@ -1331,7 +1348,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         onClick={() => {
                           navigator.clipboard.writeText(storageInfo.path);
                           setCopiedPath(true);
-                          setTimeout(() => setCopiedPath(false), 2000);
+                          registerTimeout(() => setCopiedPath(false), 2000);
                         }}
                         className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400 hover:underline cursor-pointer"
                         title="Pfad in die Zwischenablage kopieren"
@@ -1387,7 +1404,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         try {
                           await onExportEncryptedBackup();
                           setExportBackupSuccess(true);
-                          setTimeout(() => setExportBackupSuccess(false), 3500);
+                          registerTimeout(() => setExportBackupSuccess(false), 3500);
                         } finally {
                           setIsExportingBackup(false);
                         }
@@ -1495,7 +1512,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 onClick={() => {
                                   navigator.clipboard.writeText(connectedBackupDirName);
                                   setCopiedBackupPath(true);
-                                  setTimeout(() => setCopiedBackupPath(false), 2000);
+                                  registerTimeout(() => setCopiedBackupPath(false), 2000);
                                 }}
                                 className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400 hover:underline cursor-pointer"
                                 title="Backup-Pfad in die Zwischenablage kopieren"

@@ -183,9 +183,7 @@ if [ "$DEPLOY_ONLY" = false ]; then
 
     # web/src/version.ts
     if [ -f "web/src/version.ts" ]; then
-        cat <<EOF > web/src/version.ts
-export const APP_VERSION = '$NEW_VERSION';
-EOF
+        sed -i -E "s/export const APP_VERSION = '[^']+';/export const APP_VERSION = '$NEW_VERSION';/" web/src/version.ts
     fi
 
     # README.md

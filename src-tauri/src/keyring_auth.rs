@@ -5,9 +5,21 @@ pub fn validate_keyring_params(service: &str, user: &str) -> Result<(), String> 
             "Ungültiger Keyring-Service-Namespace (nur 'de.gradus21.app' erlaubt).".into(),
         );
     }
+    if !clean_service
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    {
+        return Err("Ungültige Zeichen im Keyring-Service-Namen.".into());
+    }
     let clean_user = user.trim();
     if clean_user.is_empty() || clean_user.len() > 128 {
         return Err("Ungültige Benutzer-Kennung für den Schlüsselbund.".into());
+    }
+    if !clean_user
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '@'))
+    {
+        return Err("Ungültige Zeichen in der Benutzer-Kennung.".into());
     }
     Ok(())
 }
@@ -50,6 +62,9 @@ mod tests {
         assert!(validate_keyring_params("ssh", "user-123").is_err());
         assert!(validate_keyring_params("de.gradus21.app", "").is_err());
         assert!(validate_keyring_params("de.gradus21.app", &"x".repeat(129)).is_err());
+        assert!(validate_keyring_params("de.gradus21.app\nfoo", "user-123").is_err());
+        assert!(validate_keyring_params("de.gradus21.app", "user\x00bad").is_err());
+        assert!(validate_keyring_params("de.gradus21.app", "user@school.de").is_ok());
     }
 }
 

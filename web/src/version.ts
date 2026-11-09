@@ -11,7 +11,14 @@ export function isDevEnvironment(): boolean {
   if (APP_GIT_BRANCH === 'dev') return true;
   if (typeof window !== 'undefined' && window.location?.hostname) {
     const host = window.location.hostname.toLowerCase();
-    if (host.includes('dev') || host === 'localhost' || host === '127.0.0.1') {
+    if (
+      host.startsWith('dev.') ||
+      host.includes('.dev.') ||
+      host.includes('-dev.') ||
+      host.endsWith('.dev') ||
+      host === 'localhost' ||
+      host === '127.0.0.1'
+    ) {
       return true;
     }
   }
