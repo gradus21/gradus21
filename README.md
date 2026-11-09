@@ -1,9 +1,9 @@
-# Gradus21 (`v26.11.1`)
+# Gradus21 (`v26.11.2`)
 
 > **Gradus21** — Zero-Knowledge E2EE & 100 % Client-Side Rust/WebAssembly Notenverwaltung & pädagogische Didaktik für Lehrkräfte.
 >
 > 🌐 **Website:** [gradus21.de](https://gradus21.de) &nbsp;|&nbsp; 🧮 **Kostenloser Notenschlüssel-Rechner:** [gradus21.de/notenrechner](https://gradus21.de/notenrechner/)  
-> 🚀 **Status: Version `26.11.1` (Production Release — Biometric Unlock & Cloud Sync Linking)**  
+> 🚀 **Status: Version `26.11.2` (Production Release — Biometric Unlock & Cloud Sync Linking)**  
 > Vollständig DSGVO-konform, Zero-Knowledge verschlüsselt, FIDO2/Passkey-gesichert und bereit für den produktiven Schuleinsatz auf Desktop, iPad und Smartphone.
 
 [![Website](https://img.shields.io/badge/Website-gradus21.de-0d9488?style=for-the-badge&logo=googlechrome&logoColor=white)](https://gradus21.de)

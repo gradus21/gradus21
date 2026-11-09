@@ -1,7 +1,7 @@
 declare const __APP_COMMIT_SHA__: string | undefined;
 declare const __APP_GIT_BRANCH__: string | undefined;
 
-export const APP_VERSION = '26.11.1';
+export const APP_VERSION = '26.11.2';
 export const APP_COMMIT_SHA: string =
   typeof __APP_COMMIT_SHA__ !== 'undefined' && __APP_COMMIT_SHA__ ? __APP_COMMIT_SHA__ : 'unknown';
 export const APP_GIT_BRANCH: string =
