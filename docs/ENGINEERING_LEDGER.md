@@ -52,10 +52,13 @@ Dieses Dokument verhindert das **„Whack-a-Mole“-Muster** (bei dem ein Fix an
   - Eine einzige Funktion `delete_user_account_everywhere(state: &AppState, user_id: Uuid)` löscht Passkeys, Envelopes, den User-Datensatz, offene WebAuthn-Challenges und den TOTP-Replay-Status.
 
 ### Invariante I-5: `localStorage.classEnvelopes` ist eine reine Projektion von `datasets`
-- **Regel:** Im lokalen Browser-Cache (`gradus21_e2ee_user_vault_v3_<userId>`) dürfen unter `classEnvelopes` ausschließlich Klassen-UUIDs liegen, die aktuell im `datasets`-State vorhanden sind.
+- **Regel:**
+  1. Im lokalen Browser-Cache (`gradus21_e2ee_user_vault_v3_<userId>`) dürfen unter `classEnvelopes` ausschließlich Klassen-UUIDs liegen, die aktuell im `datasets`-State vorhanden sind.
+  2. Nach einer Richtungs- oder Merge-Reconciliation (`executeReconciliation`) dürfen im lokalen Cache (`syncedEnvelopes`) niemals veraltete Remote-Ciphertexte (`remoteEnv.encrypted_payload`) für gemergte oder lokal hochgeladene Klassen abgelegt werden. Bei `strategy === 'merge'` oder `upload_local` werden alle Klassen immer frisch mit dem aktiven DEK verschlüsselt und bei unvollständigem Upload `dirty: true` markiert. Stale Remote-Envelopes werden nur bei explizitem `download_remote` übernommen.
 - **Technische Durchsetzung:**
   - Beim Auto-Save wird `parsedOld.classEnvelopes` vor dem Merge auf `new Set(datasets.map(d => ensureValidUuid(d.id)))` gefiltert.
   - Beim Snapshot-Restore (`handleRestoreSnapshot`) werden `classEnvelopes`, `envelopeVersionsRef` und `lastSerializedPerClassRef` über einen gemeinsamen Helper geleert.
+  - In [`useVaultWorkspaceSync.ts`](file:///home/julian/coding/gradus21/web/src/hooks/useVaultWorkspaceSync.ts) verschlüsselt `executeReconciliation` gemergte Klassen immer frisch via `wasm_encrypt_envelope(...)` und verhindert das Einschleusen alter Remote-Ciphertexte in den lokalen Cache.
 
 ### Invariante I-6: Live-Synchronisation von Session-Claims & System-Grenzwächtern (Restore / Recovery / Relay)
 - **Regel:**
@@ -108,3 +111,4 @@ Dieses Dokument verhindert das **„Whack-a-Mole“-Muster** (bei dem ein Fix an
 | **Audit #9 (Finaler Verifikations-Audit)** | 2026-11-08 | **0 Findings** (`0` Must-fix, `0` Should-fix, `0` Nice-to-have; alle 8 Architektur-Invarianten `I-1` bis `I-8` halten zu 100 % ohne Regression) | — | **Vollständig abgenommen (Clean Sign-Off)** |
 | **Audit #10 (Ponytail Quality Audit & Release 26.11.3)** | 2026-11-09 | 9 Findings (Intelligenter Merge Vorrang lokaler Daten, Reconciliation Dialog-Loop & Cache-Sync, Noten-Exporte über alle Eingabemodi, 0% Gewicht für leere Kategorien bei Skalierung, Summary-gestützte Hintergrund-Sync-Bandbreitenreduktion, Bereinigung toter `storageAdapter`, Drop-Lowest-Simulator) | Lokale Precedence-Inversion beim Merge, fehlender Summary-Vorabcheck beim Polling, Notenfilter beschränkte sich auf `percent_value` | **9/9 behoben, Invarianten I-3/I-5 gehärtet, 204 Web- & 43 Rust-Tests grün** |
 | **Audit #11 (Client Timeout Hardening & DoT/Hairpin Resilienz)** | 2026-11-09 | 1 Finding (Fehlende Request-Timeouts in Client-API-Calls führten bei WLAN NAT-Hairpin-/DoT-Drops zu 120s Polling-Locks) | Unbounded `fetch()`-Calls in `useVaultWorkspaceSync.ts` und Auth-Modals | **Behoben via `fetchWithTimeout(..., 8000)`, Invariante I-8 erweitert, 207 Web- & 43 Rust-Tests grün** |
+| **Audit #12 (Reconciliation Cache Poisoning Fix)** | 2026-11-09 | 1 Finding (Intelligenter Merge überschrieb lokale Änderungen im Cache mit altem Server-Ciphertext `remoteEnv.encrypted_payload`) | Falscher Fallback im Cache-Update von `executeReconciliation` | **Behoben: Fresh DEK-Encryption bei `merge` & `upload_local`, Invariante I-5 gehärtet, 208 Web-Tests grün** |

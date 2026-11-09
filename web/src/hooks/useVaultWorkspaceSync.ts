@@ -2450,6 +2450,7 @@ export function useVaultWorkspaceSync() {
         }
       }
 
+      let uploadSucceeded = false;
       // If uploading local or smart merging, immediately push all classes to remote
       if (strategy === 'upload_local' || strategy === 'merge') {
         const batchItems = finalClasses.map((cls) => {
@@ -2472,22 +2473,27 @@ export function useVaultWorkspaceSync() {
           };
         });
 
-        const batchRes = await fetchWithTimeout(apiUrl('/api/envelopes/batch'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ envelopes: batchItems }),
-        });
-
-        if (batchRes.ok) {
-          const updatedEnvs: Array<{ id: string; version: number }> = await batchRes.json();
-          updatedEnvs.forEach((env) => {
-            const canonicalId = ensureValidUuid(env.id);
-            envelopeVersionsRef.current.set(canonicalId, env.version);
-            envelopeVersionsRef.current.set(env.id, env.version);
+        try {
+          const batchRes = await fetchWithTimeout(apiUrl('/api/envelopes/batch'), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ envelopes: batchItems }),
           });
+
+          if (batchRes.ok) {
+            uploadSucceeded = true;
+            const updatedEnvs: Array<{ id: string; version: number }> = await batchRes.json();
+            updatedEnvs.forEach((env) => {
+              const canonicalId = ensureValidUuid(env.id);
+              envelopeVersionsRef.current.set(canonicalId, env.version);
+              envelopeVersionsRef.current.set(env.id, env.version);
+            });
+          }
+        } catch (uploadErr) {
+          console.warn('Reconciliation Batch-Upload fehlgeschlagen:', uploadErr);
         }
       }
 
@@ -2502,14 +2508,18 @@ export function useVaultWorkspaceSync() {
             { encryptedPayload: string; version: number; dirty?: boolean }
           > = {};
 
+          const isLocalOrMerged = strategy === 'upload_local' || strategy === 'merge';
+
           for (const cls of finalClasses) {
             const canonicalId = ensureValidUuid(cls.id);
             const ver = envelopeVersionsRef.current.get(canonicalId) ?? 1;
             const remoteEnv = remoteEnvelopes.find(
               (e) => ensureValidUuid(e.id) === canonicalId
             );
+            // When merging or uploading local changes, always encrypt the fresh reconciled dataset.
+            // Only purely downloaded remote envelopes reuse the untouched server ciphertext.
             const encPayload =
-              remoteEnv?.encrypted_payload ||
+              (!isLocalOrMerged && remoteEnv?.encrypted_payload) ||
               wasm_encrypt_envelope(
                 vaultSession.dekB64,
                 vaultSession.userId,
@@ -2519,7 +2529,7 @@ export function useVaultWorkspaceSync() {
             syncedEnvelopes[canonicalId] = {
               encryptedPayload: encPayload,
               version: ver,
-              dirty: false,
+              dirty: isLocalOrMerged && !uploadSucceeded,
             };
           }
 

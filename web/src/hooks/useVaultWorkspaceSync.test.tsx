@@ -585,4 +585,76 @@ describe('useVaultWorkspaceSync - handleImportEncryptedBackup', () => {
     expect(storedAfter.session?.authKeyB64).toBeUndefined();
     expect(storedAfter.session?.totpSecretBase32).toBeUndefined();
   });
+
+  it('re-encrypts merged dataset and updates local cache without using stale remote envelope (Audit #12)', async () => {
+    vi.spyOn(window, 'alert').mockImplementation(() => {});
+    const userId = '00000000-0000-4000-8000-000000000001';
+    const classId = '11111111-1111-4111-8111-111111111111';
+    const userCacheKey = getUserEncryptedCacheKey(userId);
+
+    // Mock fetch for sync and batch
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('/api/envelopes/sync')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              id: classId,
+              entity_type: 'class_dataset',
+              encrypted_payload: 'OLD_STALE_REMOTE_ENVELOPE',
+              version: 5,
+              updated_at: '2026-01-01T00:00:00Z',
+            },
+          ],
+        });
+      }
+      if (String(url).includes('/api/envelopes/batch')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => [{ id: classId, version: 6 }],
+        });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+    });
+
+    (wasm_decrypt_envelope as any).mockReturnValue(
+      JSON.stringify({
+        id: classId,
+        className: '10A',
+        students: [{ id: 's1', firstName: 'Server', lastName: 'Student' }],
+        categories: [],
+        assessments: [],
+        grades: [],
+      })
+    );
+    (wasm_encrypt_envelope as any).mockReturnValue('NEW_MERGED_ENVELOPE');
+
+    const { result } = renderHook(() => useVaultWorkspaceSync());
+
+    await act(async () => {
+      await result.current.handleUnlockVault({
+        userId,
+        email: 'teacher@gradus21.de',
+        dekB64: 'dek-123',
+        token: 'jwt-token',
+        kdfSaltB64: 'salt',
+        encryptedDek: 'enc-dek',
+        totpEnabled: false,
+        serverSyncedCount: 1,
+      });
+    });
+
+    await act(async () => {
+      await result.current.handleResolveReconciliation('merge');
+    });
+
+    const storedCache = JSON.parse(localStorage.getItem(userCacheKey) || '{}');
+    expect(storedCache.classEnvelopes[classId]).toBeDefined();
+    // Invariant: The cache MUST store the freshly encrypted envelope, NEVER the stale OLD_STALE_REMOTE_ENVELOPE!
+    expect(storedCache.classEnvelopes[classId].encryptedPayload).toBe('NEW_MERGED_ENVELOPE');
+    expect(storedCache.classEnvelopes[classId].version).toBe(6);
+    expect(storedCache.classEnvelopes[classId].dirty).toBe(false);
+  });
 });
