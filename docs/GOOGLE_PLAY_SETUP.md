@@ -94,6 +94,6 @@ Fügen Sie am Ende des Workflows folgenden Schritt hinzu (nutzt die offizielle A
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: de.gradus21.app
           releaseFiles: dist-android/gradus21.aab
-          track: internal # oder 'production' / 'beta'
+          tracks: internal # oder 'production' / 'beta'
           status: completed
 ```

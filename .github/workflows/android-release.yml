@@ -195,5 +195,5 @@ jobs:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON || secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: de.gradus21.app
           releaseFiles: dist-android/gradus21.aab
-          track: internal
+          tracks: internal
           status: completed
