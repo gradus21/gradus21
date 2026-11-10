@@ -641,6 +641,7 @@ describe('useVaultWorkspaceSync - handleImportEncryptedBackup', () => {
         token: 'jwt-token',
         kdfSaltB64: 'salt',
         encryptedDek: 'enc-dek',
+        recoveryEncryptedDek: 'rec-dek',
         totpEnabled: false,
         serverSyncedCount: 1,
       });
