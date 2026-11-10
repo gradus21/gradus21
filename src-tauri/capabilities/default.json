@@ -7,6 +7,13 @@
     "core:default",
     "opener:default",
     "biometric:default",
-    "biometric:allow-biometric-cipher"
+    "biometric:allow-biometric-cipher",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://**" },
+        { "url": "http://**" }
+      ]
+    }
   ]
 }

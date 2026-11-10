@@ -1,4 +1,4 @@
-import { isStandaloneClient } from './platform';
+import { isStandaloneClient, isTauri } from './platform';
 
 const DEFAULT_SERVER_URL = 'https://gradus21.app';
 const SERVER_URL_STORAGE_KEY = 'gradus21_custom_server_url';
@@ -136,7 +136,17 @@ export async function fetchWithTimeout(
   }
 
   try {
-    const response = await fetch(input, {
+    let fetchFn: typeof fetch = fetch;
+    if (isTauri()) {
+      try {
+        const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http');
+        fetchFn = tauriFetch as unknown as typeof fetch;
+      } catch (err) {
+        console.warn('[apiConfig] Native Tauri HTTP plugin unavailable, falling back to window.fetch:', err);
+      }
+    }
+
+    const response = await fetchFn(input, {
       ...init,
       signal,
     });

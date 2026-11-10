@@ -80,5 +80,23 @@ describe('API & Server URL Configuration', () => {
 
       await expect(promise).rejects.toThrow();
     });
+
+    it('uses native tauri-plugin-http fetch when running inside Tauri', async () => {
+      (window as any).__TAURI_INTERNALS__ = {};
+      const mockTauriFetch = vi.fn().mockResolvedValue(new Response('{"tauri":true}', { status: 200 }));
+      vi.doMock('@tauri-apps/plugin-http', () => ({
+        fetch: mockTauriFetch,
+      }));
+
+      try {
+        const res = await fetchWithTimeout('https://example.com/api', {}, 500);
+        expect(mockTauriFetch).toHaveBeenCalled();
+        const data = await res.json();
+        expect(data.tauri).toBe(true);
+      } finally {
+        delete (window as any).__TAURI_INTERNALS__;
+        vi.doUnmock('@tauri-apps/plugin-http');
+      }
+    });
   });
 });

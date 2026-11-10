@@ -88,11 +88,19 @@ jobs:
             echo "Syncing Android icons to $res"
             cp -r src-tauri/icons/android/* "$res/" 2>/dev/null || true
           done
-          # Ensure VIBRATE permission is present in AndroidManifest.xml for haptic feedback in WebView
+          # Ensure VIBRATE and ACCESS_NETWORK_STATE permissions and cleartext traffic are present in AndroidManifest.xml
           for manifest in $(find src-tauri/gen/android -name "AndroidManifest.xml"); do
+            if ! grep -q "android.permission.ACCESS_NETWORK_STATE" "$manifest"; then
+              echo "Injecting android.permission.ACCESS_NETWORK_STATE into $manifest"
+              sed -i 's|<uses-permission android:name="android.permission.INTERNET" />|<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />|' "$manifest"
+            fi
             if ! grep -q "android.permission.VIBRATE" "$manifest"; then
               echo "Injecting android.permission.VIBRATE into $manifest"
               sed -i 's|<uses-permission android:name="android.permission.INTERNET" />|<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.VIBRATE" />|' "$manifest"
+            fi
+            if ! grep -q "usesCleartextTraffic" "$manifest"; then
+              echo "Injecting android:usesCleartextTraffic into $manifest"
+              sed -i 's|<application|<application android:usesCleartextTraffic="true"|' "$manifest"
             fi
           done
 

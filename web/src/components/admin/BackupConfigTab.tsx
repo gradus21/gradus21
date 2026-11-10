@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { apiUrl } from '../../utils/apiConfig';
+import { apiUrl, fetchWithTimeout } from '../../utils/apiConfig';
 import { triggerFileDownload } from '../ExportAndPrintHelpers';
 import {
   AlertTriangle,
@@ -53,10 +53,10 @@ export const BackupConfigTab: React.FC<BackupConfigTabProps> = ({ token, onResto
     setErrorMsg(null);
     try {
       const [listRes, schedRes] = await Promise.all([
-        fetch(apiUrl('/api/admin/backups'), {
+        fetchWithTimeout(apiUrl('/api/admin/backups'), {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        fetch(apiUrl('/api/admin/backups/schedule'), {
+        fetchWithTimeout(apiUrl('/api/admin/backups/schedule'), {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);
@@ -90,7 +90,7 @@ export const BackupConfigTab: React.FC<BackupConfigTabProps> = ({ token, onResto
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
-      const res = await fetch(apiUrl('/api/admin/backups/snapshot'), {
+      const res = await fetchWithTimeout(apiUrl('/api/admin/backups/snapshot'), {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -111,7 +111,7 @@ export const BackupConfigTab: React.FC<BackupConfigTabProps> = ({ token, onResto
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
-      const res = await fetch(apiUrl('/api/admin/backups/schedule'), {
+      const res = await fetchWithTimeout(apiUrl('/api/admin/backups/schedule'), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -144,7 +144,7 @@ export const BackupConfigTab: React.FC<BackupConfigTabProps> = ({ token, onResto
 
   const handleDownload = async (filename: string) => {
     try {
-      const res = await fetch(apiUrl(`/api/admin/backups/download/${encodeURIComponent(filename)}`), {
+      const res = await fetchWithTimeout(apiUrl(`/api/admin/backups/download/${encodeURIComponent(filename)}`), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error('Download fehlgeschlagen');
@@ -175,7 +175,7 @@ export const BackupConfigTab: React.FC<BackupConfigTabProps> = ({ token, onResto
     try {
       const text = await file.text();
       const json = JSON.parse(text);
-      const res = await fetch(apiUrl('/api/admin/backups/restore'), {
+      const res = await fetchWithTimeout(apiUrl('/api/admin/backups/restore'), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,

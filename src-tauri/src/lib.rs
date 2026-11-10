@@ -251,7 +251,8 @@ pub fn run() {
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_biometric::init());
+        .plugin(tauri_plugin_biometric::init())
+        .plugin(tauri_plugin_http::init());
 
     #[cfg(not(target_os = "windows"))]
     {
