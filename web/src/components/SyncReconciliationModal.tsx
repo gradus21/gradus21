@@ -158,8 +158,8 @@ export const SyncReconciliationModal: React.FC<SyncReconciliationModalProps> = (
                 </span>
               </div>
               <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
-                Kombiniert alle Klassen beider Seiten. Bei namensgleichen Klassen gewinnt
-                automatisch der neuere Bearbeitungsstand. Es gehen keine Noten verloren.
+                Führt Klassen beider Seiten intelligent zusammen. Namensgleiche Klassen werden
+                vereint und Noten auf Zell-Ebene kombiniert (keine doppelten Kopien).
               </p>
             </div>
           </button>

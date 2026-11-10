@@ -67,6 +67,9 @@ import {
   renewTokenIfNeeded,
   createFreshWorkspaceForNewTeacher,
   mergeClassroomDatasets,
+  cleanConflictSuffix,
+  isStarterOrPlaceholderClass,
+  reconcileWorkspaceDatasets,
 } from './vaultSyncHelpers';
 
 export * from './vaultSyncHelpers';
@@ -660,8 +663,7 @@ export function useVaultWorkspaceSync() {
 
           if (classEnvelopes.length > 0) {
             // Granular envelopes per class
-            const restoredList: ClassroomSubjectDataset[] = [];
-            const localById = new Map(cachedLocalClasses.map((c) => [c.id, c]));
+            const serverClasses: ClassroomSubjectDataset[] = [];
             for (const env of classEnvelopes) {
               try {
                 let decClass: string;
@@ -688,35 +690,36 @@ export function useVaultWorkspaceSync() {
                 serverDs.id = ensureValidUuid(serverDs.id || env.id);
                 envelopeVersionsRef.current.set(serverDs.id, env.version);
                 lastSerializedPerClassRef.current.set(serverDs.id, JSON.stringify(serverDs));
-
-                const localDs = localById.get(serverDs.id);
-                if (
-                  localDs &&
-                  (localDirtyClassIds.has(serverDs.id) || localUnpushedClassIds.has(serverDs.id))
-                ) {
-                  const { mergedDs } = mergeClassroomDatasets(localDs, serverDs);
-                  restoredList.push(mergedDs);
-                } else {
-                  restoredList.push(serverDs);
-                }
+                serverClasses.push(serverDs);
               } catch (e) {
                 console.warn(`Envelope für Klasse ${env.id} konnte nicht entschlüsselt werden:`, e);
               }
             }
-            if (restoredList.length > 0) {
-              if (cachedLocalClasses.length > 0) {
-                const serverClassIds = new Set(restoredList.map((c) => c.id));
-                for (const loc of cachedLocalClasses) {
-                  if (!serverClassIds.has(loc.id)) {
-                    envelopeVersionsRef.current.delete(loc.id);
-                    lastSerializedPerClassRef.current.delete(loc.id);
-                    restoredList.push(loc);
-                  }
+
+            if (serverClasses.length > 0 || cachedLocalClasses.length > 0) {
+              const { reconciledClasses, obsoleteServerIds: obsIds } = reconcileWorkspaceDatasets(
+                cachedLocalClasses,
+                serverClasses,
+                userId
+              );
+
+              // Clean up obsolete envelopes on server (starter placeholders, merged conflict copies)
+              if (obsIds.length > 0 && effectiveToken) {
+                for (const obsId of obsIds) {
+                  envelopeVersionsRef.current.delete(obsId);
+                  lastSerializedPerClassRef.current.delete(obsId);
+                  fetchWithTimeout(apiUrl(`/api/envelopes/${obsId}`), {
+                    method: 'DELETE',
+                    headers: { Authorization: `Bearer ${effectiveToken}` },
+                  }).catch(() => {});
                 }
               }
-              loadedDatasets = restoredList;
-              setDatasets(restoredList);
-              setActiveClassId((prev) => (restoredList.some((d) => d.id === prev) ? prev : restoredList[0].id));
+
+              if (reconciledClasses.length > 0) {
+                loadedDatasets = reconciledClasses;
+                setDatasets(reconciledClasses);
+                setActiveClassId((prev) => (reconciledClasses.some((d) => d.id === prev) ? prev : reconciledClasses[0].id));
+              }
             }
             // Migration cleanup: delete legacy workspace envelope if still on server
             if (wsEnvelope) {
@@ -1104,6 +1107,13 @@ export function useVaultWorkspaceSync() {
           const canonicalId = ensureValidUuid(ds.id);
           if (ds.id !== canonicalId) {
             ds.id = canonicalId;
+          }
+          // Do NOT upload empty starter placeholder if real classes exist
+          if (
+            isStarterOrPlaceholderClass(ds, vaultSession.userId) &&
+            datasets.some((d) => !isStarterOrPlaceholderClass(d, vaultSession.userId))
+          ) {
+            continue;
           }
           const serialized = JSON.stringify(ds);
           const lastSerialized = lastSerializedPerClassRef.current.get(canonicalId);
@@ -1595,9 +1605,7 @@ export function useVaultWorkspaceSync() {
           for (const ds of datasetsRef.current) {
             const lastSer = lastSerializedPerClassRef.current.get(ds.id);
             const knownServerVer = envelopeVersionsRef.current.get(ds.id);
-            const isStarterPlaceholder =
-              ds.id === 'demo-class-initial' ||
-              (ds.id.startsWith('class_starter_') && ds.students.length === 0 && ds.grades.length === 0);
+            const isStarterPlaceholder = isStarterOrPlaceholderClass(ds, vaultSession.userId);
             if (lastSer !== JSON.stringify(ds) || (!knownServerVer && !isStarterPlaceholder)) {
               hasLocalDirty = true;
               break;
@@ -1606,8 +1614,7 @@ export function useVaultWorkspaceSync() {
 
           if (!hasLocalDirty) {
             // Local is clean -> seamlessly pull and decrypt new remote datasets!
-            const restoredList: ClassroomSubjectDataset[] = [];
-            const remoteIds = new Set<string>();
+            const remoteClasses: ClassroomSubjectDataset[] = [];
             const syncedClassEnvelopes: Record<
               string,
               { encryptedPayload: string; version: number; dirty?: boolean }
@@ -1622,7 +1629,6 @@ export function useVaultWorkspaceSync() {
                 );
                 const ds = JSON.parse(decClass) as ClassroomSubjectDataset;
                 ds.id = ensureValidUuid(ds.id || env.id);
-                remoteIds.add(ds.id);
                 envelopeVersionsRef.current.set(ds.id, env.version);
                 lastSerializedPerClassRef.current.set(ds.id, JSON.stringify(ds));
                 syncedClassEnvelopes[ds.id] = {
@@ -1630,13 +1636,31 @@ export function useVaultWorkspaceSync() {
                   version: env.version,
                   dirty: false,
                 };
-                restoredList.push(ds);
+                remoteClasses.push(ds);
               } catch (e) {
                 console.warn('Hintergrund-Entschlüsselung fehlgeschlagen für Envelope', env.id, e);
               }
             }
 
-            if (restoredList.length > 0) {
+            if (remoteClasses.length > 0) {
+              const { reconciledClasses, obsoleteServerIds: obsIds } = reconcileWorkspaceDatasets(
+                datasetsRef.current,
+                remoteClasses,
+                vaultSession.userId
+              );
+
+              if (obsIds.length > 0 && token) {
+                for (const obsId of obsIds) {
+                  envelopeVersionsRef.current.delete(obsId);
+                  lastSerializedPerClassRef.current.delete(obsId);
+                  delete syncedClassEnvelopes[obsId];
+                  fetchWithTimeout(apiUrl(`/api/envelopes/${obsId}`), {
+                    method: 'DELETE',
+                    headers: { Authorization: `Bearer ${token}` },
+                  }).catch(() => {});
+                }
+              }
+
               try {
                 const userCacheKey = getUserEncryptedCacheKey(vaultSession.userId);
                 const existingRaw = localStorage.getItem(userCacheKey);
@@ -1649,7 +1673,7 @@ export function useVaultWorkspaceSync() {
               } catch {
                 // ignore storage errors
               }
-              setDatasets(restoredList);
+              setDatasets(reconciledClasses);
               setSyncStatus('synced');
             }
           } else {
@@ -2290,13 +2314,7 @@ export function useVaultWorkspaceSync() {
       }
       const summary = await sumRes.json();
       const remoteClassCount = summary.class_count ?? summary.class_ids?.length ?? summary.class_envelopes?.length ?? 0;
-      const realLocalClasses = datasets.filter((d) => {
-        if (d.id === 'demo-class-initial') return false;
-        if (d.id.startsWith('class_starter_') && d.students.length === 0 && d.grades.length === 0) {
-          return false;
-        }
-        return true;
-      });
+      const realLocalClasses = datasets.filter((d) => !isStarterOrPlaceholderClass(d, vaultSession?.userId));
 
       if (remoteClassCount > 0 && realLocalClasses.length > 0) {
         // Both local and remote exist -> open reconciliation modal
@@ -2471,57 +2489,49 @@ export function useVaultWorkspaceSync() {
       }
 
       let finalClasses: ClassroomSubjectDataset[] = [];
+      let obsoleteServerIds: string[] = [];
 
       if (strategy === 'download_remote') {
-        // Overwrite local with remote
-        finalClasses = decryptedRemoteClasses;
+        // Overwrite local with remote, pruning starter placeholder if real classes exist
+        const hasReal = decryptedRemoteClasses.some((c) => !isStarterOrPlaceholderClass(c, vaultSession.userId));
+        finalClasses = hasReal
+          ? decryptedRemoteClasses.filter((c) => !isStarterOrPlaceholderClass(c, vaultSession.userId))
+          : decryptedRemoteClasses;
+        finalClasses = finalClasses.map((c) => ({
+          ...c,
+          className: cleanConflictSuffix(c.className),
+        }));
       } else if (strategy === 'upload_local') {
-        // Overwrite remote with local
-        finalClasses = datasets;
+        // Overwrite remote with local, pruning starter placeholder if real classes exist
+        const hasReal = datasets.some((c) => !isStarterOrPlaceholderClass(c, vaultSession.userId));
+        finalClasses = hasReal
+          ? datasets.filter((c) => !isStarterOrPlaceholderClass(c, vaultSession.userId))
+          : datasets;
+        finalClasses = finalClasses.map((c) => ({
+          ...c,
+          className: cleanConflictSuffix(c.className),
+        }));
       } else {
-        // Smart Merge: combine both datasets using fine-grained grade reconciliation
-        const finalMap = new Map<string, ClassroomSubjectDataset>();
-        const conflictCopies: ClassroomSubjectDataset[] = [];
+        // Smart Merge: combine both datasets using fine-grained grade reconciliation & semantic deduplication
+        const { reconciledClasses, obsoleteServerIds: obsIds } = reconcileWorkspaceDatasets(
+          datasets,
+          decryptedRemoteClasses,
+          vaultSession.userId
+        );
+        finalClasses = reconciledClasses;
+        obsoleteServerIds = obsIds;
+      }
 
-        // Map remote classes by ID
-        const remoteMap = new Map<string, ClassroomSubjectDataset>();
-        decryptedRemoteClasses.forEach((cls) => {
-          remoteMap.set(cls.id, cls);
-        });
-
-        // Merge local classes
-        datasets.forEach((localCls) => {
-          // Ignore placeholder starter class if remote classes exist
-          if (
-            localCls.id.startsWith('class_starter_') &&
-            localCls.students.length === 0 &&
-            localCls.grades.length === 0 &&
-            decryptedRemoteClasses.length > 0
-          ) {
-            return;
-          }
-          const remoteCls = remoteMap.get(localCls.id);
-          if (!remoteCls) {
-            finalMap.set(localCls.id, localCls);
-          } else {
-            const { mergedDs, hadGradeCollisions, conflictCopy } = mergeClassroomDatasets(
-              localCls,
-              remoteCls
-            );
-            finalMap.set(mergedDs.id, mergedDs);
-            if (hadGradeCollisions && conflictCopy) {
-              conflictCopies.push(conflictCopy);
-            }
-            remoteMap.delete(localCls.id);
-          }
-        });
-
-        // Add remaining remote classes that only exist on server
-        remoteMap.forEach((remoteCls) => {
-          finalMap.set(remoteCls.id, remoteCls);
-        });
-
-        finalClasses = [...Array.from(finalMap.values()), ...conflictCopies];
+      // Purge obsolete envelopes from server (starter placeholders, merged conflict copies)
+      if (obsoleteServerIds.length > 0 && token) {
+        for (const obsId of obsoleteServerIds) {
+          envelopeVersionsRef.current.delete(obsId);
+          lastSerializedPerClassRef.current.delete(obsId);
+          fetchWithTimeout(apiUrl(`/api/envelopes/${obsId}`), {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${token}` },
+          }).catch(() => {});
+        }
       }
 
       if (finalClasses.length > 0) {

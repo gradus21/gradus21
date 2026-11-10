@@ -316,6 +316,59 @@ function areGradesEqual(a: GradeEntry, b: GradeEntry): boolean {
   );
 }
 
+/**
+ * Strips any legacy conflict suffixes such as "(Cloud-Kopie vor Merge)", "(Cloud-Kopie)", "(Kopie)".
+ */
+export function cleanConflictSuffix(name: string): string {
+  if (!name) return '';
+  return name
+    .replace(/\s*\((?:Cloud-)?Kopie(?:\s*vor\s*Merge)?\)/gi, '')
+    .trim();
+}
+
+/**
+ * Returns a normalized semantic key for a classroom dataset based on its class name and subject.
+ */
+export function getClassSemanticKey(ds: { className: string; subjectName?: string }): string {
+  const cleanName = cleanConflictSuffix(ds.className || '').toLowerCase();
+  const cleanSubject = (ds.subjectName || '').trim().toLowerCase();
+  return `${cleanName}::${cleanSubject}`;
+}
+
+/**
+ * Determines whether a dataset is a starter/placeholder class that should be pruned
+ * if real user classes exist.
+ */
+export function isStarterOrPlaceholderClass(
+  ds: ClassroomSubjectDataset,
+  userId?: string
+): boolean {
+  if (ds.id === 'demo-class-initial') return true;
+  if (ds.id.startsWith('class_starter_')) return true;
+  if (userId && ds.id === ensureValidUuid(`class_starter_${userId}`)) return true;
+  if (
+    (ds.className === 'Meine erste Klasse' || ds.className === 'Neue Klasse') &&
+    ds.students.length === 0 &&
+    ds.grades.length === 0
+  ) {
+    return true;
+  }
+  if (
+    ds.description === 'Eigener verschlüsselter Arbeitsbereich' &&
+    ds.students.length === 0 &&
+    ds.grades.length === 0
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function getStudentNormalizedName(s: Partial<StudentProfile> & { firstName?: string; lastName?: string }): string {
+  if (s.name && typeof s.name === 'string') return s.name.trim().toLowerCase();
+  const full = `${s.firstName || ''} ${s.lastName || ''}`.trim().toLowerCase();
+  return full;
+}
+
 export function mergeClassroomDatasets(
   localDs: ClassroomSubjectDataset,
   serverDs: ClassroomSubjectDataset
@@ -324,79 +377,143 @@ export function mergeClassroomDatasets(
   hadGradeCollisions: boolean;
   conflictCopy?: ClassroomSubjectDataset;
 } {
-  // 1. Students: Merge existing by ID (local edits win over server fields) and include additions from both sides
-  const localStudentsMap = new Map(localDs.students.map((s) => [s.id, s]));
+  const serverStudents = Array.isArray(serverDs.students) ? serverDs.students : [];
+  const localStudents = Array.isArray(localDs.students) ? localDs.students : [];
+  const serverCategories = Array.isArray(serverDs.categories) ? serverDs.categories : [];
+  const localCategories = Array.isArray(localDs.categories) ? localDs.categories : [];
+  const serverAssessments = Array.isArray(serverDs.assessments) ? serverDs.assessments : [];
+  const localAssessments = Array.isArray(localDs.assessments) ? localDs.assessments : [];
+  const serverGrades = Array.isArray(serverDs.grades) ? serverDs.grades : [];
+  const localGrades = Array.isArray(localDs.grades) ? localDs.grades : [];
+
+  // 1. Students: Match by ID first, then by normalized name (prevent duplicates like "Max" and "Max")
+  const serverStudentsById = new Map<string, StudentProfile>();
+  const serverStudentsByName = new Map<string, StudentProfile>();
+  for (const s of serverStudents) {
+    serverStudentsById.set(s.id, s);
+    const norm = getStudentNormalizedName(s);
+    if (norm && !serverStudentsByName.has(norm)) {
+      serverStudentsByName.set(norm, s);
+    }
+  }
+
+  const localToCanonicalStudentId = new Map<string, string>();
   const mergedStudents: StudentProfile[] = [];
   const seenStudentIds = new Set<string>();
 
-  for (const sStudent of serverDs.students) {
-    const lStudent = localStudentsMap.get(sStudent.id);
+  for (const sStudent of serverStudents) {
+    const norm = getStudentNormalizedName(sStudent);
+    const lStudent = localStudents.find(
+      (l) => l.id === sStudent.id || (norm && getStudentNormalizedName(l) === norm)
+    );
     if (lStudent) {
-      // Local changes override server fields
-      mergedStudents.push({ ...sStudent, ...lStudent });
+      localToCanonicalStudentId.set(lStudent.id, sStudent.id);
+      mergedStudents.push({ ...sStudent, ...lStudent, id: sStudent.id });
     } else {
       mergedStudents.push(sStudent);
     }
     seenStudentIds.add(sStudent.id);
   }
-  for (const lStudent of localDs.students) {
-    if (!seenStudentIds.has(lStudent.id)) {
-      mergedStudents.push(lStudent);
-      seenStudentIds.add(lStudent.id);
+
+  for (const lStudent of localStudents) {
+    const canonicalId = localToCanonicalStudentId.get(lStudent.id) || lStudent.id;
+    if (!seenStudentIds.has(canonicalId)) {
+      mergedStudents.push({ ...lStudent, id: canonicalId });
+      seenStudentIds.add(canonicalId);
+      localToCanonicalStudentId.set(lStudent.id, canonicalId);
     }
   }
 
-  // 2. Categories: Merge existing by ID (local edits win) and include additions from both sides
-  const localCatMap = new Map(localDs.categories.map((c) => [c.id, c]));
+  // 2. Categories: Match by ID first, then by normalized name
+  const serverCatByName = new Map<string, CategoryConfig>();
+  for (const c of serverCategories) {
+    const norm = (c.name || '').trim().toLowerCase();
+    if (norm && !serverCatByName.has(norm)) {
+      serverCatByName.set(norm, c);
+    }
+  }
+
+  const localToCanonicalCatId = new Map<string, string>();
   const mergedCategories: CategoryConfig[] = [];
   const seenCatIds = new Set<string>();
 
-  for (const sCat of serverDs.categories) {
-    const lCat = localCatMap.get(sCat.id);
+  for (const sCat of serverCategories) {
+    const norm = (sCat.name || '').trim().toLowerCase();
+    const lCat = localCategories.find(
+      (l) => l.id === sCat.id || (norm && (l.name || '').trim().toLowerCase() === norm)
+    );
     if (lCat) {
-      mergedCategories.push({ ...sCat, ...lCat });
+      localToCanonicalCatId.set(lCat.id, sCat.id);
+      mergedCategories.push({ ...sCat, ...lCat, id: sCat.id });
     } else {
       mergedCategories.push(sCat);
     }
     seenCatIds.add(sCat.id);
   }
-  for (const lCat of localDs.categories) {
-    if (!seenCatIds.has(lCat.id)) {
-      mergedCategories.push(lCat);
-      seenCatIds.add(lCat.id);
+
+  for (const lCat of localCategories) {
+    const canonicalId = localToCanonicalCatId.get(lCat.id) || lCat.id;
+    if (!seenCatIds.has(canonicalId)) {
+      mergedCategories.push({ ...lCat, id: canonicalId });
+      seenCatIds.add(canonicalId);
+      localToCanonicalCatId.set(lCat.id, canonicalId);
     }
   }
 
-  // 3. Assessments: Merge existing by ID (local edits win) and include additions from both sides
-  const localAssMap = new Map(localDs.assessments.map((a) => [a.id, a]));
+  // 3. Assessments: Match by ID first, then by (title + term_id)
+  const serverAssByTitleTerm = new Map<string, AssessmentConfig>();
+  for (const a of serverAssessments) {
+    const key = `${(a.title || '').trim().toLowerCase()}::${a.term_id || ''}`;
+    if (!serverAssByTitleTerm.has(key)) {
+      serverAssByTitleTerm.set(key, a);
+    }
+  }
+
+  const localToCanonicalAssId = new Map<string, string>();
   const mergedAssessments: AssessmentConfig[] = [];
   const seenAssIds = new Set<string>();
 
-  for (const sAss of serverDs.assessments) {
-    const lAss = localAssMap.get(sAss.id);
+  for (const sAss of serverAssessments) {
+    const key = `${(sAss.title || '').trim().toLowerCase()}::${sAss.term_id || ''}`;
+    const lAss = localAssessments.find(
+      (l) => l.id === sAss.id || `${(l.title || '').trim().toLowerCase()}::${l.term_id || ''}` === key
+    );
     if (lAss) {
-      mergedAssessments.push({ ...sAss, ...lAss });
+      localToCanonicalAssId.set(lAss.id, sAss.id);
+      const catId = localToCanonicalCatId.get(lAss.category_id) || lAss.category_id || sAss.category_id;
+      mergedAssessments.push({ ...sAss, ...lAss, id: sAss.id, category_id: catId });
     } else {
       mergedAssessments.push(sAss);
     }
     seenAssIds.add(sAss.id);
   }
-  for (const lAss of localDs.assessments) {
-    if (!seenAssIds.has(lAss.id)) {
-      mergedAssessments.push(lAss);
-      seenAssIds.add(lAss.id);
+
+  for (const lAss of localAssessments) {
+    const canonicalId = localToCanonicalAssId.get(lAss.id) || lAss.id;
+    if (!seenAssIds.has(canonicalId)) {
+      const catId = localToCanonicalCatId.get(lAss.category_id) || lAss.category_id;
+      mergedAssessments.push({ ...lAss, id: canonicalId, category_id: catId });
+      seenAssIds.add(canonicalId);
+      localToCanonicalAssId.set(lAss.id, canonicalId);
     }
   }
 
-  // 4. Grades: Local grades take precedence in active dataset; server snapshot preserved on conflict
+  // 4. Grades: Remap local grade student_id & assessment_id to canonical IDs
   const serverGradesMap = new Map<string, GradeEntry>();
-  for (const g of serverDs.grades) {
+  for (const g of serverGrades) {
     serverGradesMap.set(`${g.student_id}:${g.assessment_id}`, g);
   }
 
   const localGradesMap = new Map<string, GradeEntry>();
-  for (const g of localDs.grades) {
-    localGradesMap.set(`${g.student_id}:${g.assessment_id}`, g);
+  for (const g of localGrades) {
+    const canonicalStudentId = localToCanonicalStudentId.get(g.student_id) || g.student_id;
+    const canonicalAssId = localToCanonicalAssId.get(g.assessment_id) || g.assessment_id;
+    const remappedGrade: GradeEntry = {
+      ...g,
+      student_id: canonicalStudentId,
+      assessment_id: canonicalAssId,
+    };
+    localGradesMap.set(`${canonicalStudentId}:${canonicalAssId}`, remappedGrade);
   }
 
   const mergedGradesMap = new Map<string, GradeEntry>();
@@ -437,9 +554,13 @@ export function mergeClassroomDatasets(
     ...(localDs.reportCardOverrides || {}),
   };
 
+  const cleanedClassName = cleanConflictSuffix(localDs.className || serverDs.className);
+
   const mergedDs: ClassroomSubjectDataset = {
     ...serverDs,
     ...localDs, // Local class metadata & grading config wins for active work
+    id: serverDs.id || localDs.id, // Prefer server UUID to avoid creating duplicate envelopes
+    className: cleanedClassName,
     students: mergedStudents,
     categories: mergedCategories,
     assessments: mergedAssessments,
@@ -447,19 +568,148 @@ export function mergeClassroomDatasets(
     reportCardOverrides: mergedOverrides,
   };
 
-  let conflictCopy: ClassroomSubjectDataset | undefined;
-  if (hadGradeCollisions) {
-    const newId =
-      typeof crypto !== 'undefined' && crypto.randomUUID
-        ? crypto.randomUUID()
-        : ensureValidUuid(`class_conflict_${Date.now()}`);
-    conflictCopy = {
-      ...serverDs,
-      id: newId,
-      className: `${serverDs.className} (Cloud-Kopie vor Merge)`,
-      shortName: `${serverDs.shortName || ''} (Cloud)`.trim(),
-    };
+  // NEVER generate a conflictCopy - eliminate duplicate classes!
+  return { mergedDs, hadGradeCollisions, conflictCopy: undefined };
+}
+
+/**
+ * Reconciles local and remote workspaces intelligently:
+ * 1. Prunes empty starter placeholders when real classes exist.
+ * 2. Deduplicates classes by UUID or (cleanClassName + subjectName).
+ * 3. Absorbs legacy "(Cloud-Kopie vor Merge)" classes back into the base class.
+ * 4. Yields obsolete envelope IDs for server cleanup via DELETE /api/envelopes/:id.
+ */
+export function reconcileWorkspaceDatasets(
+  localClasses: ClassroomSubjectDataset[],
+  remoteClasses: ClassroomSubjectDataset[],
+  userId?: string
+): {
+  reconciledClasses: ClassroomSubjectDataset[];
+  obsoleteServerIds: string[];
+  hadCollisions: boolean;
+} {
+  const obsoleteServerIds = new Set<string>();
+  let hadCollisions = false;
+
+  // Check if either side has real (non-placeholder) classes
+  const hasRealLocal = localClasses.some((c) => !isStarterOrPlaceholderClass(c, userId));
+  const hasRealRemote = remoteClasses.some((c) => !isStarterOrPlaceholderClass(c, userId));
+  const hasRealClasses = hasRealLocal || hasRealRemote;
+
+  // Filter out starter placeholders if real classes exist
+  const effectiveLocal = hasRealClasses
+    ? localClasses.filter((c) => !isStarterOrPlaceholderClass(c, userId))
+    : [...localClasses];
+
+  const effectiveRemote: ClassroomSubjectDataset[] = [];
+  for (const r of remoteClasses) {
+    if (hasRealClasses && isStarterOrPlaceholderClass(r, userId)) {
+      obsoleteServerIds.add(r.id);
+    } else {
+      effectiveRemote.push(r);
+    }
   }
 
-  return { mergedDs, hadGradeCollisions, conflictCopy };
+  // Map remote classes by ID and by semantic key
+  const remoteById = new Map<string, ClassroomSubjectDataset>();
+  const remoteBySemanticKey = new Map<string, ClassroomSubjectDataset>();
+
+  for (const r of effectiveRemote) {
+    remoteById.set(r.id, r);
+    const key = getClassSemanticKey(r);
+    if (!remoteBySemanticKey.has(key)) {
+      remoteBySemanticKey.set(key, r);
+    } else {
+      // Existing remote duplicate or conflict copy!
+      // Merge remote duplicate into the existing remote class
+      const existing = remoteBySemanticKey.get(key)!;
+      const { mergedDs } = mergeClassroomDatasets(r, existing);
+      remoteBySemanticKey.set(key, mergedDs);
+      remoteById.set(existing.id, mergedDs);
+      remoteById.delete(r.id);
+      obsoleteServerIds.add(r.id);
+    }
+  }
+
+  const finalMap = new Map<string, ClassroomSubjectDataset>();
+
+  // Process local classes
+  for (const localCls of effectiveLocal) {
+    let remoteCls = remoteById.get(localCls.id);
+    const semanticKey = getClassSemanticKey(localCls);
+
+    if (!remoteCls) {
+      remoteCls = remoteBySemanticKey.get(semanticKey);
+      if (remoteCls) {
+        if (remoteById.has(localCls.id)) {
+          obsoleteServerIds.add(localCls.id);
+        }
+      }
+    }
+
+    if (!remoteCls) {
+      const cleaned = {
+        ...localCls,
+        id: ensureValidUuid(localCls.id),
+        className: cleanConflictSuffix(localCls.className),
+      };
+      finalMap.set(cleaned.id, cleaned);
+    } else {
+      const { mergedDs, hadGradeCollisions } = mergeClassroomDatasets(localCls, remoteCls);
+      if (hadGradeCollisions) hadCollisions = true;
+
+      const canonicalId = ensureValidUuid(remoteCls.id);
+      finalMap.set(canonicalId, { ...mergedDs, id: canonicalId });
+
+      remoteById.delete(remoteCls.id);
+      remoteById.delete(localCls.id);
+      remoteBySemanticKey.delete(semanticKey);
+    }
+  }
+
+  // Add remaining remote classes that were not matched
+  for (const [, remainingRemote] of remoteById.entries()) {
+    const semanticKey = getClassSemanticKey(remainingRemote);
+    let alreadyMerged = false;
+    for (const [existingId, existingDs] of finalMap.entries()) {
+      if (getClassSemanticKey(existingDs) === semanticKey) {
+        const { mergedDs } = mergeClassroomDatasets(existingDs, remainingRemote);
+        finalMap.set(existingId, mergedDs);
+        obsoleteServerIds.add(remainingRemote.id);
+        alreadyMerged = true;
+        break;
+      }
+    }
+    if (!alreadyMerged) {
+      const cleaned = {
+        ...remainingRemote,
+        id: ensureValidUuid(remainingRemote.id),
+        className: cleanConflictSuffix(remainingRemote.className),
+      };
+      finalMap.set(cleaned.id, cleaned);
+    }
+  }
+
+  let reconciledClasses = Array.from(finalMap.values());
+  if (reconciledClasses.length === 0) {
+    if (localClasses.length > 0) {
+      reconciledClasses = localClasses.map((c) => ({
+        ...c,
+        id: ensureValidUuid(c.id),
+        className: cleanConflictSuffix(c.className),
+      }));
+    } else if (remoteClasses.length > 0) {
+      reconciledClasses = remoteClasses.map((c) => ({
+        ...c,
+        id: ensureValidUuid(c.id),
+        className: cleanConflictSuffix(c.className),
+      }));
+    }
+  }
+
+  return {
+    reconciledClasses,
+    obsoleteServerIds: Array.from(obsoleteServerIds),
+    hadCollisions,
+  };
 }
