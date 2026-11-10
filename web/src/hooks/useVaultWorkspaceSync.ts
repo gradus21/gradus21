@@ -340,12 +340,74 @@ export function useVaultWorkspaceSync() {
     const localDirtyClassIds = new Set<string>();
     const localUnpushedClassIds = new Set<string>();
 
-    if (!forceServerFetch) {
-      const cachedRaw =
-        localStorage.getItem(userCacheKey) || localStorage.getItem(legacyUserCacheKey);
-      if (cachedRaw) {
-        try {
-          const parsed = JSON.parse(cachedRaw);
+    // 1. IMMER den lokalen Cache ZUERST laden (Local-First Invariant)!
+    // Der lokale Arbeitsbereich darf NIEMALS durch das Flag forceServerFetch übersprungen werden.
+    let cachedRaw =
+      localStorage.getItem(userCacheKey) || localStorage.getItem(legacyUserCacheKey);
+
+    // Notfall-Wiederherstellung (Rescue): Wenn unter diesem User-Key keine Klassen vorliegen,
+    // prüfe alle vorhandenen gradus21_e2ee_user_vault_*-Schlüssel im localStorage.
+    // Falls Klassen vorhanden sind, die sich mit dem aktuellen DEK entschlüsseln lassen,
+    // übernehme diese sofort (z.B. nach Migration von 'user_local' oder temporärer ID).
+    if (!cachedRaw || !cachedRaw.includes('classEnvelopes') || cachedRaw.includes('"classEnvelopes":{}')) {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || k === userCacheKey || k === legacyUserCacheKey) continue;
+        if (
+          k.startsWith('gradus21_e2ee_user_vault_') ||
+          k.startsWith('bte_notenflow_e2ee_user_vault_')
+        ) {
+          try {
+            const candidateRaw = localStorage.getItem(k);
+            if (!candidateRaw || !candidateRaw.includes('classEnvelopes')) continue;
+            const candidateParsed = JSON.parse(candidateRaw);
+            const envs = candidateParsed?.classEnvelopes;
+            if (envs && typeof envs === 'object' && Object.keys(envs).length > 0) {
+              const testKey = Object.keys(envs)[0];
+              const testItem = envs[testKey];
+              const payload = typeof testItem === 'string' ? testItem : testItem?.encryptedPayload;
+              if (payload) {
+                let decryptedOk = false;
+                try {
+                  wasm_decrypt_envelope(dekB64, userId, testKey, payload);
+                  decryptedOk = true;
+                } catch {
+                  try {
+                    wasm_decrypt_envelope(dekB64, userId, `class_${testKey}`, payload);
+                    decryptedOk = true;
+                  } catch {
+                    if (candidateParsed.userId) {
+                      try {
+                        wasm_decrypt_envelope(dekB64, candidateParsed.userId, testKey, payload);
+                        decryptedOk = true;
+                      } catch {
+                        try {
+                          wasm_decrypt_envelope(dekB64, candidateParsed.userId, `class_${testKey}`, payload);
+                          decryptedOk = true;
+                        } catch {
+                          // ignore
+                        }
+                      }
+                    }
+                  }
+                }
+                if (decryptedOk) {
+                  console.info(`[Rescue] Gefundener lokaler Tresor-Cache in '${k}' passt zum aktuellen DEK und wird übernommen.`);
+                  cachedRaw = candidateRaw;
+                  break;
+                }
+              }
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+
+    if (cachedRaw) {
+      try {
+        const parsed = JSON.parse(cachedRaw);
 
           // 1. Granular class envelopes in local cache
           if (parsed.classEnvelopes && Object.keys(parsed.classEnvelopes).length > 0) {
@@ -488,7 +550,6 @@ export function useVaultWorkspaceSync() {
           console.warn('Lokaler E2EE-Cache konnte nicht entschlüsselt werden:', e);
         }
       }
-    }
 
     // Falls kein lokaler Cache existiert oder forceServerFetch aktiv ist oder Cloud-Sync aktiv ist oder Token vorhanden -> Server abfragen
     let effectiveToken = token || (userId ? getStoredToken(userId) : '');
@@ -603,12 +664,26 @@ export function useVaultWorkspaceSync() {
             const localById = new Map(cachedLocalClasses.map((c) => [c.id, c]));
             for (const env of classEnvelopes) {
               try {
-                const decClass = wasm_decrypt_envelope(
-                  dekB64,
-                  userId,
-                  env.id,
-                  env.encrypted_payload
-                );
+                let decClass: string;
+                try {
+                  decClass = wasm_decrypt_envelope(
+                    dekB64,
+                    userId,
+                    env.id,
+                    env.encrypted_payload
+                  );
+                } catch (e1) {
+                  try {
+                    decClass = wasm_decrypt_envelope(
+                      dekB64,
+                      userId,
+                      `class_${env.id}`,
+                      env.encrypted_payload
+                    );
+                  } catch {
+                    throw e1;
+                  }
+                }
                 const serverDs = JSON.parse(decClass) as ClassroomSubjectDataset;
                 serverDs.id = ensureValidUuid(serverDs.id || env.id);
                 envelopeVersionsRef.current.set(serverDs.id, env.version);
@@ -688,6 +763,8 @@ export function useVaultWorkspaceSync() {
           if (!loadedDatasets) {
             if (cachedLocalClasses.length > 0) {
               loadedDatasets = cachedLocalClasses;
+              setDatasets(cachedLocalClasses);
+              setActiveClassId((prev) => (cachedLocalClasses.some((d) => d.id === prev) ? prev : cachedLocalClasses[0].id));
             } else {
               const freshWs = createFreshWorkspaceForNewTeacher(userId);
               setDatasets(freshWs);
@@ -707,7 +784,7 @@ export function useVaultWorkspaceSync() {
 
           setLoadedUserId(userId);
           setSyncStatus(
-            isCloudSyncActive || initialCloudSync || userSettings.cloudSyncEnabled || Boolean(effectiveToken)
+            isCloudSyncActive && Boolean(effectiveToken)
               ? 'synced'
               : 'local_only'
           );
@@ -721,7 +798,9 @@ export function useVaultWorkspaceSync() {
     // Wenn lokaler Cache vorhanden war -> behalte ihn und gehe nicht in den leeren Dummy-Modus!
     if (cachedLocalClasses.length > 0) {
       setLoadedUserId(userId);
-      setSyncStatus(isCloudSyncActive || userSettings.cloudSyncEnabled ? 'offline_local' : 'local_only');
+      setDatasets(cachedLocalClasses);
+      setActiveClassId((prev) => (cachedLocalClasses.some((d) => d.id === prev) ? prev : cachedLocalClasses[0].id));
+      setSyncStatus(isCloudSyncActive ? 'offline_local' : 'local_only');
       return;
     }
 
@@ -821,29 +900,25 @@ export function useVaultWorkspaceSync() {
     persistEncryptedSessionCredentialsToCache(effectiveSession);
     setVaultSession(effectiveSession);
 
-    const shouldEnableCloudSync = Boolean(
-      options?.enableCloudSync ||
-      effectiveSession.token ||
-      userSettings.cloudSyncEnabled
-    );
-    if (shouldEnableCloudSync) {
+    // Cloud-Sync nur aktivieren, wenn options es explizit verlangt ODER wenn es bereits in userSettings aktiv ist
+    // und nicht explizit in options deaktiviert wurde (options?.enableCloudSync !== false).
+    // NIEMALS gegen den Willen des Nutzers aktivieren, nur weil noch ein Session-Token existiert!
+    const shouldEnableCloudSync =
+      options?.enableCloudSync === true ||
+      (userSettings.cloudSyncEnabled && options?.enableCloudSync !== false);
+
+    if (options?.enableCloudSync === false) {
+      setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: false }));
+    } else if (options?.enableCloudSync === true) {
       setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: true }));
-      setSyncStatus('synced');
     }
 
     if (effectiveSession.dekB64) {
       await loadIsolatedUserWorkspace(
         effectiveSession,
-        shouldEnableCloudSync,
+        false,
         shouldEnableCloudSync
       );
-    }
-
-    if (shouldEnableCloudSync) {
-      setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: true }));
-      setSyncStatus('synced');
-      lastSerializedPerClassRef.current.clear();
-      lastSerializedSettingsRef.current = '';
     }
 
     setIsVaultLocked(false);
@@ -1104,9 +1179,15 @@ export function useVaultWorkspaceSync() {
               string,
               { encryptedPayload: string; version: number; dirty?: boolean }
             > = {};
+            const oldKeys = Object.keys(parsedOld.classEnvelopes || {});
+            const isAccidentalStarterOverwrite =
+              datasets.length === 1 &&
+              (datasets[0].className === 'Meine erste Klasse' || datasets[0].id.includes('starter_')) &&
+              oldKeys.length > 1;
+
             if (parsedOld.classEnvelopes && typeof parsedOld.classEnvelopes === 'object') {
               for (const [k, v] of Object.entries(parsedOld.classEnvelopes)) {
-                if (activeDatasetUuids.has(k)) {
+                if (isAccidentalStarterOverwrite || activeDatasetUuids.has(k)) {
                   filteredOldEnvelopes[k] = v as {
                     encryptedPayload: string;
                     version: number;
