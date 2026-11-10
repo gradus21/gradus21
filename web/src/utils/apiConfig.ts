@@ -146,11 +146,24 @@ export async function fetchWithTimeout(
       }
     }
 
-    const response = await fetchFn(input, {
-      ...init,
-      signal,
-    });
-    return response;
+    try {
+      const response = await fetchFn(input, {
+        ...init,
+        signal,
+      });
+      return response;
+    } catch (primaryErr: any) {
+      // If native Tauri fetch fails (e.g. ACL scope rejection or bridge glitch), fall back to window.fetch
+      if (fetchFn !== fetch && typeof window !== 'undefined' && typeof window.fetch === 'function') {
+        console.warn('[apiConfig] Native Tauri fetch failed, retrying with window.fetch fallback:', primaryErr);
+        const fallbackResponse = await window.fetch(input, {
+          ...init,
+          signal,
+        });
+        return fallbackResponse;
+      }
+      throw primaryErr;
+    }
   } catch (error: any) {
     if (timedOut || error?.name === 'TimeoutError') {
       const err = new Error(`Netzwerk-Timeout: Server antwortet nicht nach ${timeoutMs / 1000}s`);

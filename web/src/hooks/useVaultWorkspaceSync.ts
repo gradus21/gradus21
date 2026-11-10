@@ -566,13 +566,11 @@ export function useVaultWorkspaceSync() {
               const parsedRemoteSettings = JSON.parse(decSettings);
               const remoteSyncEnabled = initialCloudSync
                 ? true
-                : explicitLocalSyncValue === false && !forceServerFetch
-                  ? false
-                  : Boolean(
-                      parsedRemoteSettings.cloudSyncEnabled ??
-                        explicitLocalSyncValue ??
-                        (classEnvelopes.length > 0)
-                    );
+                : typeof parsedRemoteSettings.cloudSyncEnabled === 'boolean'
+                  ? parsedRemoteSettings.cloudSyncEnabled
+                  : explicitLocalSyncValue !== undefined
+                    ? explicitLocalSyncValue
+                    : classEnvelopes.length > 0;
               const resolvedRemoteSettings = applyResolvedThemeToSettings({
                 ...DEFAULT_USER_SYNC_SETTINGS,
                 ...parsedRemoteSettings,
@@ -586,7 +584,7 @@ export function useVaultWorkspaceSync() {
             } catch {
               // ignore
             }
-          } else if (classEnvelopes.length > 0 && explicitLocalSyncValue !== false) {
+          } else if (classEnvelopes.length > 0) {
             isCloudSyncActive = true;
             setUserSettings((prev) => {
               const next = applyResolvedThemeToSettings({
@@ -709,7 +707,7 @@ export function useVaultWorkspaceSync() {
 
           setLoadedUserId(userId);
           setSyncStatus(
-            isCloudSyncActive || initialCloudSync || userSettings.cloudSyncEnabled
+            isCloudSyncActive || initialCloudSync || userSettings.cloudSyncEnabled || Boolean(effectiveToken)
               ? 'synced'
               : 'local_only'
           );
@@ -823,14 +821,22 @@ export function useVaultWorkspaceSync() {
     persistEncryptedSessionCredentialsToCache(effectiveSession);
     setVaultSession(effectiveSession);
 
-    const shouldEnableCloudSync = Boolean(options?.enableCloudSync);
+    const shouldEnableCloudSync = Boolean(
+      options?.enableCloudSync ||
+      effectiveSession.token ||
+      userSettings.cloudSyncEnabled
+    );
     if (shouldEnableCloudSync) {
       setUserSettings((prev) => ({ ...prev, cloudSyncEnabled: true }));
       setSyncStatus('synced');
     }
 
     if (effectiveSession.dekB64) {
-      await loadIsolatedUserWorkspace(effectiveSession, false, shouldEnableCloudSync);
+      await loadIsolatedUserWorkspace(
+        effectiveSession,
+        shouldEnableCloudSync,
+        shouldEnableCloudSync
+      );
     }
 
     if (shouldEnableCloudSync) {

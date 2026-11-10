@@ -11,7 +11,13 @@
     {
       "identifier": "http:default",
       "allow": [
+        { "url": "*://*" },
+        { "url": "*://*/*" },
+        { "url": "https://*" },
+        { "url": "https://*/*" },
         { "url": "https://**" },
+        { "url": "http://*" },
+        { "url": "http://*/*" },
         { "url": "http://**" }
       ]
     }

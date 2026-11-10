@@ -98,5 +98,27 @@ describe('API & Server URL Configuration', () => {
         vi.doUnmock('@tauri-apps/plugin-http');
       }
     });
+
+    it('falls back to window.fetch if native tauri-plugin-http throws', async () => {
+      (window as any).__TAURI_INTERNALS__ = {};
+      const mockTauriFetch = vi.fn().mockRejectedValue(new Error('url not allowed on the configured scope'));
+      vi.doMock('@tauri-apps/plugin-http', () => ({
+        fetch: mockTauriFetch,
+      }));
+      const mockWindowFetch = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response('{"fallback":true}', { status: 200 })
+      );
+
+      try {
+        const res = await fetchWithTimeout('https://example.com/api', {}, 500);
+        expect(mockTauriFetch).toHaveBeenCalled();
+        expect(mockWindowFetch).toHaveBeenCalled();
+        const data = await res.json();
+        expect(data.fallback).toBe(true);
+      } finally {
+        delete (window as any).__TAURI_INTERNALS__;
+        vi.doUnmock('@tauri-apps/plugin-http');
+      }
+    });
   });
 });

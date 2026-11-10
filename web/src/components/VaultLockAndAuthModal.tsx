@@ -1500,7 +1500,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         passkeyCredentialId: effectiveCredentialId,
         passkeyLabel: effectiveLabel,
         serverSyncedCount: session?.serverSyncedCount || 0,
-      });
+      }, { enableCloudSync: Boolean(loginData?.token) });
       setStatusMsg(null);
     } catch (err: any) {
       console.error('Passkey unlock error:', err);
@@ -2287,7 +2287,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         passkeyCredentialId: loginData?.passkey_credential_id,
         passkeyLabel: loginData?.passkey_label,
         serverSyncedCount: session?.serverSyncedCount || 0,
-      });
+      }, { enableCloudSync: Boolean(loginData?.token) });
       setStatusMsg(null);
     } catch (err: any) {
       console.error('Login vault error:', err);
