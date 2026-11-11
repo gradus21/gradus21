@@ -70,6 +70,8 @@ import {
   cleanConflictSuffix,
   isStarterOrPlaceholderClass,
   reconcileWorkspaceDatasets,
+  detectClassNameCollisions,
+  NameCollision,
 } from './vaultSyncHelpers';
 
 export * from './vaultSyncHelpers';
@@ -173,6 +175,7 @@ export function useVaultWorkspaceSync() {
     localClassCount: number;
     remoteClassCount: number;
     remoteLastUpdated?: string;
+    nameCollisions?: NameCollision[];
   } | null>(null);
 
   // Global School Templates from Server (Zentral bereitgestellt)
@@ -2317,11 +2320,43 @@ export function useVaultWorkspaceSync() {
       const realLocalClasses = datasets.filter((d) => !isStarterOrPlaceholderClass(d, vaultSession?.userId));
 
       if (remoteClassCount > 0 && realLocalClasses.length > 0) {
-        // Both local and remote exist -> open reconciliation modal
+        // Both local and remote exist -> check if equal-named classes have different IDs
+        let collisions: NameCollision[] = [];
+        try {
+          const syncRes = await fetchWithTimeout(apiUrl('/api/envelopes/sync'), {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (syncRes.ok && activeSession?.dekB64 && activeSession?.userId) {
+            const remoteEnvs: Array<{ id: string; entity_type: string; encrypted_payload: string }> =
+              await syncRes.json();
+            const decryptedClasses: ClassroomSubjectDataset[] = [];
+            for (const env of remoteEnvs) {
+              if (env.entity_type === 'class_dataset') {
+                try {
+                  const decJson = wasm_decrypt_envelope(
+                    activeSession.dekB64,
+                    activeSession.userId,
+                    env.id,
+                    env.encrypted_payload
+                  );
+                  const parsed = JSON.parse(decJson);
+                  if (parsed && parsed.id) decryptedClasses.push(parsed);
+                } catch {}
+              }
+            }
+            collisions = detectClassNameCollisions(
+              realLocalClasses,
+              decryptedClasses,
+              activeSession.userId
+            );
+          }
+        } catch {}
+
         setReconciliationMeta({
           localClassCount: realLocalClasses.length,
           remoteClassCount,
           remoteLastUpdated: summary.last_updated_at || undefined,
+          nameCollisions: collisions,
         });
         setIsReconciliationOpen(true);
       } else if (remoteClassCount > 0 && realLocalClasses.length === 0) {
@@ -2377,10 +2412,16 @@ export function useVaultWorkspaceSync() {
 
   const executeReconciliation = async (
     strategy: SyncReconciliationStrategy,
-    authToken?: string
+    collisionDecisionsOrToken?: string | Record<string, 'merge' | 'keep_separate'>,
+    tokenOverride?: string
   ) => {
+    const collisionDecisions =
+      typeof collisionDecisionsOrToken === 'object' && collisionDecisionsOrToken !== null
+        ? collisionDecisionsOrToken
+        : undefined;
     let token =
-      authToken ||
+      (typeof collisionDecisionsOrToken === 'string' ? collisionDecisionsOrToken : undefined) ||
+      tokenOverride ||
       vaultSession?.token ||
       (vaultSession?.userId ? getStoredToken(vaultSession.userId) : '');
     if (!token && vaultSession?.userId) {
@@ -2512,11 +2553,12 @@ export function useVaultWorkspaceSync() {
           className: cleanConflictSuffix(c.className),
         }));
       } else {
-        // Smart Merge: combine both datasets using fine-grained grade reconciliation & semantic deduplication
+        // Smart Merge: combine both datasets using fine-grained grade reconciliation & strict UUID matching
         const { reconciledClasses, obsoleteServerIds: obsIds } = reconcileWorkspaceDatasets(
           datasets,
           decryptedRemoteClasses,
-          vaultSession.userId
+          vaultSession.userId,
+          collisionDecisions
         );
         finalClasses = reconciledClasses;
         obsoleteServerIds = obsIds;
@@ -2668,10 +2710,42 @@ export function useVaultWorkspaceSync() {
         });
         if (sumRes.ok) {
           const summary = await sumRes.json();
+          let collisions: NameCollision[] = [];
+          try {
+            const syncRes = await fetchWithTimeout(apiUrl('/api/envelopes/sync'), {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (syncRes.ok && vaultSession?.dekB64 && vaultSession?.userId) {
+              const remoteEnvs: Array<{ id: string; entity_type: string; encrypted_payload: string }> =
+                await syncRes.json();
+              const decryptedClasses: ClassroomSubjectDataset[] = [];
+              for (const env of remoteEnvs) {
+                if (env.entity_type === 'class_dataset') {
+                  try {
+                    const decJson = wasm_decrypt_envelope(
+                      vaultSession.dekB64,
+                      vaultSession.userId,
+                      env.id,
+                      env.encrypted_payload
+                    );
+                    const parsed = JSON.parse(decJson);
+                    if (parsed && parsed.id) decryptedClasses.push(parsed);
+                  } catch {}
+                }
+              }
+              collisions = detectClassNameCollisions(
+                datasets,
+                decryptedClasses,
+                vaultSession.userId
+              );
+            }
+          } catch {}
+
           setReconciliationMeta({
             localClassCount: datasets.length,
             remoteClassCount: summary.class_count ?? summary.envelope_count ?? datasets.length,
             remoteLastUpdated: summary.last_updated_at || undefined,
+            nameCollisions: collisions,
           });
           setIsReconciliationOpen(true);
           return;

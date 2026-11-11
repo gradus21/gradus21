@@ -171,6 +171,7 @@ export interface GradeEntry {
   raw_points: number | null;
   direct_grade_value: number | null;
   comment: string | null;
+  updated_at?: string;
 }
 
 export interface ReportCardOverride {
@@ -197,6 +198,7 @@ export interface ClassroomSubjectDataset {
   // Optionale amtliche Kürzel für Schulverwaltungsprogramme
   subjectCode?: string; // z.B. "E", "M", "D" (für SchILD / ASV)
   courseType?: string;  // z.B. "GKM", "GK", "LK" (für SchILD / Oberstufe)
+  updated_at?: string;
 }
 
 /**

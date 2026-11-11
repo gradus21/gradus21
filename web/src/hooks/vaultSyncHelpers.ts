@@ -542,8 +542,26 @@ export function mergeClassroomDatasets(
         mergedGradesMap.set(key, sGrade);
       } else {
         // True collision: Both sides have different non-empty grades.
-        // Active device represents current user edits -> local wins in active dataset
-        mergedGradesMap.set(key, lGrade);
+        // ECHTES LAST-WRITE-WINS (LWW): Der zeitlich neuere Eintrag gewinnt!
+        const lTime = lGrade.updated_at ? new Date(lGrade.updated_at).getTime() : 0;
+        const sTime = sGrade.updated_at ? new Date(sGrade.updated_at).getTime() : 0;
+
+        if (lTime > 0 && sTime > 0 && lTime !== sTime) {
+          if (lTime >= sTime) {
+            mergedGradesMap.set(key, lGrade);
+          } else {
+            mergedGradesMap.set(key, sGrade);
+          }
+        } else {
+          // Fall back to dataset timestamps if grade timestamps are missing or equal
+          const lDsTime = localDs.updated_at ? new Date(localDs.updated_at).getTime() : 0;
+          const sDsTime = serverDs.updated_at ? new Date(serverDs.updated_at).getTime() : 0;
+          if (lDsTime >= sDsTime) {
+            mergedGradesMap.set(key, lGrade);
+          } else {
+            mergedGradesMap.set(key, sGrade);
+          }
+        }
         hadGradeCollisions = true;
       }
     }
@@ -572,17 +590,65 @@ export function mergeClassroomDatasets(
   return { mergedDs, hadGradeCollisions, conflictCopy: undefined };
 }
 
+export interface NameCollision {
+  className: string;
+  subjectName: string;
+  localId: string;
+  remoteId: string;
+  localStudentCount: number;
+  remoteStudentCount: number;
+}
+
 /**
- * Reconciles local and remote workspaces intelligently:
+ * Detects classes that share the same class name & subject but have different UUIDs.
+ * Used to proactively ask the user whether to merge them or keep them separate.
+ */
+export function detectClassNameCollisions(
+  localClasses: ClassroomSubjectDataset[],
+  remoteClasses: ClassroomSubjectDataset[],
+  userId?: string
+): NameCollision[] {
+  const collisions: NameCollision[] = [];
+  const remoteById = new Map(remoteClasses.map((c) => [c.id, c]));
+
+  const realLocal = localClasses.filter((c) => !isStarterOrPlaceholderClass(c, userId));
+  const realRemote = remoteClasses.filter((c) => !isStarterOrPlaceholderClass(c, userId));
+
+  for (const lCls of realLocal) {
+    if (remoteById.has(lCls.id)) {
+      continue; // Same ID -> normal merge, not a collision
+    }
+    const lKey = getClassSemanticKey(lCls);
+    const matchedRemote = realRemote.find(
+      (r) => r.id !== lCls.id && getClassSemanticKey(r) === lKey
+    );
+    if (matchedRemote) {
+      collisions.push({
+        className: cleanConflictSuffix(lCls.className),
+        subjectName: lCls.subjectName || '',
+        localId: lCls.id,
+        remoteId: matchedRemote.id,
+        localStudentCount: (lCls.students || []).length,
+        remoteStudentCount: (matchedRemote.students || []).length,
+      });
+    }
+  }
+  return collisions;
+}
+
+/**
+ * Reconciles local and remote workspaces strictly by UUID:
  * 1. Prunes empty starter placeholders when real classes exist.
- * 2. Deduplicates classes by UUID or (cleanClassName + subjectName).
- * 3. Absorbs legacy "(Cloud-Kopie vor Merge)" classes back into the base class.
- * 4. Yields obsolete envelope IDs for server cleanup via DELETE /api/envelopes/:id.
+ * 2. Matches classes strictly by their unique ID (`id`).
+ * 3. Never merges same-name classes with different IDs automatically; only merges them
+ *    if the user explicitly confirmed 'merge' in `collisionDecisions`.
+ * 4. Merges grades on cell-level via authentic Last-Write-Wins (LWW).
  */
 export function reconcileWorkspaceDatasets(
   localClasses: ClassroomSubjectDataset[],
   remoteClasses: ClassroomSubjectDataset[],
-  userId?: string
+  userId?: string,
+  collisionDecisions?: Record<string, 'merge' | 'keep_separate'>
 ): {
   reconciledClasses: ClassroomSubjectDataset[];
   obsoleteServerIds: string[];
@@ -610,84 +676,67 @@ export function reconcileWorkspaceDatasets(
     }
   }
 
-  // Map remote classes by ID and by semantic key
+  // Remote classes mapped strictly by ID
   const remoteById = new Map<string, ClassroomSubjectDataset>();
-  const remoteBySemanticKey = new Map<string, ClassroomSubjectDataset>();
-
   for (const r of effectiveRemote) {
     remoteById.set(r.id, r);
-    const key = getClassSemanticKey(r);
-    if (!remoteBySemanticKey.has(key)) {
-      remoteBySemanticKey.set(key, r);
-    } else {
-      // Existing remote duplicate or conflict copy!
-      // Merge remote duplicate into the existing remote class
-      const existing = remoteBySemanticKey.get(key)!;
-      const { mergedDs } = mergeClassroomDatasets(r, existing);
-      remoteBySemanticKey.set(key, mergedDs);
-      remoteById.set(existing.id, mergedDs);
-      remoteById.delete(r.id);
-      obsoleteServerIds.add(r.id);
-    }
   }
 
   const finalMap = new Map<string, ClassroomSubjectDataset>();
 
-  // Process local classes
+  // Process local classes: match STRICTLY by ID unless the user explicitly chose to merge a name collision
   for (const localCls of effectiveLocal) {
-    let remoteCls = remoteById.get(localCls.id);
-    const semanticKey = getClassSemanticKey(localCls);
+    const remoteCls = remoteById.get(localCls.id);
 
-    if (!remoteCls) {
-      remoteCls = remoteBySemanticKey.get(semanticKey);
-      if (remoteCls) {
-        if (remoteById.has(localCls.id)) {
-          obsoleteServerIds.add(localCls.id);
-        }
-      }
-    }
-
-    if (!remoteCls) {
-      const cleaned = {
-        ...localCls,
-        id: ensureValidUuid(localCls.id),
-        className: cleanConflictSuffix(localCls.className),
-      };
-      finalMap.set(cleaned.id, cleaned);
-    } else {
+    if (remoteCls) {
+      // 1. Same ID -> merge datasets with true Last-Write-Wins
       const { mergedDs, hadGradeCollisions } = mergeClassroomDatasets(localCls, remoteCls);
       if (hadGradeCollisions) hadCollisions = true;
 
       const canonicalId = ensureValidUuid(remoteCls.id);
       finalMap.set(canonicalId, { ...mergedDs, id: canonicalId });
-
       remoteById.delete(remoteCls.id);
-      remoteById.delete(localCls.id);
-      remoteBySemanticKey.delete(semanticKey);
+    } else {
+      // 2. Different ID: check if user explicitly confirmed to merge this specific class
+      const userWantsMerge = collisionDecisions?.[localCls.id] === 'merge';
+
+      let mergedRemotely = false;
+      if (userWantsMerge) {
+        const localKey = getClassSemanticKey(localCls);
+        for (const [rId, rCls] of remoteById.entries()) {
+          if (getClassSemanticKey(rCls) === localKey) {
+            const { mergedDs, hadGradeCollisions } = mergeClassroomDatasets(localCls, rCls);
+            if (hadGradeCollisions) hadCollisions = true;
+
+            const canonicalId = ensureValidUuid(rCls.id);
+            finalMap.set(canonicalId, { ...mergedDs, id: canonicalId });
+            remoteById.delete(rId);
+            mergedRemotely = true;
+            break;
+          }
+        }
+      }
+
+      if (!mergedRemotely) {
+        // Keep as separate class!
+        const cleaned = {
+          ...localCls,
+          id: ensureValidUuid(localCls.id),
+          className: cleanConflictSuffix(localCls.className),
+        };
+        finalMap.set(cleaned.id, cleaned);
+      }
     }
   }
 
-  // Add remaining remote classes that were not matched
+  // Add remaining remote classes that were not matched by ID
   for (const [, remainingRemote] of remoteById.entries()) {
-    const semanticKey = getClassSemanticKey(remainingRemote);
-    let alreadyMerged = false;
-    for (const [existingId, existingDs] of finalMap.entries()) {
-      if (getClassSemanticKey(existingDs) === semanticKey) {
-        const { mergedDs } = mergeClassroomDatasets(existingDs, remainingRemote);
-        finalMap.set(existingId, mergedDs);
-        obsoleteServerIds.add(remainingRemote.id);
-        alreadyMerged = true;
-        break;
-      }
-    }
-    if (!alreadyMerged) {
-      const cleaned = {
-        ...remainingRemote,
-        id: ensureValidUuid(remainingRemote.id),
-        className: cleanConflictSuffix(remainingRemote.className),
-      };
-      finalMap.set(cleaned.id, cleaned);
-    }
+    const cleaned = {
+      ...remainingRemote,
+      id: ensureValidUuid(remainingRemote.id),
+      className: cleanConflictSuffix(remainingRemote.className),
+    };
+    finalMap.set(cleaned.id, cleaned);
   }
 
   let reconciledClasses = Array.from(finalMap.values());

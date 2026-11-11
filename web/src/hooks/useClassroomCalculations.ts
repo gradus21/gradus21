@@ -242,8 +242,9 @@ export function useClassroomCalculations({
       );
 
       const trimmed = inputValue.trim().toUpperCase();
+      const nowIso = new Date().toISOString();
       if (trimmed === '' || trimmed === '-') {
-        return { ...ds, grades: filtered };
+        return { ...ds, grades: filtered, updated_at: nowIso };
       }
 
       if (inputType === 'excused' || trimmed === 'K' || trimmed === 'A') {
@@ -255,8 +256,9 @@ export function useClassroomCalculations({
           raw_points: null,
           direct_grade_value: null,
           comment: 'Entschuldigt / Attest',
+          updated_at: nowIso,
         };
-        return { ...ds, grades: [...filtered, newEntry] };
+        return { ...ds, grades: [...filtered, newEntry], updated_at: nowIso };
       }
 
       let directGradeVal: number | null = null;
@@ -292,8 +294,9 @@ export function useClassroomCalculations({
           raw_points: null,
           direct_grade_value: directGradeVal !== null ? directGradeVal : num,
           comment: null,
+          updated_at: nowIso,
         };
-        return { ...ds, grades: [...filtered, newEntry] };
+        return { ...ds, grades: [...filtered, newEntry], updated_at: nowIso };
       }
 
       const pct =
@@ -318,8 +321,9 @@ export function useClassroomCalculations({
         raw_points: pts,
         direct_grade_value: calculatedThreshold.numeric_value,
         comment: null,
+        updated_at: nowIso,
       };
-      return { ...ds, grades: [...filtered, newEntry] };
+      return { ...ds, grades: [...filtered, newEntry], updated_at: nowIso };
     });
   };
 

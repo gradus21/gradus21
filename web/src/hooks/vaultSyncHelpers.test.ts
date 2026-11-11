@@ -3,78 +3,80 @@ import {
   cleanConflictSuffix,
   getClassSemanticKey,
   isStarterOrPlaceholderClass,
+  detectClassNameCollisions,
   mergeClassroomDatasets,
   reconcileWorkspaceDatasets,
 } from './vaultSyncHelpers';
 import { ClassroomSubjectDataset, GradeEntry } from '../data/demoClasses';
 
-describe('mergeClassroomDatasets - Smart Merge Reconciliation', () => {
-  const baseLocalDs: ClassroomSubjectDataset = {
-    id: 'c1a55000-0000-4000-8000-000000000001',
-    schoolName: 'Schule Berlin',
-    schoolYear: '2026/2027',
-    className: '9a',
-    subjectName: 'Mathematik',
-    shortName: 'M9A',
-    description: 'Lokale Beschreibung',
-    config: {
-      scale_id: 'de_classic_1_to_6',
-      weighting_mode: 'category_buckets',
-      scale_empty_categories: true,
-      enable_student_levels: true,
-      level_threshold_offsets: { G: 0, M: 0, E: 0 },
-      custom_thresholds: null,
+const baseLocalDs: ClassroomSubjectDataset = {
+  id: 'c1a55000-0000-4000-8000-000000000001',
+  schoolName: 'Schule Berlin',
+  schoolYear: '2026/2027',
+  className: '9a',
+  subjectName: 'Mathematik',
+  shortName: 'M9A',
+  description: 'Lokale Beschreibung',
+  config: {
+    scale_id: 'de_classic_1_to_6',
+    weighting_mode: 'category_buckets',
+    scale_empty_categories: true,
+    enable_student_levels: true,
+    level_threshold_offsets: { G: 0, M: 0, E: 0 },
+    custom_thresholds: null,
+  },
+  categories: [
+    { id: 'cat-1', name: 'Klausuren', short_code: 'KL', weight: 0.5, drop_lowest_count: 0 },
+  ],
+  assessments: [
+    {
+      id: 'ass-1',
+      category_id: 'cat-1',
+      title: 'Klausur 1',
+      term_id: 'hj1',
+      weight: 1,
+      input_mode: 'points',
+      max_points: 30,
     },
-    categories: [
-      { id: 'cat-1', name: 'Klausuren', short_code: 'KL', weight: 0.5, drop_lowest_count: 0 },
-    ],
-    assessments: [
-      {
-        id: 'ass-1',
-        category_id: 'cat-1',
-        title: 'Klausur 1',
-        term_id: 'hj1',
-        weight: 1,
-        input_mode: 'points',
-        max_points: 30,
-      },
-    ],
-    students: [
-      { id: 'stud-1', name: 'Max Mustermann', level: 'M', is_not_graded: false },
-    ],
-    grades: [
-      {
-        student_id: 'stud-1',
-        assessment_id: 'ass-1',
-        status: 'graded',
-        percent_value: 90,
-        raw_points: 27,
-        direct_grade_value: null,
-        comment: 'Sehr gut lokal',
-      },
-    ],
-    reportCardOverrides: {},
-  };
+  ],
+  students: [
+    { id: 'stud-1', name: 'Max Mustermann', level: 'M', is_not_graded: false },
+  ],
+  grades: [
+    {
+      student_id: 'stud-1',
+      assessment_id: 'ass-1',
+      status: 'graded',
+      percent_value: 90,
+      raw_points: 27,
+      direct_grade_value: null,
+      comment: 'Sehr gut lokal',
+    },
+  ],
+  reportCardOverrides: {},
+};
 
-  const baseServerDs: ClassroomSubjectDataset = {
-    ...baseLocalDs,
-    description: 'Server Beschreibung',
-    config: {
-      ...baseLocalDs.config,
-      enable_student_levels: false,
+const baseServerDs: ClassroomSubjectDataset = {
+  ...baseLocalDs,
+  description: 'Server Beschreibung',
+  config: {
+    ...baseLocalDs.config,
+    enable_student_levels: false,
+  },
+  grades: [
+    {
+      student_id: 'stud-1',
+      assessment_id: 'ass-1',
+      status: 'graded',
+      percent_value: 70,
+      raw_points: 21,
+      direct_grade_value: null,
+      comment: 'Alt vom Server',
     },
-    grades: [
-      {
-        student_id: 'stud-1',
-        assessment_id: 'ass-1',
-        status: 'graded',
-        percent_value: 70,
-        raw_points: 21,
-        direct_grade_value: null,
-        comment: 'Alt vom Server',
-      },
-    ],
-  };
+  ],
+};
+
+describe('mergeClassroomDatasets - Smart Merge Reconciliation', () => {
 
   it('preserves local grade changes over outdated cloud grades when collision occurs', () => {
     const { mergedDs, hadGradeCollisions, conflictCopy } = mergeClassroomDatasets(
@@ -330,51 +332,133 @@ describe('reconcileWorkspaceDatasets - Smart Workspace Merging & Deduplication',
     expect(obsoleteServerIds).toContain(starterPlaceholder.id);
   });
 
-  it('deduplicates classes by matching (className + subjectName) even when UUIDs differ', () => {
+  it('detects collisions when classes share the same name/subject but have different IDs', () => {
     const offlineClassWithDifferentId: ClassroomSubjectDataset = {
       ...realClassA,
       id: '99999999-9999-4000-8000-999999999999',
-      className: '10a ', // trailing space
+      className: '10a',
       students: [{ id: 's2', name: 'Student 2 Offline', level: null, is_not_graded: false }],
     };
 
-    const { reconciledClasses, obsoleteServerIds } = reconcileWorkspaceDatasets(
+    const collisions = detectClassNameCollisions(
       [offlineClassWithDifferentId],
       [realClassA],
       'user-123'
     );
 
+    expect(collisions).toHaveLength(1);
+    expect(collisions[0].className).toBe('10a');
+    expect(collisions[0].localId).toBe(offlineClassWithDifferentId.id);
+    expect(collisions[0].remoteId).toBe(realClassA.id);
+  });
+
+  it('preserves separate classes by default when IDs differ and user chose keep_separate', () => {
+    const offlineClassWithDifferentId: ClassroomSubjectDataset = {
+      ...realClassA,
+      id: '99999999-9999-4000-8000-999999999999',
+      className: '10a',
+      students: [{ id: 's2', name: 'Student 2 Offline', level: null, is_not_graded: false }],
+    };
+
+    // By default or with keep_separate decision
+    const { reconciledClasses } = reconcileWorkspaceDatasets(
+      [offlineClassWithDifferentId],
+      [realClassA],
+      'user-123',
+      { [offlineClassWithDifferentId.id]: 'keep_separate' }
+    );
+
+    expect(reconciledClasses).toHaveLength(2);
+    const ids = reconciledClasses.map((c) => c.id);
+    expect(ids).toContain(realClassA.id);
+    expect(ids).toContain(offlineClassWithDifferentId.id);
+  });
+
+  it('merges same-name classes into one when the user explicitly confirms merge', () => {
+    const offlineClassWithDifferentId: ClassroomSubjectDataset = {
+      ...realClassA,
+      id: '99999999-9999-4000-8000-999999999999',
+      className: '10a',
+      students: [{ id: 's2', name: 'Student 2 Offline', level: null, is_not_graded: false }],
+    };
+
+    const { reconciledClasses } = reconcileWorkspaceDatasets(
+      [offlineClassWithDifferentId],
+      [realClassA],
+      'user-123',
+      { [offlineClassWithDifferentId.id]: 'merge' }
+    );
+
     expect(reconciledClasses).toHaveLength(1);
     expect(reconciledClasses[0].id).toBe(realClassA.id);
-    expect(reconciledClasses[0].className).toBe('10a');
-    // Both students must be merged without creating duplicate class
     const studentNames = reconciledClasses[0].students.map((s) => s.name);
     expect(studentNames).toContain('Student 1');
     expect(studentNames).toContain('Student 2 Offline');
   });
 
-  it('absorbs legacy "(Cloud-Kopie vor Merge)" classes back into the base class and deletes copy envelope', () => {
-    const conflictCopyOnServer: ClassroomSubjectDataset = {
-      ...realClassA,
-      id: 'conflict-copy-uuid-456',
-      className: '10a (Cloud-Kopie vor Merge)',
-      students: [{ id: 's_conflict', name: 'Conflict Student', level: null, is_not_graded: false }],
+  it('executes authentic Last-Write-Wins (LWW) based on timestamps', () => {
+    const localDsOlder: ClassroomSubjectDataset = {
+      ...baseLocalDs,
+      updated_at: '2026-11-11T10:00:00Z',
+      grades: [
+        {
+          student_id: 'stud-1',
+          assessment_id: 'ass-1',
+          status: 'graded',
+          percent_value: 50,
+          raw_points: 15,
+          direct_grade_value: null,
+          comment: 'Alt lokal (10:00)',
+          updated_at: '2026-11-11T10:00:00Z',
+        },
+      ],
     };
 
-    const { reconciledClasses, obsoleteServerIds } = reconcileWorkspaceDatasets(
-      [realClassA],
-      [realClassA, conflictCopyOnServer],
-      'user-123'
-    );
+    const serverDsNewer: ClassroomSubjectDataset = {
+      ...baseServerDs,
+      updated_at: '2026-11-11T10:15:00Z',
+      grades: [
+        {
+          student_id: 'stud-1',
+          assessment_id: 'ass-1',
+          status: 'graded',
+          percent_value: 95,
+          raw_points: 28.5,
+          direct_grade_value: null,
+          comment: 'Neu Server (10:15)',
+          updated_at: '2026-11-11T10:15:00Z',
+        },
+      ],
+    };
 
-    expect(reconciledClasses).toHaveLength(1);
-    expect(reconciledClasses[0].id).toBe(realClassA.id);
-    expect(reconciledClasses[0].className).toBe('10a');
-    expect(obsoleteServerIds).toContain('conflict-copy-uuid-456');
+    // Newer server grade (10:15) must win over older local grade (10:00)
+    const { mergedDs: merged1 } = mergeClassroomDatasets(localDsOlder, serverDsNewer);
+    const g1 = merged1.grades.find((g) => g.student_id === 'stud-1' && g.assessment_id === 'ass-1');
+    expect(g1?.percent_value).toBe(95);
+    expect(g1?.comment).toBe('Neu Server (10:15)');
 
-    const studentNames = reconciledClasses[0].students.map((s) => s.name);
-    expect(studentNames).toContain('Student 1');
-    expect(studentNames).toContain('Conflict Student');
+    // Conversely, newer local grade (10:30) must win over server grade (10:15)
+    const localDsNewer: ClassroomSubjectDataset = {
+      ...baseLocalDs,
+      updated_at: '2026-11-11T10:30:00Z',
+      grades: [
+        {
+          student_id: 'stud-1',
+          assessment_id: 'ass-1',
+          status: 'graded',
+          percent_value: 85,
+          raw_points: 25.5,
+          direct_grade_value: null,
+          comment: 'Neueste Eingabe Lokal (10:30)',
+          updated_at: '2026-11-11T10:30:00Z',
+        },
+      ],
+    };
+
+    const { mergedDs: merged2 } = mergeClassroomDatasets(localDsNewer, serverDsNewer);
+    const g2 = merged2.grades.find((g) => g.student_id === 'stud-1' && g.assessment_id === 'ass-1');
+    expect(g2?.percent_value).toBe(85);
+    expect(g2?.comment).toBe('Neueste Eingabe Lokal (10:30)');
   });
 
   it('cleans conflict suffix helper properly', () => {

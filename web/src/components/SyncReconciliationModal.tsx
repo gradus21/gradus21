@@ -10,6 +10,7 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
+import { NameCollision } from '../hooks/vaultSyncHelpers';
 
 export type SyncReconciliationStrategy = 'merge' | 'upload_local' | 'download_remote';
 
@@ -18,7 +19,11 @@ interface SyncReconciliationModalProps {
   localClassCount: number;
   remoteClassCount: number;
   remoteLastUpdated?: string | null;
-  onResolve: (strategy: SyncReconciliationStrategy) => Promise<void> | void;
+  nameCollisions?: NameCollision[];
+  onResolve: (
+    strategy: SyncReconciliationStrategy,
+    collisionDecisions?: Record<string, 'merge' | 'keep_separate'>
+  ) => Promise<void> | void;
   onCancel: () => void;
 }
 
@@ -27,10 +32,12 @@ export const SyncReconciliationModal: React.FC<SyncReconciliationModalProps> = (
   localClassCount,
   remoteClassCount,
   remoteLastUpdated,
+  nameCollisions,
   onResolve,
   onCancel,
 }) => {
   const [selectedStrategy, setSelectedStrategy] = useState<SyncReconciliationStrategy>('merge');
+  const [collisionDecisions, setCollisionDecisions] = useState<Record<string, 'merge' | 'keep_separate'>>({});
   const [isApplying, setIsApplying] = useState(false);
 
   if (!isOpen) return null;
@@ -38,7 +45,7 @@ export const SyncReconciliationModal: React.FC<SyncReconciliationModalProps> = (
   const handleConfirm = async () => {
     setIsApplying(true);
     try {
-      await onResolve(selectedStrategy);
+      await onResolve(selectedStrategy, collisionDecisions);
     } finally {
       setIsApplying(false);
     }
@@ -151,15 +158,15 @@ export const SyncReconciliationModal: React.FC<SyncReconciliationModalProps> = (
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="font-medium text-sm text-neutral-100">
-                  Intelligenter Merge
+                  Intelligenter Merge (Last-Write-Wins)
                 </span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/20 text-blue-300">
                   Empfohlen
                 </span>
               </div>
               <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
-                Führt Klassen beider Seiten intelligent zusammen. Namensgleiche Klassen werden
-                vereint und Noten auf Zell-Ebene kombiniert (keine doppelten Kopien).
+                Führt Klassen anhand ihrer eindeutigen ID zusammen. Noten werden auf Zell-Ebene per
+                Last-Write-Wins abgeglichen (der zeitlich neuere Stand gewinnt, keine doppelten Klassen).
               </p>
             </div>
           </button>
@@ -224,6 +231,71 @@ export const SyncReconciliationModal: React.FC<SyncReconciliationModalProps> = (
             </div>
           </button>
         </div>
+
+        {/* Name Collisions Prompt (Equal-named classes with different IDs) */}
+        {nameCollisions && nameCollisions.length > 0 && selectedStrategy === 'merge' && (
+          <div className="mb-6 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30">
+            <div className="flex items-center gap-2 mb-1.5 text-amber-300 font-medium text-sm">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>Gleichnamige Klassen mit unterschiedlichen IDs gefunden</span>
+            </div>
+            <p className="text-xs text-neutral-300 mb-3 leading-relaxed">
+              Auf diesem Gerät und in der Cloud existieren Klassen mit identischem Namen, aber unterschiedlichen internen IDs.
+              Bitte wähle für jede Klasse, ob sie zusammengeführt (Merge per Last-Write-Wins) oder als getrennte Klasse behalten werden soll:
+            </p>
+            <div className="space-y-2.5">
+              {nameCollisions.map((col) => {
+                const decision = collisionDecisions[col.localId] || 'keep_separate';
+                return (
+                  <div
+                    key={col.localId}
+                    className="p-3 rounded-lg bg-black/30 border border-neutral-700/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
+                    <div>
+                      <div className="text-sm font-semibold text-neutral-100">
+                        {col.className} {col.subjectName ? `· ${col.subjectName}` : ''}
+                      </div>
+                      <div className="text-xs text-neutral-400 mt-0.5">
+                        Lokal: {col.localStudentCount} Schüler · Cloud: {col.remoteStudentCount} Schüler
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCollisionDecisions((prev) => ({ ...prev, [col.localId]: 'merge' }))
+                        }
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                          decision === 'merge'
+                            ? 'bg-blue-600 border-blue-500 text-white shadow-sm'
+                            : 'bg-neutral-800 border-neutral-700 text-neutral-300 hover:border-neutral-600'
+                        }`}
+                      >
+                        Zusammenführen (LWW)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCollisionDecisions((prev) => ({
+                            ...prev,
+                            [col.localId]: 'keep_separate',
+                          }))
+                        }
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                          decision === 'keep_separate'
+                            ? 'bg-amber-600 border-amber-500 text-white shadow-sm'
+                            : 'bg-neutral-800 border-neutral-700 text-neutral-300 hover:border-neutral-600'
+                        }`}
+                      >
+                        Getrennt behalten
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Action buttons */}
         <div className="flex items-center justify-end gap-3 pt-2">

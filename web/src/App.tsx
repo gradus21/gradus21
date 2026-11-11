@@ -399,6 +399,7 @@ export const App: React.FC = () => {
           localClassCount={reconciliationMeta?.localClassCount ?? 0}
           remoteClassCount={reconciliationMeta?.remoteClassCount ?? 0}
           remoteLastUpdated={reconciliationMeta?.remoteLastUpdated}
+          nameCollisions={reconciliationMeta?.nameCollisions}
           onResolve={handleResolveReconciliation}
           onCancel={handleCancelReconciliation}
         />
@@ -880,6 +881,7 @@ export const App: React.FC = () => {
         localClassCount={reconciliationMeta?.localClassCount ?? 0}
         remoteClassCount={reconciliationMeta?.remoteClassCount ?? 0}
         remoteLastUpdated={reconciliationMeta?.remoteLastUpdated}
+        nameCollisions={reconciliationMeta?.nameCollisions}
         onResolve={handleResolveReconciliation}
         onCancel={handleCancelReconciliation}
       />
