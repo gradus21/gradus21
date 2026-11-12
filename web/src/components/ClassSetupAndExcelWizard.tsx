@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { DialogOverlay } from './DialogOverlay';
 import {
   AssessmentConfig,
   CategoryConfig,
@@ -544,20 +545,13 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div
-        data-tour="wizard-dialog-card"
-        className="max-w-3xl w-full rounded-t-[28px] sm:rounded-2xl border-t sm:border p-4 sm:p-6 shadow-2xl space-y-4 sm:space-y-5 max-h-[92dvh] sm:max-h-[90vh] overflow-y-auto pb-safe sm:pb-6 sheet-mobile-enter"
-        style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
-      >
-        {/* Mobile Sheet Drag Indicator */}
-        <div className="sm:hidden sheet-drag-handle" />
+    <DialogOverlay isOpen={true} onClose={onClose} size="lg" titleId="class-wizard-title" dataTour="wizard-dialog-card" className="p-4 sm:p-6 space-y-4 sm:space-y-5 overflow-y-auto">
 
         <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border-subtle)' }}>
           <div className="flex items-center gap-2.5">
             <FileSpreadsheet className="w-5 h-5" style={{ color: 'var(--primary-500)' }} />
             <div>
-              <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
+              <h3 id="class-wizard-title" className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
                 Klassen-Wizard & Nativer .xlsx-Importer (Stufe 1)
               </h3>
               <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
@@ -885,7 +879,6 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
             </button>
           </form>
         )}
-      </div>
-    </div>
+    </DialogOverlay>
   );
 };

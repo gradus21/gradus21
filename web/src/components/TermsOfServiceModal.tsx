@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { DialogOverlay } from './DialogOverlay';
 import {
   FileText,
   CheckCircle2,
@@ -61,22 +62,9 @@ export const TermsOfServiceModal: React.FC<TermsOfServiceModalProps> = ({
     }
   }, [isOpen, checkScrollPosition]);
 
-  if (!isOpen) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150"
-      onClick={onClose}
-    >
-      <div
-        className="max-w-3xl w-full max-h-[92vh] flex flex-col rounded-2xl border shadow-2xl overflow-hidden relative"
-        style={{
-          backgroundColor: 'var(--bg-surface, #ffffff)',
-          borderColor: 'var(--border-subtle, #e2e8f0)',
-          color: 'var(--text-primary, #0f172a)',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <DialogOverlay isOpen={isOpen} onClose={onClose} size="lg" titleId="tos-modal-title">
         {/* MODAL HEADER */}
         <div
           className="px-6 py-4 border-b flex items-center justify-between gap-4 shrink-0"
@@ -375,7 +363,6 @@ export const TermsOfServiceModal: React.FC<TermsOfServiceModalProps> = ({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </DialogOverlay>
   );
 };

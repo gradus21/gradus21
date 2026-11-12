@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { DialogOverlay } from '../DialogOverlay';
 import {
   BookOpen,
   HardDrive,
@@ -33,11 +34,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('users');
 
-  if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/60 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-5xl h-[88vh] max-h-[900px] flex flex-col shadow-2xl overflow-hidden">
+    <DialogOverlay isOpen={isOpen} onClose={onClose} size="full" titleId="admin-modal-title">
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-slate-900/80">
           <div className="flex items-center gap-3">
@@ -147,7 +146,6 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             {activeTab === 'mails' && <MailTemplatesTab token={session.token} />}
           </div>
         </div>
-      </div>
-    </div>
+    </DialogOverlay>
   );
 };

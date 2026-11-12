@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { DialogOverlay } from './DialogOverlay';
 import {
   AlertTriangle,
   ArrowDownCircle,
@@ -57,7 +58,6 @@ export const SyncReconciliationModal: React.FC<SyncReconciliationModalProps> = (
     });
   }, [isOpen, nameCollisions]);
 
-  if (!isOpen) return null;
 
   const handleConfirm = async () => {
     setIsApplying(true);
@@ -79,21 +79,7 @@ export const SyncReconciliationModal: React.FC<SyncReconciliationModalProps> = (
     : 'Vor Kurzem';
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
-    >
-      <div
-        className="w-full max-w-xl max-h-[92dvh] sm:max-h-[90vh] rounded-t-[28px] sm:rounded-2xl shadow-2xl border-t sm:border p-6 flex flex-col relative pb-safe sm:pb-6 overflow-y-auto sheet-mobile-enter"
-        style={{
-          backgroundColor: 'var(--bg-card, #1e293b)',
-          borderColor: 'var(--border-subtle, #334155)',
-          color: 'var(--text-primary, #f8fafc)',
-        }}
-      >
-        {/* Mobile Sheet Drag Indicator */}
-        <div className="sm:hidden sheet-drag-handle" />
+    <DialogOverlay isOpen={isOpen} onClose={onCancel} size="md" titleId="sync-reconciliation-title" className="p-6 overflow-y-auto">
         <button
           type="button"
           onClick={onCancel}
@@ -343,7 +329,6 @@ export const SyncReconciliationModal: React.FC<SyncReconciliationModalProps> = (
             )}
           </button>
         </div>
-      </div>
-    </div>
+    </DialogOverlay>
   );
 };

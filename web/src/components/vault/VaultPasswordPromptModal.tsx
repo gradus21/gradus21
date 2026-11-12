@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { DialogOverlay } from '../DialogOverlay';
 import { KeyRound, Lock, X, Loader2, AlertCircle, Eye, EyeOff } from 'lucide-react';
 
 interface VaultPasswordPromptModalProps {
@@ -19,7 +20,6 @@ export const VaultPasswordPromptModal: React.FC<VaultPasswordPromptModalProps> =
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,18 +51,14 @@ export const VaultPasswordPromptModal: React.FC<VaultPasswordPromptModalProps> =
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150">
-      <div
-        className="max-w-md w-full rounded-2xl border p-6 shadow-2xl space-y-4 animate-scale-up"
-        style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
-      >
+    <DialogOverlay isOpen={isOpen} onClose={onCancel} size="sm" titleId="vault-password-title" className="p-6 space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3.5">
             <div className="w-10 h-10 rounded-xl bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0">
               <KeyRound className="w-5 h-5" />
             </div>
             <div className="space-y-1">
-              <h4 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
+              <h4 id="vault-password-title" className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
                 Master-Passwort zur Cloud-Verknüpfung
               </h4>
               <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
@@ -149,7 +145,6 @@ export const VaultPasswordPromptModal: React.FC<VaultPasswordPromptModalProps> =
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </DialogOverlay>
   );
 };

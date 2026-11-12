@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { DialogOverlay } from './DialogOverlay';
 import {
   X,
   Download,
@@ -106,7 +107,6 @@ export const ExportConfigModal: React.FC<ExportConfigModalProps> = ({
     }
   }, [dataset, report, currentOptions]);
 
-  if (!isOpen) return null;
 
   const handleSelectPreset = (id: ExportPresetId) => {
     setPresetId(id);
@@ -164,21 +164,7 @@ export const ExportConfigModal: React.FC<ExportConfigModalProps> = ({
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
-    >
-      <div
-        className="w-full max-w-3xl max-h-[92dvh] sm:max-h-[92vh] rounded-t-[28px] sm:rounded-2xl border-t sm:border shadow-2xl flex flex-col overflow-hidden relative pb-safe sm:pb-0 sheet-mobile-enter"
-        style={{
-          backgroundColor: 'var(--bg-surface, #1e293b)',
-          borderColor: 'var(--border-subtle, #334155)',
-          color: 'var(--text-primary, #f8fafc)',
-        }}
-      >
-        {/* Mobile Sheet Drag Indicator */}
-        <div className="sm:hidden sheet-drag-handle" />
+    <DialogOverlay isOpen={isOpen} onClose={onClose} size="lg" titleId="export-config-title">
         {/* Header */}
         <div className="flex items-center justify-between p-3.5 sm:p-5 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
           <div className="flex items-center gap-3">
@@ -186,7 +172,7 @@ export const ExportConfigModal: React.FC<ExportConfigModalProps> = ({
               <FileSpreadsheet className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-lg leading-tight">
+              <h3 id="export-config-title" className="font-bold text-lg leading-tight">
                 Noten- & Zeugnisexport (Excel & CSV)
               </h3>
               <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
@@ -548,7 +534,6 @@ export const ExportConfigModal: React.FC<ExportConfigModalProps> = ({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </DialogOverlay>
   );
 };

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { DialogOverlay } from './DialogOverlay';
 import {
   CategoryConfig,
   AssessmentConfig,
@@ -352,13 +353,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div
-        className="max-w-5xl lg:max-w-6xl w-full max-h-[92dvh] sm:max-h-[90vh] rounded-t-[28px] sm:rounded-2xl border-t sm:border p-4 sm:p-6 shadow-2xl space-y-4 sm:space-y-5 flex flex-col pb-safe sm:pb-6 sheet-mobile-enter"
-        style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
-      >
-        {/* Mobile Sheet Drag Indicator */}
-        <div className="sm:hidden sheet-drag-handle" />
+    <DialogOverlay isOpen={true} onClose={onClose} size="full" titleId="class-manager-title" className="p-4 sm:p-6 space-y-4 sm:space-y-5">
 
         {/* Header */}
         <div
@@ -372,7 +367,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
             >
               Klasse & Prüfungen verwalten
             </span>
-            <h3 className="text-lg font-bold mt-1" style={{ color: 'var(--text-primary)' }}>
+            <h3 id="class-manager-title" className="text-lg font-bold mt-1" style={{ color: 'var(--text-primary)' }}>
               {dataset.className} · {dataset.subjectName} ({dataset.schoolYear})
             </h3>
           </div>
@@ -1816,7 +1811,6 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
             </div>
           );
         })()}
-      </div>
-    </div>
+    </DialogOverlay>
   );
 };

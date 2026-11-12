@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { DialogOverlay } from './DialogOverlay';
 import {
   Shield,
   AlertTriangle,
@@ -38,7 +39,6 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [exportSuccess, setExportSuccess] = useState(false);
 
-  if (!isOpen) return null;
 
   const isCloudSynced = syncStatus === 'synced';
   const isCloudOffline = syncStatus === 'offline_local';
@@ -53,21 +53,7 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-xl max-h-[92dvh] sm:max-h-[90vh] flex flex-col rounded-t-[28px] sm:rounded-2xl border-t sm:border shadow-2xl overflow-hidden relative pb-safe sm:pb-0 sheet-mobile-enter"
-        style={{
-          backgroundColor: 'var(--bg-surface)',
-          borderColor: 'var(--border-subtle)',
-          color: 'var(--text-primary)',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Mobile Sheet Drag Indicator */}
-        <div className="sm:hidden sheet-drag-handle" />
+    <DialogOverlay isOpen={isOpen} onClose={onClose} size="md" titleId="storage-notice-title">
 
         {/* Header - Fixed & Always Visible */}
         <div
@@ -385,8 +371,7 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
             <span>Verstanden &amp; Weiter</span>
           </button>
         </div>
-      </div>
-    </div>
+    </DialogOverlay>
   );
 };
 

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { DialogOverlay } from './DialogOverlay';
 import {
   Building2,
   Check,
@@ -47,7 +48,6 @@ export const LegalModal: React.FC<LegalModalProps> = ({
     setActiveTab(initialTab);
   }, [initialTab]);
 
-  if (!isOpen) return null;
 
   const handlePrint = () => {
     const el = document.getElementById('gradus21-avv-document');
@@ -114,13 +114,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150">
-      <div
-        className="relative w-full max-w-4xl max-h-[92dvh] sm:max-h-[90vh] flex flex-col rounded-t-[28px] sm:rounded-3xl shadow-2xl border-t sm:border border-slate-200 dark:border-slate-800 overflow-hidden pb-safe sm:pb-0 sheet-mobile-enter"
-        style={{ backgroundColor: 'var(--bg-surface)' }}
-      >
-        {/* Mobile Sheet Drag Indicator */}
-        <div className="sm:hidden sheet-drag-handle" />
+    <DialogOverlay isOpen={isOpen} onClose={onClose} size="xl" titleId="legal-modal-title">
 
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
@@ -129,7 +123,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({
               <Scale className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white leading-tight">
+              <h2 id="legal-modal-title" className="text-base font-bold text-slate-900 dark:text-white leading-tight">
                 Rechtliches & Datenschutz
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -935,7 +929,6 @@ export const LegalModal: React.FC<LegalModalProps> = ({
             Schließen
           </button>
         </div>
-      </div>
-    </div>
+    </DialogOverlay>
   );
 };

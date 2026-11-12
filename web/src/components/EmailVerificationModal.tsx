@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { DialogOverlay } from './DialogOverlay';
 import { AlertCircle, CheckCircle2, KeyRound, Mail, Pencil, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { formatApiErrorMessage } from '../utils/legalConfig';
 import { apiUrl } from '../utils/apiConfig';
@@ -122,7 +123,6 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
     }
   }, [isOpen, email]);
 
-  if (!isOpen) return null;
 
   const handleDigitChange = (index: number, value: string) => {
     const clean = value.replace(/\D/g, '');
@@ -228,21 +228,7 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
-    >
-      <div
-        className="w-full max-w-md max-h-[92dvh] sm:max-h-[90vh] rounded-t-[28px] sm:rounded-2xl shadow-2xl border-t sm:border p-6 flex flex-col relative pb-safe sm:pb-6 sheet-mobile-enter"
-        style={{
-          backgroundColor: 'var(--bg-surface)',
-          borderColor: 'var(--border-subtle)',
-          color: 'var(--text-primary)',
-        }}
-      >
-        {/* Mobile Sheet Drag Indicator */}
-        <div className="sm:hidden sheet-drag-handle" />
+    <DialogOverlay isOpen={isOpen} onClose={onCancel} size="sm" titleId="email-verification-title" className="p-6">
         <button
           type="button"
           onClick={onCancel}
@@ -477,7 +463,6 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </DialogOverlay>
   );
 };

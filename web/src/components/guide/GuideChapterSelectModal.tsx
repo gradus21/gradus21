@@ -1,4 +1,5 @@
 import React from 'react';
+import { DialogOverlay } from '../DialogOverlay';
 import {
   BookOpen,
   CheckCircle2,
@@ -29,7 +30,6 @@ export const GuideChapterSelectModal: React.FC<GuideChapterSelectModalProps> = (
   onStartChapter,
   completedChapters,
 }) => {
-  if (!isOpen) return null;
 
   const getIcon = (iconName: string) => {
     switch (iconName) {
@@ -55,21 +55,7 @@ export const GuideChapterSelectModal: React.FC<GuideChapterSelectModalProps> = (
   const progressPercent = Math.round((completedCount / totalCount) * 100);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-3xl rounded-t-[28px] sm:rounded-3xl border-t sm:border shadow-2xl overflow-hidden flex flex-col max-h-[92dvh] sm:max-h-[90vh] pb-safe sm:pb-0 sheet-mobile-enter"
-        style={{
-          backgroundColor: 'var(--bg-surface)',
-          borderColor: 'var(--border-subtle)',
-          color: 'var(--text-primary)',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Mobile Sheet Drag Indicator */}
-        <div className="sm:hidden sheet-drag-handle" />
+    <DialogOverlay isOpen={isOpen} onClose={onClose} size="lg" titleId="guide-chapter-title">
         {/* MODAL HEADER */}
         <div
           className="p-6 border-b flex items-start justify-between gap-4"
@@ -90,7 +76,7 @@ export const GuideChapterSelectModal: React.FC<GuideChapterSelectModalProps> = (
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-xl font-bold tracking-tight">Interaktiver Funktions-Guide</h2>
+                <h2 id="guide-chapter-title" className="text-xl font-bold tracking-tight">Interaktiver Funktions-Guide</h2>
                 <span
                   className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider"
                   style={{
@@ -273,7 +259,6 @@ export const GuideChapterSelectModal: React.FC<GuideChapterSelectModalProps> = (
             Schließen
           </button>
         </div>
-      </div>
-    </div>
+    </DialogOverlay>
   );
 };
