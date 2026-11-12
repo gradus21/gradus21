@@ -3,6 +3,7 @@ import { AlertTriangle, ExternalLink, GitMerge, X } from 'lucide-react';
 import { AppHeader } from './components/AppHeader';
 import { MobileTabBar } from './components/MobileTabBar';
 import { isScreenshotMode as detectScreenshotMode } from './utils/screenshotMode';
+import { useBackDismiss, useHistoryMode } from './hooks/useHistoryNavigation';
 import { ClassSetupAndExcelWizard } from './components/ClassSetupAndExcelWizard';
 import { ClassManagementModal } from './components/ClassManagementModal';
 import { SettingsModal, SettingsSection } from './components/SettingsModal';
@@ -100,24 +101,9 @@ export const App: React.FC = () => {
   // Nur über ?demo=1 aktivierbar – Navigations-Hashes lösen den Modus nicht aus (#37)
   const [isScreenshotMode] = useState(detectScreenshotMode);
 
-  const resolveModeFromHash = (): WorkspaceMode => {
-    if (typeof window === 'undefined') return 'matrix';
-    const hash = window.location.hash.replace('#', '').toLowerCase();
-    if (hash.includes('speed')) return 'speed_grading';
-    if (hash.includes('student') || hash.includes('360')) return 'student_360';
-    if (hash.includes('config')) return 'configurator';
-    return 'matrix';
-  };
+  // Modus ↔ URL-Hash ↔ Browser-/Android-History (#38)
+  const [mode, setMode] = useHistoryMode();
 
-  const [mode, setMode] = useState<WorkspaceMode>(resolveModeFromHash);
-
-  useEffect(() => {
-    const handleHash = () => {
-      setMode(resolveModeFromHash());
-    };
-    window.addEventListener('hashchange', handleHash);
-    return () => window.removeEventListener('hashchange', handleHash);
-  }, []);
   const [activeTerm, setActiveTerm] = useState<TermFilterId>('hj1');
   const [selectedAssessmentId, setSelectedAssessmentId] = useState<string>('');
   const [selectedStudentId, setSelectedStudentId] = useState<string>('');
@@ -166,6 +152,9 @@ export const App: React.FC = () => {
     }
     setActiveModal(null);
   };
+
+  // Zurück-Taste (Browser/Android) schließt den offenen Dialog statt die App zu verlassen (#38)
+  useBackDismiss(activeModal !== null, handleCloseModal);
 
   // Erstaufruf: Klares Onboarding / Setup-Modal zum Noten-Speicherort (§ 241 Abs. 2 BGB)
   useEffect(() => {
@@ -290,6 +279,9 @@ export const App: React.FC = () => {
     setShowOnDemandCurveEditor,
     onLoadDemoDataset: handleLoadDemoDataset,
   });
+
+  useBackDismiss(isGuideOpen, () => setIsGuideOpen(false));
+  useBackDismiss(isChapterSelectOpen, () => setIsChapterSelectOpen(false));
 
   // Domain Calculations & Handlers
   const {
