@@ -68,6 +68,8 @@ export interface ClassMatrixViewProps {
   toggleStudentArchived: (studentId: string) => void;
   onAddStudent: (name: string, level: 'G' | 'M' | 'E') => void;
   onUpdateDatasetMeta?: (patch: { subjectCode?: string; courseType?: string }) => void;
+  selectedStudentId?: string;
+  onChangeSelectedStudentId?: (studentId: string) => void;
 }
 
 interface MatrixGradeCellInputProps {
@@ -180,6 +182,8 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
   toggleStudentArchived,
   onAddStudent,
   onUpdateDatasetMeta,
+  selectedStudentId,
+  onChangeSelectedStudentId,
 }) => {
   const [showExportConfigModal, setShowExportConfigModal] = useState(false);
   const [showNewStudentForm, setShowNewStudentForm] = useState(false);
@@ -222,7 +226,22 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
 
   // Mobile Pupil Card Slider State & Tactile Gesture Physics
   const SWIPE_COMMIT_THRESHOLD_PX = 40;
-  const [currentStudentIdx, setCurrentStudentIdx] = useState<number>(0);
+  const [currentStudentIdx, setCurrentStudentIdx] = useState<number>(() => {
+    if (selectedStudentId) {
+      const idx = visibleStudents.findIndex((s) => s.id === selectedStudentId);
+      if (idx >= 0) return idx;
+    }
+    return 0;
+  });
+
+  React.useEffect(() => {
+    if (selectedStudentId) {
+      const idx = visibleStudents.findIndex((s) => s.id === selectedStudentId);
+      if (idx >= 0 && idx !== currentStudentIdx) {
+        setCurrentStudentIdx(idx);
+      }
+    }
+  }, [selectedStudentId, visibleStudents]);
   const [dragOffsetX, setDragOffsetX] = useState<number>(0);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [swipeReadyDirection, setSwipeReadyDirection] = useState<
@@ -255,6 +274,9 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
       setSlideAnimation(bounded > safeStudentIdx ? 'next' : 'prev');
       triggerHapticFeedback('snap');
       setCurrentStudentIdx(bounded);
+      if (visibleStudents[bounded] && onChangeSelectedStudentId) {
+        onChangeSelectedStudentId(visibleStudents[bounded].id);
+      }
     } else {
       setSlideAnimation(index <= 0 ? 'bounce-start' : 'bounce-end');
       triggerHapticFeedback('boundary');

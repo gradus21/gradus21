@@ -920,12 +920,14 @@ export const Student360View: React.FC<Student360ViewProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
               <div>
                 <label
+                  htmlFor="sim-category-select"
                   className="block text-xs font-semibold mb-1.5"
                   style={{ color: 'var(--text-secondary)' }}
                 >
                   Nächste Prüfung in Kategorie:
                 </label>
                 <select
+                  id="sim-category-select"
                   value={simCategoryId}
                   onChange={(e) => setSimCategoryId(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border text-xs font-semibold"
@@ -945,6 +947,7 @@ export const Student360View: React.FC<Student360ViewProps> = ({
 
               <div>
                 <label
+                  htmlFor="sim-target-range"
                   className="block text-xs font-semibold mb-1.5"
                   style={{ color: 'var(--text-secondary)' }}
                 >
@@ -952,6 +955,7 @@ export const Student360View: React.FC<Student360ViewProps> = ({
                   <strong className="font-mono">{simTargetPercent}%</strong>
                 </label>
                 <input
+                  id="sim-target-range"
                   type="range"
                   min={45}
                   max={95}
@@ -976,7 +980,13 @@ export const Student360View: React.FC<Student360ViewProps> = ({
                   className="text-2xl font-extrabold font-mono mt-1"
                   style={{ color: 'var(--primary-text)' }}
                 >
-                  {simulatedNeededPercent !== null ? `${simulatedNeededPercent}%` : '—'}
+                  {!wasmReady ? (
+                    <span className="text-xs font-medium opacity-75">Berechne…</span>
+                  ) : simulatedNeededPercent !== null ? (
+                    `${simulatedNeededPercent}%`
+                  ) : (
+                    '—'
+                  )}
                 </div>
               </div>
             </div>

@@ -23,6 +23,7 @@ import { VaultPasswordPromptModal } from './components/vault/VaultPasswordPrompt
 import { SyncReconciliationModal } from './components/SyncReconciliationModal';
 import { CellDisplayFormat, TermFilterId, INITIAL_CLASS_DATASETS, resolveIsDarkMode } from './data/demoClasses';
 import { useVaultWorkspaceSync, persistEncryptedSessionCredentialsToCache } from './hooks/useVaultWorkspaceSync';
+import { ensureWasmLoaded, getWasmStatus } from './utils/wasmLoader';
 import { useClassroomCalculations } from './hooks/useClassroomCalculations';
 import { WorkspaceMode } from './types/workspace';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -512,8 +513,42 @@ export const App: React.FC = () => {
         )}
 
         <ErrorBoundary onReset={() => setMode('matrix')}>
+          {!wasmReady && (
+            <div
+              role="status"
+              aria-live="polite"
+              data-testid="wasm-loading-banner"
+              className="mb-3 rounded-xl border px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs font-medium shadow-2xs"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="w-2 h-2 rounded-full bg-teal-500 animate-ping shrink-0" />
+                <span>
+                  {getWasmStatus().error
+                    ? 'Der kryptografische Rechenkern (WebAssembly) konnte nicht geladen werden.'
+                    : 'Kryptografischer Rechenkern (WebAssembly) wird initialisiert…'}
+                </span>
+              </div>
+              {getWasmStatus().error && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    ensureWasmLoaded().catch(() => {});
+                  }}
+                  className="px-2.5 py-1 rounded-lg text-xs font-bold text-white shrink-0"
+                  style={{ backgroundColor: 'var(--primary-500)' }}
+                >
+                  Erneut versuchen
+                </button>
+              )}
+            </div>
+          )}
+
           <div
-            key={mode}
             className={`animate-fade-up ${mode === 'matrix' ? 'md:flex md:flex-col md:flex-1 md:min-h-0' : ''}`}
           >
           {mode === 'matrix' && (
@@ -533,6 +568,8 @@ export const App: React.FC = () => {
                 setActiveModal({ type: 'classManager', initialTab, highlightAssessmentId })
               }
               onOpenClassWizard={() => setActiveModal({ type: 'classWizard' })}
+              selectedStudentId={selectedStudentId}
+              onChangeSelectedStudentId={setSelectedStudentId}
               onSelectStudent={(studentId) => {
                 setSelectedStudentId(studentId);
                 setMode('student_360');

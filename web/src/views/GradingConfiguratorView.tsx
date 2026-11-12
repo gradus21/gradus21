@@ -541,10 +541,15 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
               style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
             >
               <div className="flex-1 min-w-[220px]">
-                <label className="block text-[11px] font-bold mb-1" style={{ color: 'var(--text-secondary)' }}>
+                <label
+                  htmlFor="new-template-name-input"
+                  className="block text-[11px] font-bold mb-1"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
                   Name deiner neuen Vorlage
                 </label>
                 <input
+                  id="new-template-name-input"
                   type="text"
                   value={newTemplateName}
                   onChange={(e) => setNewTemplateName(e.target.value)}
@@ -611,9 +616,16 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
         {/* =======================================================================
             TAB NAVIGATION BAR (Progressive Disclosure)
            ======================================================================= */}
-        <div className="flex border-b gap-1 sm:gap-2 overflow-x-auto pb-0.5" style={{ borderColor: 'var(--border-subtle)' }}>
+        <div
+          role="tablist"
+          aria-label="Notenlogik-Konfiguration"
+          className="flex border-b gap-1 sm:gap-2 overflow-x-auto pb-0.5"
+          style={{ borderColor: 'var(--border-subtle)' }}
+        >
           <button
             type="button"
+            role="tab"
+            aria-selected={activeTab === 'categories'}
             data-tour="configurator-tab-categories"
             onClick={() => setActiveTab('categories')}
             className={`px-3.5 py-2.5 rounded-t-xl text-xs font-bold border-b-2 transition flex items-center gap-2 shrink-0 ${
@@ -629,6 +641,8 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
 
           <button
             type="button"
+            role="tab"
+            aria-selected={activeTab === 'curve'}
             data-tour="configurator-tab-curve"
             onClick={() => setActiveTab('curve')}
             className={`px-3.5 py-2.5 rounded-t-xl text-xs font-bold border-b-2 transition flex items-center gap-2 shrink-0 ${
@@ -644,6 +658,8 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
 
           <button
             type="button"
+            role="tab"
+            aria-selected={activeTab === 'differentiation'}
             data-tour="configurator-tab-differentiation"
             onClick={() => setActiveTab('differentiation')}
             className={`px-3.5 py-2.5 rounded-t-xl text-xs font-bold border-b-2 transition flex items-center gap-2 shrink-0 ${
@@ -659,6 +675,8 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
 
           <button
             type="button"
+            role="tab"
+            aria-selected={activeTab === 'base_setup'}
             data-tour="configurator-tab-base-setup"
             onClick={() => setActiveTab('base_setup')}
             className={`px-3.5 py-2.5 rounded-t-xl text-xs font-bold border-b-2 transition flex items-center gap-2 shrink-0 ml-auto ${
