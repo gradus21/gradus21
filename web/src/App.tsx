@@ -132,6 +132,20 @@ export const App: React.FC = () => {
         .catch((err) => {
           console.warn('[App] Background update check failed:', err);
         });
+    } else if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      const handleSwMessage = (event: MessageEvent) => {
+        if (event.data?.type === 'SW_UPDATED') {
+          setAppUpdate({
+            available: true,
+            version: 'bereit',
+            body: 'Eine neue Version der App ist verfügbar.',
+          });
+        }
+      };
+      navigator.serviceWorker.addEventListener('message', handleSwMessage);
+      return () => {
+        navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+      };
     }
   }, []);
 

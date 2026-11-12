@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Download, CheckCircle2, AlertTriangle, RefreshCw, X, ExternalLink } from 'lucide-react';
 import { installAppUpdate, UpdateInfo } from '../utils/updater';
-import { isLinux } from '../utils/platform';
+import { isDesktopTauri, isLinux } from '../utils/platform';
 
 interface UpdateNotificationBannerProps {
   updateInfo: UpdateInfo;
@@ -18,6 +18,10 @@ export const UpdateNotificationBanner: React.FC<UpdateNotificationBannerProps> =
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleInstall = async () => {
+    if (!isDesktopTauri()) {
+      window.location.reload();
+      return;
+    }
     setIsInstalling(true);
     setErrorMessage(null);
     try {

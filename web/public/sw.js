@@ -4,6 +4,9 @@ const PRECACHE_ASSETS = [
   '/',
   '/index.html',
   '/favicon.svg',
+  '/apple-touch-icon.png',
+  '/gradus21-app-icon-192.png',
+  '/gradus21-app-icon.png',
   '/gradus21-app-icon.svg',
   '/fonts/fonts.css',
   '/manifest.json'
@@ -23,14 +26,25 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
+      const hadOldCaches = keys.some((k) => k !== CACHE_NAME);
       return Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME) {
             return caches.delete(key);
           }
         })
-      );
-    }).then(() => self.clients.claim())
+      )
+        .then(() => self.clients.claim())
+        .then(() => {
+          if (hadOldCaches) {
+            self.clients.matchAll({ type: 'window' }).then((clients) => {
+              clients.forEach((client) => {
+                client.postMessage({ type: 'SW_UPDATED', version: CACHE_NAME });
+              });
+            });
+          }
+        });
+    })
   );
 });
 
