@@ -64,6 +64,41 @@ export function getServerUrl(): string {
   return DEFAULT_SERVER_URL;
 }
 
+const PRIVATE_HOST_PATTERNS: RegExp[] = [
+  /^localhost$/i,
+  /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+  /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+  /^192\.168\.\d{1,3}\.\d{1,3}$/,
+  /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/,
+  /^169\.254\.\d{1,3}\.\d{1,3}$/,
+  /^[a-z0-9-]+(\.[a-z0-9-]+)*\.local$/i,
+];
+
+/**
+ * Returns true for loopback, link-local, RFC 1918 private addresses and *.local hostnames,
+ * i.e. hosts that a self-hosted school server can legitimately use without TLS.
+ */
+export function isPrivateNetworkHost(host: string): boolean {
+  const cleaned = (host || '').trim().replace(/^\[|\]$/g, '');
+  if (!cleaned) return false;
+  return PRIVATE_HOST_PATTERNS.some((pattern) => pattern.test(cleaned));
+}
+
+/**
+ * Normalizes a user-entered server address. A missing scheme defaults to `http://` for
+ * private/LAN hosts and to `https://` for public hosts, so a self-hosted server in the
+ * school network is reachable without the user having to type the scheme.
+ */
+export function normalizeServerUrlInput(raw: string): string {
+  let cleaned = (raw || '').trim().replace(/\/+$/, '');
+  if (!cleaned) return '';
+  if (/^https?:\/\//i.test(cleaned)) return cleaned;
+  let host = cleaned.split('/')[0];
+  host = host.split(':')[0];
+  const scheme = isPrivateNetworkHost(host) ? 'http' : 'https';
+  return `${scheme}://${cleaned}`;
+}
+
 /**
  * Updates the custom server URL in localStorage.
  * If set to empty or default, clears the custom override.
@@ -75,10 +110,8 @@ export function setServerUrl(url: string): string {
     return DEFAULT_SERVER_URL;
   }
 
-  // Auto-prepend https:// if protocol is omitted
-  if (!/^https?:\/\//i.test(cleaned)) {
-    cleaned = `https://${cleaned}`;
-  }
+  // Auto-prepend the scheme: http for private/LAN hosts, https otherwise
+  cleaned = normalizeServerUrlInput(cleaned);
 
   if (cleaned === DEFAULT_SERVER_URL || isInvalidOrLegacyServerUrl(cleaned)) {
     localStorage.removeItem(SERVER_URL_STORAGE_KEY);
@@ -117,22 +150,22 @@ export async function fetchWithTimeout(
     controller.abort(new DOMException(`Request timed out after ${timeoutMs}ms`, 'TimeoutError'));
   }, timeoutMs);
 
-  let signal = controller.signal;
+  const signal = controller.signal;
+  let detachCallerSignal: (() => void) | undefined;
   if (init?.signal) {
     const callerSignal = init.signal;
+    const abortFromCaller = () => {
+      clearTimeout(timer);
+      controller.abort(
+        callerSignal.reason ?? new DOMException('Request was aborted', 'AbortError')
+      );
+    };
     if (callerSignal.aborted) {
       clearTimeout(timer);
-      controller.abort(callerSignal.reason);
-      throw callerSignal.reason;
+      throw callerSignal.reason ?? new DOMException('Request was aborted', 'AbortError');
     }
-    callerSignal.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timer);
-        controller.abort(callerSignal.reason);
-      },
-      { once: true }
-    );
+    callerSignal.addEventListener('abort', abortFromCaller, { once: true });
+    detachCallerSignal = () => callerSignal.removeEventListener('abort', abortFromCaller);
   }
 
   try {
@@ -172,6 +205,7 @@ export async function fetchWithTimeout(
     }
     throw error;
   } finally {
+    detachCallerSignal?.();
     clearTimeout(timer);
   }
 }

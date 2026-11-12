@@ -658,4 +658,137 @@ describe('useVaultWorkspaceSync - handleImportEncryptedBackup', () => {
     expect(storedCache.classEnvelopes[classId].version).toBe(6);
     expect(storedCache.classEnvelopes[classId].dirty).toBe(false);
   });
+
+  it('marks the sync as pending and keeps envelopes dirty when the reconciliation batch upload fails', async () => {
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    const userId = '00000000-0000-4000-8000-000000000021';
+    const classId = '22222222-2222-4222-8222-222222222222';
+    const userCacheKey = getUserEncryptedCacheKey(userId);
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('/api/envelopes/sync')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              id: classId,
+              entity_type: 'class_dataset',
+              encrypted_payload: 'REMOTE_ENVELOPE',
+              version: 3,
+              updated_at: '2026-01-01T00:00:00Z',
+            },
+          ],
+        });
+      }
+      if (String(url).includes('/api/envelopes/batch')) {
+        return Promise.resolve({ ok: false, status: 500, json: async () => ({}) });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+    });
+
+    (wasm_decrypt_envelope as any).mockReturnValue(
+      JSON.stringify({
+        id: classId,
+        className: '10A',
+        students: [{ id: 's1', firstName: 'Server', lastName: 'Student' }],
+        categories: [],
+        assessments: [],
+        grades: [],
+      })
+    );
+    (wasm_encrypt_envelope as any).mockReturnValue('PENDING_ENVELOPE');
+
+    const { result } = renderHook(() => useVaultWorkspaceSync());
+
+    await act(async () => {
+      await result.current.handleUnlockVault({
+        userId,
+        email: 'teacher@gradus21.de',
+        dekB64: 'dek-123',
+        token: 'jwt-token',
+        kdfSaltB64: 'salt',
+        encryptedDek: 'enc-dek',
+        recoveryEncryptedDek: 'rec-dek',
+        totpEnabled: false,
+        serverSyncedCount: 1,
+      });
+    });
+
+    await act(async () => {
+      await result.current.handleResolveReconciliation('merge');
+    });
+
+    expect(result.current.syncStatus).not.toBe('synced');
+    const storedCache = JSON.parse(localStorage.getItem(userCacheKey) || '{}');
+    expect(storedCache.classEnvelopes[classId].dirty).toBe(true);
+    const successAlerts = alertSpy.mock.calls.filter((call) =>
+      String(call[0] || '').includes('erfolgreich abgeschlossen')
+    );
+    expect(successAlerts).toHaveLength(0);
+  });
+
+  it('deletes local-only envelopes on the server when downloading the remote state', async () => {
+    vi.spyOn(window, 'alert').mockImplementation(() => {});
+    const userId = '00000000-0000-4000-8000-000000000022';
+    const localClassId = '33333333-3333-4333-8333-333333333333';
+    const userCacheKey = getUserEncryptedCacheKey(userId);
+
+    localStorage.setItem(
+      userCacheKey,
+      JSON.stringify({
+        userId,
+        classEnvelopes: {
+          [localClassId]: { encryptedPayload: 'LOCAL_ENVELOPE', version: 1, dirty: false },
+        },
+      })
+    );
+
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('/api/envelopes/sync')) {
+        return Promise.resolve({ ok: true, status: 200, json: async () => [] });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+    });
+    globalThis.fetch = fetchMock;
+
+    (wasm_decrypt_envelope as any).mockReturnValue(
+      JSON.stringify({
+        id: localClassId,
+        className: '10A',
+        students: [],
+        categories: [],
+        assessments: [],
+        grades: [],
+      })
+    );
+    (wasm_encrypt_envelope as any).mockReturnValue('LOCAL_ENVELOPE');
+
+    const { result } = renderHook(() => useVaultWorkspaceSync());
+
+    await act(async () => {
+      await result.current.handleUnlockVault({
+        userId,
+        email: 'teacher@gradus21.de',
+        dekB64: 'dek-123',
+        token: 'jwt-token',
+        kdfSaltB64: 'salt',
+        encryptedDek: 'enc-dek',
+        recoveryEncryptedDek: 'rec-dek',
+        totpEnabled: false,
+        serverSyncedCount: 1,
+      });
+    });
+
+    await act(async () => {
+      await result.current.handleResolveReconciliation('download_remote');
+    });
+
+    const deleteCalls = fetchMock.mock.calls.filter(
+      (call) =>
+        (call[1] as RequestInit | undefined)?.method === 'DELETE' &&
+        String(call[0]).includes('/api/envelopes/')
+    );
+    expect(deleteCalls.some((call) => String(call[0]).includes(localClassId))).toBe(true);
+  });
 });

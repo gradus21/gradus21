@@ -18,7 +18,7 @@ import { triggerHapticFeedback } from '../utils/haptics';
 export interface StorageNoticeModalProps {
   isOpen: boolean;
   onClose: () => void;
-  syncStatus: 'syncing' | 'synced' | 'offline_local' | 'local_only';
+  syncStatus: 'syncing' | 'synced' | 'offline_local' | 'local_only' | 'sync_pending';
   isPersistentStorage?: boolean;
   lastLocalBackupTime?: string | null;
   onExportBackup?: () => void | Promise<any>;

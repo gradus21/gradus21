@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { getServerUrl, setServerUrl, apiUrl, fetchWithTimeout } from './apiConfig';
+import { getServerUrl, setServerUrl, apiUrl, fetchWithTimeout, isPrivateNetworkHost, normalizeServerUrlInput } from './apiConfig';
 
 describe('API & Server URL Configuration', () => {
   beforeEach(() => {
@@ -34,6 +34,46 @@ describe('API & Server URL Configuration', () => {
     localStorage.setItem('gradus21_custom_server_url', 'http://tauri.localhost');
     expect(getServerUrl()).toBe(window.location.origin);
     expect(localStorage.getItem('gradus21_custom_server_url')).toBeNull();
+  });
+
+  it('defaults a bare private/LAN address to http so self-hosted school servers stay reachable', () => {
+    expect(setServerUrl('192.168.1.50:8080')).toBe('http://192.168.1.50:8080');
+    expect(setServerUrl('10.0.0.7')).toBe('http://10.0.0.7');
+    expect(setServerUrl('schule.local:8443')).toBe('http://schule.local:8443');
+    expect(getServerUrl()).toBe('http://schule.local:8443');
+  });
+
+  it('keeps https for public hosts and preserves an explicit scheme', () => {
+    expect(normalizeServerUrlInput('schul-server.intern:8443')).toBe(
+      'https://schul-server.intern:8443'
+    );
+    expect(normalizeServerUrlInput('http://192.168.1.50:8080')).toBe('http://192.168.1.50:8080');
+    expect(normalizeServerUrlInput('https://192.168.1.50:8080')).toBe('https://192.168.1.50:8080');
+  });
+
+  it('classifies private network hosts correctly', () => {
+    expect(isPrivateNetworkHost('localhost')).toBe(true);
+    expect(isPrivateNetworkHost('127.0.0.1')).toBe(true);
+    expect(isPrivateNetworkHost('192.168.0.10')).toBe(true);
+    expect(isPrivateNetworkHost('172.16.5.4')).toBe(true);
+    expect(isPrivateNetworkHost('172.32.5.4')).toBe(false);
+    expect(isPrivateNetworkHost('schule.local')).toBe(true);
+    expect(isPrivateNetworkHost('gradus21.app')).toBe(false);
+  });
+
+  it('removes the caller abort listener once the request settles', async () => {
+    const controller = new AbortController();
+    const removeSpy = vi.spyOn(controller.signal, 'removeEventListener');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }));
+    await fetchWithTimeout('https://example.com/api/ping', { signal: controller.signal });
+    expect(removeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects with an AbortError when the caller aborts without a reason', async () => {
+    const controller = new AbortController();
+    const promise = fetchWithTimeout('https://example.com/api/ping', { signal: controller.signal });
+    controller.abort();
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
   });
 
   describe('fetchWithTimeout', () => {

@@ -343,20 +343,29 @@ export function isStarterOrPlaceholderClass(
   ds: ClassroomSubjectDataset,
   userId?: string
 ): boolean {
-  if (ds.id === 'demo-class-initial') return true;
-  if (ds.id.startsWith('class_starter_')) return true;
-  if (userId && ds.id === ensureValidUuid(`class_starter_${userId}`)) return true;
+  const students = Array.isArray(ds.students) ? ds.students : [];
+  const grades = Array.isArray(ds.grades) ? ds.grades : [];
+  const hasContent = students.length > 0 || grades.length > 0;
+
+  const isStarterId =
+    ds.id === 'demo-class-initial' ||
+    ds.id.startsWith('class_starter_') ||
+    Boolean(userId && ds.id === ensureValidUuid(`class_starter_${userId}`));
+
+  if (isStarterId) {
+    return !hasContent;
+  }
   if (
     (ds.className === 'Meine erste Klasse' || ds.className === 'Neue Klasse') &&
-    ds.students.length === 0 &&
-    ds.grades.length === 0
+    students.length === 0 &&
+    grades.length === 0
   ) {
     return true;
   }
   if (
     ds.description === 'Eigener verschlüsselter Arbeitsbereich' &&
-    ds.students.length === 0 &&
-    ds.grades.length === 0
+    students.length === 0 &&
+    grades.length === 0
   ) {
     return true;
   }
@@ -387,10 +396,8 @@ export function mergeClassroomDatasets(
   const localGrades = Array.isArray(localDs.grades) ? localDs.grades : [];
 
   // 1. Students: Match by ID first, then by normalized name (prevent duplicates like "Max" and "Max")
-  const serverStudentsById = new Map<string, StudentProfile>();
   const serverStudentsByName = new Map<string, StudentProfile>();
   for (const s of serverStudents) {
-    serverStudentsById.set(s.id, s);
     const norm = getStudentNormalizedName(s);
     if (norm && !serverStudentsByName.has(norm)) {
       serverStudentsByName.set(norm, s);
@@ -425,14 +432,6 @@ export function mergeClassroomDatasets(
   }
 
   // 2. Categories: Match by ID first, then by normalized name
-  const serverCatByName = new Map<string, CategoryConfig>();
-  for (const c of serverCategories) {
-    const norm = (c.name || '').trim().toLowerCase();
-    if (norm && !serverCatByName.has(norm)) {
-      serverCatByName.set(norm, c);
-    }
-  }
-
   const localToCanonicalCatId = new Map<string, string>();
   const mergedCategories: CategoryConfig[] = [];
   const seenCatIds = new Set<string>();
@@ -461,14 +460,6 @@ export function mergeClassroomDatasets(
   }
 
   // 3. Assessments: Match by ID first, then by (title + term_id)
-  const serverAssByTitleTerm = new Map<string, AssessmentConfig>();
-  for (const a of serverAssessments) {
-    const key = `${(a.title || '').trim().toLowerCase()}::${a.term_id || ''}`;
-    if (!serverAssByTitleTerm.has(key)) {
-      serverAssByTitleTerm.set(key, a);
-    }
-  }
-
   const localToCanonicalAssId = new Map<string, string>();
   const mergedAssessments: AssessmentConfig[] = [];
   const seenAssIds = new Set<string>();
@@ -614,15 +605,22 @@ export function detectClassNameCollisions(
   const realLocal = localClasses.filter((c) => !isStarterOrPlaceholderClass(c, userId));
   const realRemote = remoteClasses.filter((c) => !isStarterOrPlaceholderClass(c, userId));
 
+  const claimedRemoteIds = new Set<string>();
+
   for (const lCls of realLocal) {
     if (remoteById.has(lCls.id)) {
       continue; // Same ID -> normal merge, not a collision
     }
     const lKey = getClassSemanticKey(lCls);
     const matchedRemote = realRemote.find(
-      (r) => r.id !== lCls.id && getClassSemanticKey(r) === lKey
+      (r) =>
+        r.id !== lCls.id &&
+        !claimedRemoteIds.has(r.id) &&
+        !isStarterOrPlaceholderClass(r, userId) &&
+        getClassSemanticKey(r) === lKey
     );
     if (matchedRemote) {
+      claimedRemoteIds.add(matchedRemote.id);
       collisions.push({
         className: cleanConflictSuffix(lCls.className),
         subjectName: lCls.subjectName || '',
@@ -652,10 +650,8 @@ export function reconcileWorkspaceDatasets(
 ): {
   reconciledClasses: ClassroomSubjectDataset[];
   obsoleteServerIds: string[];
-  hadCollisions: boolean;
 } {
   const obsoleteServerIds = new Set<string>();
-  let hadCollisions = false;
 
   // Check if either side has real (non-placeholder) classes
   const hasRealLocal = localClasses.some((c) => !isStarterOrPlaceholderClass(c, userId));
@@ -690,8 +686,7 @@ export function reconcileWorkspaceDatasets(
 
     if (remoteCls) {
       // 1. Same ID -> merge datasets with true Last-Write-Wins
-      const { mergedDs, hadGradeCollisions } = mergeClassroomDatasets(localCls, remoteCls);
-      if (hadGradeCollisions) hadCollisions = true;
+      const { mergedDs } = mergeClassroomDatasets(localCls, remoteCls);
 
       const canonicalId = ensureValidUuid(remoteCls.id);
       finalMap.set(canonicalId, { ...mergedDs, id: canonicalId });
@@ -705,8 +700,7 @@ export function reconcileWorkspaceDatasets(
         const localKey = getClassSemanticKey(localCls);
         for (const [rId, rCls] of remoteById.entries()) {
           if (getClassSemanticKey(rCls) === localKey) {
-            const { mergedDs, hadGradeCollisions } = mergeClassroomDatasets(localCls, rCls);
-            if (hadGradeCollisions) hadCollisions = true;
+            const { mergedDs } = mergeClassroomDatasets(localCls, rCls);
 
             const canonicalId = ensureValidUuid(rCls.id);
             finalMap.set(canonicalId, { ...mergedDs, id: canonicalId });
@@ -759,6 +753,5 @@ export function reconcileWorkspaceDatasets(
   return {
     reconciledClasses,
     obsoleteServerIds: Array.from(obsoleteServerIds),
-    hadCollisions,
   };
 }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   AlertTriangle,
   ArrowDownCircle,
@@ -39,6 +39,23 @@ export const SyncReconciliationModal: React.FC<SyncReconciliationModalProps> = (
   const [selectedStrategy, setSelectedStrategy] = useState<SyncReconciliationStrategy>('merge');
   const [collisionDecisions, setCollisionDecisions] = useState<Record<string, 'merge' | 'keep_separate'>>({});
   const [isApplying, setIsApplying] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setCollisionDecisions({});
+      setSelectedStrategy('merge');
+      setIsApplying(false);
+      return;
+    }
+    const validIds = new Set((nameCollisions || []).map((c) => c.localId));
+    setCollisionDecisions((prev) => {
+      const next: Record<string, 'merge' | 'keep_separate'> = {};
+      for (const [key, value] of Object.entries(prev)) {
+        if (validIds.has(key)) next[key] = value;
+      }
+      return next;
+    });
+  }, [isOpen, nameCollisions]);
 
   if (!isOpen) return null;
 

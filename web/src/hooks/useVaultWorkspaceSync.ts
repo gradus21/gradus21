@@ -122,7 +122,7 @@ export function useVaultWorkspaceSync() {
     );
   });
   const [syncStatus, setSyncStatus] = useState<
-    'synced' | 'syncing' | 'offline_local' | 'local_only'
+    'synced' | 'syncing' | 'offline_local' | 'local_only' | 'sync_pending'
   >('local_only');
   const [syncConflictNotice, setSyncConflictNotice] = useState<string | null>(null);
   const clearConflictNotice = () => setSyncConflictNotice(null);
@@ -556,6 +556,14 @@ export function useVaultWorkspaceSync() {
           console.warn('Lokaler E2EE-Cache konnte nicht entschlüsselt werden:', e);
         }
       }
+
+    if (cachedLocalClasses.length === 0) {
+      // Invariante I-5: Ohne wiederhergestellte Klassen dürfen keine veralteten
+      // Versions- und Serialisierungs-Referenzen den Auto-Save blockieren.
+      lastSerializedPerClassRef.current.clear();
+      envelopeVersionsRef.current.clear();
+      lastSerializedSettingsRef.current = '';
+    }
 
     // Falls kein lokaler Cache existiert oder forceServerFetch aktiv ist oder Cloud-Sync aktiv ist oder Token vorhanden -> Server abfragen
     let effectiveToken = token || (userId ? getStoredToken(userId) : '');
@@ -1192,15 +1200,9 @@ export function useVaultWorkspaceSync() {
               string,
               { encryptedPayload: string; version: number; dirty?: boolean }
             > = {};
-            const oldKeys = Object.keys(parsedOld.classEnvelopes || {});
-            const isAccidentalStarterOverwrite =
-              datasets.length === 1 &&
-              (datasets[0].className === 'Meine erste Klasse' || datasets[0].id.includes('starter_')) &&
-              oldKeys.length > 1;
-
             if (parsedOld.classEnvelopes && typeof parsedOld.classEnvelopes === 'object') {
               for (const [k, v] of Object.entries(parsedOld.classEnvelopes)) {
-                if (isAccidentalStarterOverwrite || activeDatasetUuids.has(k)) {
+                if (activeDatasetUuids.has(k)) {
                   filteredOldEnvelopes[k] = v as {
                     encryptedPayload: string;
                     version: number;
@@ -2542,6 +2544,10 @@ export function useVaultWorkspaceSync() {
           ...c,
           className: cleanConflictSuffix(c.className),
         }));
+        const remoteIds = new Set(finalClasses.map((c) => ensureValidUuid(c.id)));
+        obsoleteServerIds = datasets
+          .map((c) => ensureValidUuid(c.id))
+          .filter((id) => !remoteIds.has(id));
       } else if (strategy === 'upload_local') {
         // Overwrite remote with local, pruning starter placeholder if real classes exist
         const hasReal = datasets.some((c) => !isStarterOrPlaceholderClass(c, vaultSession.userId));
@@ -2636,6 +2642,11 @@ export function useVaultWorkspaceSync() {
         }
       }
 
+      if ((strategy === 'upload_local' || strategy === 'merge') && !uploadSucceeded) {
+        lastSerializedPerClassRef.current.clear();
+        lastSerializedSettingsRef.current = '';
+      }
+
       // Update local storage cache immediately with reconciled envelopes so auto-save & fresh sessions match
       if (vaultSession?.userId) {
         const userCacheKey = getUserEncryptedCacheKey(vaultSession.userId);
@@ -2688,11 +2699,18 @@ export function useVaultWorkspaceSync() {
       };
       setUserSettings(nextSettings);
       lastSerializedSettingsRef.current = JSON.stringify(nextSettings);
-      setSyncStatus('synced');
       setSyncConflictNotice(null);
       setIsReconciliationOpen(false);
       setReconciliationMeta(null);
-      alert('Synchronisations-Abgleich erfolgreich abgeschlossen!');
+      if ((strategy === 'upload_local' || strategy === 'merge') && !uploadSucceeded) {
+        setSyncStatus('sync_pending');
+        alert(
+          'Der Abgleich wurde lokal übernommen, konnte aber nicht in die Cloud hochgeladen werden. Die Änderungen bleiben vorgemerkt und werden automatisch erneut übertragen, sobald der Server erreichbar ist.'
+        );
+      } else {
+        setSyncStatus('synced');
+        alert('Synchronisations-Abgleich erfolgreich abgeschlossen!');
+      }
     } catch (err) {
       console.error('Fehler bei der Reconciliation:', err);
       alert('Fehler beim Ausführen des Datenabgleichs.');
@@ -2710,42 +2728,12 @@ export function useVaultWorkspaceSync() {
         });
         if (sumRes.ok) {
           const summary = await sumRes.json();
-          let collisions: NameCollision[] = [];
-          try {
-            const syncRes = await fetchWithTimeout(apiUrl('/api/envelopes/sync'), {
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            if (syncRes.ok && vaultSession?.dekB64 && vaultSession?.userId) {
-              const remoteEnvs: Array<{ id: string; entity_type: string; encrypted_payload: string }> =
-                await syncRes.json();
-              const decryptedClasses: ClassroomSubjectDataset[] = [];
-              for (const env of remoteEnvs) {
-                if (env.entity_type === 'class_dataset') {
-                  try {
-                    const decJson = wasm_decrypt_envelope(
-                      vaultSession.dekB64,
-                      vaultSession.userId,
-                      env.id,
-                      env.encrypted_payload
-                    );
-                    const parsed = JSON.parse(decJson);
-                    if (parsed && parsed.id) decryptedClasses.push(parsed);
-                  } catch {}
-                }
-              }
-              collisions = detectClassNameCollisions(
-                datasets,
-                decryptedClasses,
-                vaultSession.userId
-              );
-            }
-          } catch {}
 
           setReconciliationMeta({
             localClassCount: datasets.length,
             remoteClassCount: summary.class_count ?? summary.envelope_count ?? datasets.length,
             remoteLastUpdated: summary.last_updated_at || undefined,
-            nameCollisions: collisions,
+            nameCollisions: [],
           });
           setIsReconciliationOpen(true);
           return;

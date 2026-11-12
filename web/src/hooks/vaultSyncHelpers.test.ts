@@ -7,7 +7,7 @@ import {
   mergeClassroomDatasets,
   reconcileWorkspaceDatasets,
 } from './vaultSyncHelpers';
-import { ClassroomSubjectDataset, GradeEntry } from '../data/demoClasses';
+import { ClassroomSubjectDataset, GradeEntry, ensureValidUuid } from '../data/demoClasses';
 
 const baseLocalDs: ClassroomSubjectDataset = {
   id: 'c1a55000-0000-4000-8000-000000000001',
@@ -466,5 +466,65 @@ describe('reconcileWorkspaceDatasets - Smart Workspace Merging & Deduplication',
     expect(cleanConflictSuffix('Klasse 9a (Cloud-Kopie)')).toBe('Klasse 9a');
     expect(cleanConflictSuffix('Mathematik (Kopie vor Merge)')).toBe('Mathematik');
     expect(cleanConflictSuffix('Normal Class')).toBe('Normal Class');
+  });
+});
+
+describe('isStarterOrPlaceholderClass - Schutz der ersten echten Klasse', () => {
+  const userId = 'c1a55000-0000-4000-8000-0000000000aa';
+  const starterId = ensureValidUuid(`class_starter_${userId}`);
+
+  const filledStarter: ClassroomSubjectDataset = {
+    ...baseLocalDs,
+    id: starterId,
+    className: '10a',
+    students: [{ id: 'stud-1', name: 'Max Mustermann', level: 'M', is_not_graded: false }],
+    grades: [
+      {
+        student_id: 'stud-1',
+        assessment_id: 'ass-1',
+        status: 'graded',
+        percent_value: 90,
+        raw_points: 27,
+        direct_grade_value: null,
+        comment: null,
+      },
+    ],
+  };
+
+  it('keeps a filled class that still carries the starter UUID', () => {
+    expect(isStarterOrPlaceholderClass(filledStarter, userId)).toBe(false);
+  });
+
+  it('prunes an empty class that still carries the starter UUID', () => {
+    const emptyStarter: ClassroomSubjectDataset = {
+      ...filledStarter,
+      students: [],
+      grades: [],
+    };
+    expect(isStarterOrPlaceholderClass(emptyStarter, userId)).toBe(true);
+  });
+
+  it('does not drop the filled starter class during reconciliation', () => {
+    const otherClass: ClassroomSubjectDataset = {
+      ...baseLocalDs,
+      id: 'c1a55000-0000-4000-8000-0000000000bb',
+      className: '10b',
+    };
+    const { reconciledClasses, obsoleteServerIds } = reconcileWorkspaceDatasets(
+      [filledStarter, otherClass],
+      [filledStarter, otherClass],
+      userId
+    );
+    expect(reconciledClasses.map((c) => c.id)).toContain(starterId);
+    expect(obsoleteServerIds).not.toContain(starterId);
+  });
+
+  it('assigns a remote class to at most one local collision', () => {
+    const remote = { ...baseLocalDs, id: 'c1a55000-0000-4000-8000-0000000000cc', className: '10a' };
+    const localA = { ...baseLocalDs, id: 'c1a55000-0000-4000-8000-0000000000dd', className: '10a' };
+    const localB = { ...baseLocalDs, id: 'c1a55000-0000-4000-8000-0000000000ee', className: '10a' };
+    const collisions = detectClassNameCollisions([localA, localB], [remote], userId);
+    expect(collisions).toHaveLength(1);
+    expect(collisions[0].remoteId).toBe(remote.id);
   });
 });

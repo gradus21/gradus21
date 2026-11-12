@@ -44,7 +44,7 @@ export interface AppHeaderProps {
   onOpenInteractiveGuide: () => void;
   showGuideButtonInHeader?: boolean;
   isAdmin?: boolean;
-  syncStatus: 'syncing' | 'synced' | 'offline_local' | 'local_only';
+  syncStatus: 'syncing' | 'synced' | 'offline_local' | 'local_only' | 'sync_pending';
   isPersistentStorage?: boolean;
   lastLocalBackupTime?: string | null;
   onExportEncryptedBackup?: () => void | Promise<any>;
@@ -355,6 +355,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   ? 'Synchronisiere…'
                   : syncStatus === 'offline_local'
                   ? 'Achtung: Cloud-Konto nicht synchronisiert (offline)'
+                  : syncStatus === 'sync_pending'
+                  ? 'Cloud-Upload ausstehend — wird automatisch wiederholt'
                   : 'Lokaler Speicher (auf diesem Gerät) — Vollständig geschützt'
               }
             >
@@ -365,6 +367,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   <Cloud className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                 ) : syncStatus === 'offline_local' ? (
                   <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 animate-pulse" />
+                ) : syncStatus === 'sync_pending' ? (
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                 ) : (
                   <Info className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
                 )}
@@ -376,6 +380,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   ? 'Sync…'
                   : syncStatus === 'offline_local'
                   ? 'Offline'
+                  : syncStatus === 'sync_pending'
+                  ? 'Ausstehend'
                   : 'Lokal'}
               </span>
             </button>
@@ -415,6 +421,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                         <Cloud className="w-5 h-5" />
                       ) : syncStatus === 'offline_local' ? (
                         <AlertTriangle className="w-5 h-5" />
+                      ) : syncStatus === 'sync_pending' ? (
+                        <AlertTriangle className="w-5 h-5" />
                       ) : (
                         <Info className="w-5 h-5" />
                       )}
@@ -428,6 +436,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                             ? 'Synchronisiere…'
                             : syncStatus === 'offline_local'
                             ? 'Cloud-Konto offline'
+                            : syncStatus === 'sync_pending'
+                            ? 'Cloud-Upload ausstehend'
                             : 'Lokaler Speicher'}
                         </h4>
                         {syncStatus === 'synced' && (
