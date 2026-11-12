@@ -24,6 +24,8 @@ import {
 } from '../components/ExportAndPrintHelpers';
 import { ExportConfigModal } from '../components/ExportConfigModal';
 import { triggerHapticFeedback } from '../utils/haptics';
+import { validateGradeInput } from '../utils/gradeValidation';
+import { toast } from '../utils/toast';
 import {
   Archive,
   ChevronDown,
@@ -70,6 +72,9 @@ export interface ClassMatrixViewProps {
 
 interface MatrixGradeCellInputProps {
   inputMode?: 'grade_scale' | 'points' | 'percent';
+  scaleId?: string;
+  maxPoints?: number | null;
+  ariaLabel?: string;
   displayValue: string;
   placeholder?: string;
   title?: string;
@@ -83,6 +88,9 @@ interface MatrixGradeCellInputProps {
 
 const MatrixGradeCellInput: React.FC<MatrixGradeCellInputProps> = ({
   inputMode = 'percent',
+  scaleId = 'de_classic_1_to_6',
+  maxPoints = 15,
+  ariaLabel,
   displayValue,
   placeholder = '—',
   title,
@@ -94,25 +102,49 @@ const MatrixGradeCellInput: React.FC<MatrixGradeCellInputProps> = ({
   onKeyDown,
 }) => {
   const [localValue, setLocalValue] = useState<string | null>(null);
+  const focusStartValueRef = React.useRef<string>(displayValue);
   const currentValue = localValue !== null ? localValue : displayValue;
+  const validation = validateGradeInput(currentValue, inputMode, scaleId, maxPoints ?? 15);
 
   return (
     <input
       type="text"
       inputMode={inputMode === 'grade_scale' ? 'text' : 'decimal'}
       enterKeyHint={enterKeyHint}
+      aria-label={ariaLabel}
+      aria-invalid={!validation.isValid}
       data-card-grade-input={dataCardGradeInput ? 'true' : undefined}
       value={currentValue}
       placeholder={placeholder}
-      title={title}
-      className={className}
+      title={!validation.isValid ? validation.errorHint : title}
+      className={`${className || ''} ${
+        !validation.isValid
+          ? '!border-rose-500 !ring-1 !ring-rose-500/40 !text-rose-600 dark:!text-rose-400'
+          : ''
+      }`}
       style={style}
       onFocus={(e) => {
+        focusStartValueRef.current = displayValue;
         setLocalValue(displayValue);
         e.target.select();
       }}
       onBlur={() => {
-        setLocalValue(null);
+        if (validation.isValid) {
+          if (
+            localValue !== null &&
+            localValue.trim() !== focusStartValueRef.current.trim()
+          ) {
+            const previousVal = focusStartValueRef.current;
+            toast.info('Note gespeichert', {
+              duration: 4500,
+              action: {
+                label: 'Rückgängig',
+                onClick: () => onUpdate(previousVal),
+              },
+            });
+          }
+          setLocalValue(null);
+        }
       }}
       onChange={(e) => {
         const val = e.target.value;
@@ -918,6 +950,9 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                                   <>
                                     <MatrixGradeCellInput
                                       inputMode={assess.input_mode}
+                                      scaleId={activeDataset.config.scale_id}
+                                      maxPoints={assess.max_points}
+                                      ariaLabel={`${currentStudent.name} – ${assess.title}`}
                                       enterKeyHint="next"
                                       dataCardGradeInput={true}
                                       displayValue={
@@ -1406,6 +1441,9 @@ export const ClassMatrixView: React.FC<ClassMatrixViewProps> = ({
                                 ) : (
                                   <MatrixGradeCellInput
                                     inputMode={assess.input_mode}
+                                    scaleId={activeDataset.config.scale_id}
+                                    maxPoints={assess.max_points}
+                                    ariaLabel={`${stu.name} – ${assess.title}`}
                                     displayValue={
                                       assess.input_mode === 'grade_scale'
                                         ? entry?.direct_grade_value != null

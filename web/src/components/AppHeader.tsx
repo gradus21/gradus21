@@ -373,7 +373,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   <Info className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
                 )}
               </span>
-              <span className="hidden lg:inline text-[11px] font-medium">
+              <span role="status" aria-live="polite" className="hidden lg:inline text-[11px] font-medium">
                 {syncStatus === 'synced'
                   ? 'Cloud'
                   : syncStatus === 'syncing'

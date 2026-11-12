@@ -20,6 +20,8 @@ import {
 import type { GlobalTemplateRecord } from '../types/templates';
 import { Sliders, Zap, ArrowLeft, Plus, Users, FileSpreadsheet } from 'lucide-react';
 import { triggerHapticFeedback } from '../utils/haptics';
+import { validateGradeInput } from '../utils/gradeValidation';
+import { toast } from '../utils/toast';
 
 export interface SpeedGradingViewProps {
   activeDataset: ClassroomSubjectDataset;
@@ -64,7 +66,11 @@ export interface SpeedGradingViewProps {
 interface SpeedGradingRowInputProps {
   idx: number;
   studentId: string;
+  studentName?: string;
+  assessmentTitle?: string;
   speedInputMode: 'percent' | 'points' | 'grade_scale';
+  scaleId?: string;
+  maxPoints?: number | null;
   displayValue: string;
   placeholder: string;
   onUpdate: (value: string) => void;
@@ -74,16 +80,22 @@ interface SpeedGradingRowInputProps {
 const SpeedGradingRowInput: React.FC<SpeedGradingRowInputProps> = ({
   idx,
   studentId,
+  studentName,
+  assessmentTitle,
   speedInputMode,
+  scaleId = 'de_classic_1_to_6',
+  maxPoints = 15,
   displayValue,
   placeholder,
   onUpdate,
   onNavigate,
 }) => {
   const [localValue, setLocalValue] = React.useState<string | null>(null);
+  const focusStartValueRef = React.useRef<string>(displayValue);
 
   // If the user is actively focused/typing, use the local value so commas, dots, and multiple digits aren't interrupted.
   const currentValue = localValue !== null ? localValue : displayValue;
+  const validation = validateGradeInput(currentValue, speedInputMode, scaleId, maxPoints ?? 15);
 
   return (
     <input
@@ -91,15 +103,38 @@ const SpeedGradingRowInput: React.FC<SpeedGradingRowInputProps> = ({
       type="text"
       inputMode={speedInputMode === 'grade_scale' ? 'text' : 'decimal'}
       enterKeyHint="next"
+      aria-label={
+        studentName
+          ? `${studentName}${assessmentTitle ? ` – ${assessmentTitle}` : ''}`
+          : undefined
+      }
+      aria-invalid={!validation.isValid}
+      title={!validation.isValid ? validation.errorHint : undefined}
       data-speed-grade-idx={idx}
       value={currentValue}
       placeholder={placeholder}
       onFocus={(e) => {
+        focusStartValueRef.current = displayValue;
         setLocalValue(displayValue);
         e.target.select();
       }}
       onBlur={() => {
-        setLocalValue(null);
+        if (validation.isValid) {
+          if (
+            localValue !== null &&
+            localValue.trim() !== focusStartValueRef.current.trim()
+          ) {
+            const previousVal = focusStartValueRef.current;
+            toast.info('Note gespeichert', {
+              duration: 4500,
+              action: {
+                label: 'Rückgängig',
+                onClick: () => onUpdate(previousVal),
+              },
+            });
+          }
+          setLocalValue(null);
+        }
       }}
       onChange={(e) => {
         const val = e.target.value;
@@ -115,7 +150,11 @@ const SpeedGradingRowInput: React.FC<SpeedGradingRowInputProps> = ({
           onNavigate('prev');
         }
       }}
-      className="w-16 sm:w-24 px-1.5 sm:px-3 py-1.5 rounded-xl border text-center font-mono text-base sm:text-sm font-bold focus:outline-none focus:ring-2 focus:ring-teal-500 min-h-[44px] sm:min-h-0"
+      className={`w-16 sm:w-24 px-1.5 sm:px-3 py-1.5 rounded-xl border text-center font-mono text-base sm:text-sm font-bold focus:outline-none focus:ring-2 focus:ring-teal-500 min-h-[44px] sm:min-h-0 ${
+        !validation.isValid
+          ? '!border-rose-500 !ring-1 !ring-rose-500/40 !text-rose-600 dark:!text-rose-400'
+          : ''
+      }`}
       style={{
         backgroundColor: 'var(--bg-subtle)',
         borderColor: 'var(--border-subtle)',
@@ -519,7 +558,11 @@ export const SpeedGradingView: React.FC<SpeedGradingViewProps> = ({
                   <SpeedGradingRowInput
                     idx={idx}
                     studentId={stu.id}
+                    studentName={stu.name}
+                    assessmentTitle={activeAssessment.title}
                     speedInputMode={speedInputMode}
+                    scaleId={activeDataset.config.scale_id}
+                    maxPoints={activeAssessment.max_points}
                     displayValue={
                       entry?.status === 'excused'
                         ? 'K'

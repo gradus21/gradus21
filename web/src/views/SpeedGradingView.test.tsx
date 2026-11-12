@@ -130,4 +130,32 @@ describe('SpeedGradingView Empty State & Resilience', () => {
     });
     expect(document.activeElement).toBe(input1);
   });
+
+  it('marks out-of-range input with aria-invalid="true" (#41)', () => {
+    const dataset = INITIAL_CLASS_DATASETS[0];
+    const assessment = dataset.assessments[0];
+    const students = dataset.students.slice(0, 2);
+
+    render(
+      <SpeedGradingView
+        {...defaultProps}
+        activeDataset={dataset}
+        termAssessments={[assessment]}
+        activeAssessment={assessment}
+        visibleStudents={students}
+        speedInputMode="grade_scale"
+      />
+    );
+
+    const input0 = document.querySelector<HTMLInputElement>('input[data-speed-grade-idx="0"]')!;
+    expect(input0.getAttribute('aria-invalid')).toBe('false');
+
+    act(() => {
+      fireEvent.focus(input0);
+      fireEvent.change(input0, { target: { value: '7' } });
+    });
+
+    expect(input0.getAttribute('aria-invalid')).toBe('true');
+    expect(input0.getAttribute('title')).toContain('Note 1,0 bis 6,0');
+  });
 });

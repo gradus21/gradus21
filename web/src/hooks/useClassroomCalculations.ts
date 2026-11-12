@@ -15,6 +15,7 @@ import {
 } from '../wasm-pkg/gradus21_core';
 import type { GlobalTemplateRecord } from '../types/templates';
 import { ClassCalculationReport, StudentCalculatedSummary } from '../types/workspace';
+import { validateGradeInput } from '../utils/gradeValidation';
 
 export interface UseClassroomCalculationsParams {
   wasmReady: boolean;
@@ -261,8 +262,21 @@ export function useClassroomCalculations({
         return { ...ds, grades: [...filtered, newEntry], updated_at: nowIso };
       }
 
+      const validation = validateGradeInput(
+        inputValue,
+        inputType,
+        ds.config.scale_id || 'de_classic_1_to_6',
+        maxPts
+      );
+      if (!validation.isValid) {
+        return ds;
+      }
+
       let directGradeVal: number | null = null;
-      if (ds.config.scale_id === 'de_classic_1_to_6' || !ds.config.scale_id) {
+      if (
+        (ds.config.scale_id === 'de_classic_1_to_6' || !ds.config.scale_id) &&
+        !trimmed.endsWith('%')
+      ) {
         let clean = trimmed.replace(',', '.');
         const hasPlus = clean.endsWith('+') || clean.startsWith('+');
         const hasMinus = clean.endsWith('-') || clean.startsWith('-');
@@ -275,15 +289,14 @@ export function useClassroomCalculations({
         }
       }
 
-      const num = directGradeVal !== null ? directGradeVal : parseFloat(trimmed.replace(',', '.'));
+      const num = directGradeVal !== null ? directGradeVal : parseFloat(trimmed.replace('%', '').replace(',', '.'));
       if (isNaN(num)) return ds;
 
       const student = ds.students.find((s) => s.id === studentId);
 
-      // Intelligent detection: If user typed e.g. "80" or "80%" into a grade_scale field (where max grade is 6), treat as percentage
+      // Only treat as percentage in a grade_scale field if '%' is explicitly provided
       const isPercentInputInGradeField =
-        inputType === 'grade_scale' &&
-        (inputValue.includes('%') || (ds.config.scale_id !== 'de_oberstufe_0_to_15' && num > 6));
+        inputType === 'grade_scale' && trimmed.endsWith('%');
 
       if (inputType === 'grade_scale' && !isPercentInputInGradeField) {
         const newEntry: GradeEntry = {
