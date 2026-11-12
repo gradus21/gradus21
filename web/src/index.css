@@ -121,6 +121,12 @@ body {
   color: var(--text-primary);
   font-family: var(--app-font-family, 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif);
   overscroll-behavior-y: none;
+}
+
+button,
+[role="button"],
+.mobile-tab-bar,
+.btn-chrome {
   -webkit-touch-callout: none;
 }
 
@@ -246,9 +252,9 @@ nav,
   }
 }
 
-/* Verhindert auf iOS Safari (iPhone & iPad) das störende automatische Hineinzoomen
+/* Verhindert auf iOS Safari (iPhone & iPad coarse pointers) das störende automatische Hineinzoomen
    bei Klick in Eingabefelder mit Schriftgrößen unter 16px */
-@media screen and (max-width: 768px) {
+@media screen and (max-width: 768px), screen and (pointer: coarse) {
   input[type="text"],
   input[type="number"],
   input[type="password"],
@@ -453,7 +459,14 @@ input[type="range"]::-moz-range-track {
 .matrix-scroll tbody tr:focus-within > td:first-child { box-shadow: inset 2px 0 0 var(--primary-500); }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-pop-in, .animate-fade-up { animation: none; }
+  .animate-pop-in,
+  .animate-fade-up,
+  .sheet-mobile-enter,
+  .btn-tactile:active {
+    animation: none !important;
+    transform: none !important;
+    transition: none !important;
+  }
 }
 
 /* ── Header icon button utility ───────────────────────────────────────────── */

@@ -18,7 +18,7 @@ export const MobileTabBar: React.FC<MobileTabBarProps> = ({ mode, setMode }) => 
 
   return (
     <nav
-      aria-label="Mobile Navigation"
+      aria-label="Hauptnavigation"
       className="mobile-tab-bar md:hidden fixed bottom-0 inset-x-0 z-40 pb-safe border-t backdrop-blur-xl shadow-[0_-4px_20px_rgba(0,0,0,0.08)]"
       style={{
         backgroundColor: 'color-mix(in srgb, var(--bg-surface) 88%, transparent)',

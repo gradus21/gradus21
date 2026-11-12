@@ -323,6 +323,7 @@ export const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
             <div className="space-y-2">
               <input
                 type="email"
+                autoComplete="email"
                 autoFocus
                 value={editedEmail}
                 onChange={(e) => setEditedEmail(e.target.value)}

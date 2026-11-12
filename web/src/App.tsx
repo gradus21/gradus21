@@ -658,7 +658,7 @@ export const App: React.FC = () => {
             </span>
           )}
           <span>·</span>
-          <span>Zero-Knowledge E2EE & Client-Side Rust/WASM</span>
+          <span>Ende-zu-Ende-verschlüsselt (Zero-Knowledge) · Rust/WASM</span>
         </div>
         <div className="flex items-center gap-3">
           <a
