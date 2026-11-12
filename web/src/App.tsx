@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AlertTriangle, ExternalLink, GitMerge, X } from 'lucide-react';
 import { AppHeader } from './components/AppHeader';
 import { MobileTabBar } from './components/MobileTabBar';
+import { isScreenshotMode as detectScreenshotMode } from './utils/screenshotMode';
 import { ClassSetupAndExcelWizard } from './components/ClassSetupAndExcelWizard';
 import { ClassManagementModal } from './components/ClassManagementModal';
 import { SettingsModal, SettingsSection } from './components/SettingsModal';
@@ -96,12 +97,8 @@ export const App: React.FC = () => {
   // Navigation & Workspace State
   const legalConfig = useLegalConfig();
 
-  const isScreenshotMode = typeof window !== 'undefined' && (
-    window.location.search.includes('demo=1') ||
-    window.location.hash.startsWith('#matrix') ||
-    window.location.hash.startsWith('#speed') ||
-    window.location.hash.startsWith('#student')
-  );
+  // Nur über ?demo=1 aktivierbar – Navigations-Hashes lösen den Modus nicht aus (#37)
+  const [isScreenshotMode] = useState(detectScreenshotMode);
 
   const resolveModeFromHash = (): WorkspaceMode => {
     if (typeof window === 'undefined') return 'matrix';

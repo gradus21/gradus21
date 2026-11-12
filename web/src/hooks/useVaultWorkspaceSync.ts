@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { isScreenshotMode } from '../utils/screenshotMode';
 import {
   wasm_decrypt_envelope,
   wasm_encrypt_envelope,
@@ -107,13 +108,7 @@ export function useVaultWorkspaceSync() {
   });
 
   const [isVaultLocked, setIsVaultLocked] = useState<boolean>(() => {
-    if (
-      typeof window !== 'undefined' &&
-      (window.location.search.includes('demo=1') ||
-        window.location.hash.startsWith('#matrix') ||
-        window.location.hash.startsWith('#speed') ||
-        window.location.hash.startsWith('#student'))
-    ) {
+    if (isScreenshotMode()) {
       return false;
     }
     return (
@@ -950,6 +945,17 @@ export function useVaultWorkspaceSync() {
         console.error('WASM initialization error in useVaultWorkspaceSync:', err);
       }
 
+      // Screenshot-/Demo-Modus (?demo=1): Isolierter In-Memory-Workspace ohne Vault-Session.
+      // Bewusst VOR dem Restore der echten Sitzung, damit weder echte Daten geladen
+      // noch Demo-Daten persistiert/synchronisiert werden (Autosave & Sync erfordern vaultSession).
+      if (isScreenshotMode()) {
+        setVaultSession(null);
+        setDatasets(INITIAL_CLASS_DATASETS);
+        setActiveClassId(INITIAL_CLASS_DATASETS[0].id);
+        setIsVaultLocked(false);
+        return;
+      }
+
       const lockedFlag =
         (localStorage.getItem(VAULT_LOCKED_STORAGE_KEY) ||
           localStorage.getItem(LEGACY_VAULT_LOCKED_STORAGE_KEY)) === 'true';
@@ -1038,20 +1044,6 @@ export function useVaultWorkspaceSync() {
             // Proceed to lock screen if cache is invalid
           }
         }
-      }
-
-      // Screenshot / Demo-Modus: Behalte vollständige Demo-Klasse mit Noten und Schülern
-      if (
-        typeof window !== 'undefined' &&
-        (window.location.search.includes('demo=1') ||
-          window.location.hash.startsWith('#matrix') ||
-          window.location.hash.startsWith('#speed') ||
-          window.location.hash.startsWith('#student'))
-      ) {
-        setDatasets(INITIAL_CLASS_DATASETS);
-        setActiveClassId(INITIAL_CLASS_DATASETS[0].id);
-        setIsVaultLocked(false);
-        return;
       }
 
       // Keine gespeicherte Sitzung vorhanden (Erstbesuch oder Incognito):
