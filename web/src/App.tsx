@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle, ExternalLink, GitMerge, X } from 'lucide-react';
+import { ToastContainer } from './components/ToastContainer';
+import { GlobalDialogContainer } from './components/GlobalDialogContainer';
 import { AppHeader } from './components/AppHeader';
 import { MobileTabBar } from './components/MobileTabBar';
 import { isScreenshotMode as detectScreenshotMode } from './utils/screenshotMode';
@@ -899,6 +901,10 @@ export const App: React.FC = () => {
         onExportBackup={handleExportEncryptedBackup}
         onOpenStorageSettings={() => handleOpenSettings('storage')}
       />
+
+      {/* GLOBALE TOAST- & DIALOG-CONTAINER (#40) */}
+      <ToastContainer />
+      <GlobalDialogContainer />
     </div>
   );
 };

@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { toast } from '../utils/toast';
+import { confirmDialog } from '../utils/dialogPrompt';
 import { getServerUrl, setServerUrl } from '../utils/apiConfig';
 import {
   CellDisplayFormat,
@@ -185,7 +187,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleEnableLinuxKeyring = async () => {
     if (!session?.dekB64 || !session.userId || !session.email) {
-      alert('Hauptschlüssel (DEK) nicht im Speicher. Bitte melde dich erneut mit deinem Master-Passwort an.');
+      toast.error('Hauptschlüssel (DEK) nicht im Speicher. Bitte melde dich erneut mit deinem Master-Passwort an.');
       return;
     }
     try {
@@ -194,17 +196,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setHasLinuxKeyring(true);
       setLinuxMethod('keyring');
       triggerSaved();
-      alert('Linux-Schlüsselbund erfolgreich verknüpft! Du kannst Gradus21 ab sofort per Fingerabdruck / Keyring entsperren.');
+      toast.success('Linux-Schlüsselbund erfolgreich verknüpft! Du kannst Gradus21 ab sofort per Fingerabdruck / Keyring entsperren.');
     } catch (err: any) {
       console.warn('Linux Keyring enrollment failed:', err);
-      alert('Aktivierung fehlgeschlagen: ' + (err?.message || String(err)));
+      toast.error('Aktivierung fehlgeschlagen: ' + (err?.message || String(err)));
     } finally {
       setIsEnrollingLinuxKeyring(false);
     }
   };
 
   const handleDisableLinuxKeyring = async () => {
-    if (window.confirm('Möchtest du die Entsperrung über den Linux-Schlüsselbund wirklich deaktivieren?')) {
+    const ok = await confirmDialog({
+      title: 'Schlüsselbund deaktivieren?',
+      message: 'Möchtest du die Entsperrung über den Linux-Schlüsselbund wirklich deaktivieren?',
+      danger: true,
+      confirmText: 'Deaktivieren',
+    });
+    if (ok) {
       if (session?.userId) {
         await disableLinuxKeyringUnlock(session.userId);
       }
@@ -425,7 +433,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleEnableBiometric = async () => {
     if (!session?.dekB64 || !session.userId || !session.email) {
-      alert('Hauptschlüssel (DEK) nicht im Speicher. Bitte melde dich erneut mit deinem Master-Passwort an.');
+      toast.error('Hauptschlüssel (DEK) nicht im Speicher. Bitte melde dich erneut mit deinem Master-Passwort an.');
       return;
     }
     try {
@@ -433,17 +441,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       await enableNativeBiometricLock(session.userId, session.email, session.dekB64);
       setHasNativeBio(true);
       triggerSaved();
-      alert('Fingerabdruck / Face ID erfolgreich aktiviert! Du kannst Gradus21 ab sofort per Biometrie entsperren.');
+      toast.success('Fingerabdruck / Face ID erfolgreich aktiviert! Du kannst Gradus21 ab sofort per Biometrie entsperren.');
     } catch (err: any) {
       console.warn('Biometric enrollment failed:', err);
-      alert('Aktivierung fehlgeschlagen: ' + (err?.message || String(err)));
+      toast.error('Aktivierung fehlgeschlagen: ' + (err?.message || String(err)));
     } finally {
       setIsEnrollingBio(false);
     }
   };
 
-  const handleDisableBiometric = () => {
-    if (window.confirm('Möchtest du die biometrische Entsperrung auf diesem Gerät wirklich deaktivieren?')) {
+  const handleDisableBiometric = async () => {
+    const ok = await confirmDialog({
+      title: 'Biometrie deaktivieren?',
+      message: 'Möchtest du die biometrische Entsperrung auf diesem Gerät wirklich deaktivieren?',
+      danger: true,
+      confirmText: 'Deaktivieren',
+    });
+    if (ok) {
       if (session?.userId) {
         disableNativeBiometricLock(session.userId);
       }

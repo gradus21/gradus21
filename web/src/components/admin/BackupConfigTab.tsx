@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { apiUrl, fetchWithTimeout } from '../../utils/apiConfig';
+import { confirmDialog } from '../../utils/dialogPrompt';
 import { triggerFileDownload } from '../ExportAndPrintHelpers';
 import {
   AlertTriangle,
@@ -159,12 +160,16 @@ export const BackupConfigTab: React.FC<BackupConfigTabProps> = ({ token, onResto
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (
-      !window.confirm(
+    const confirmed = await confirmDialog({
+      title: 'Server-Snapshot einspielen?',
+      message:
         `ACHTUNG: Möchtest du den Server-Snapshot "${file.name}" wirklich einspielen?\n` +
-          `Alle aktuellen Datenbankinhalte und verschlüsselten Tresore werden mit dem Snapshot überschrieben!`
-      )
-    ) {
+        `Alle aktuellen Datenbankinhalte und verschlüsselten Tresore werden mit dem Snapshot überschrieben!`,
+      confirmText: 'Snapshot einspielen',
+      cancelText: 'Abbrechen',
+      variant: 'danger',
+    });
+    if (!confirmed) {
       e.target.value = '';
       return;
     }

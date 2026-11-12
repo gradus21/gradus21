@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { apiUrl } from '../../utils/apiConfig';
+import { confirmDialog } from '../../utils/dialogPrompt';
 import {
   BookOpen,
   Check,
@@ -169,7 +170,14 @@ export const CentralTemplatesTab: React.FC<CentralTemplatesTabProps> = ({ token 
   };
 
   const handleDelete = async (tpl: GlobalTemplateRecord) => {
-    if (!window.confirm(`Möchtest du die globale Vorlage "${tpl.title}" wirklich löschen?`)) {
+    const confirmed = await confirmDialog({
+      title: 'Globale Vorlage löschen?',
+      message: `Möchtest du die globale Vorlage "${tpl.title}" wirklich löschen?`,
+      confirmText: 'Vorlage löschen',
+      cancelText: 'Abbrechen',
+      variant: 'danger',
+    });
+    if (!confirmed) {
       return;
     }
     setErrorMsg(null);

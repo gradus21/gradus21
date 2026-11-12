@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { apiUrl } from '../../utils/apiConfig';
+import { confirmDialog } from '../../utils/dialogPrompt';
 import {
   Check,
   Copy,
@@ -81,7 +82,14 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
 
   const handleToggleAdmin = async (user: AdminUser) => {
     const actionText = user.is_admin ? 'Admin-Rechte entziehen' : 'zur/zum Administrator:in ernennen';
-    if (!window.confirm(`Möchtest du ${user.email} wirklich ${actionText}?`)) {
+    const confirmed = await confirmDialog({
+      title: 'Benutzerrolle ändern?',
+      message: `Möchtest du ${user.email} wirklich ${actionText}?`,
+      confirmText: 'Rolle ändern',
+      cancelText: 'Abbrechen',
+      variant: 'primary',
+    });
+    if (!confirmed) {
       return;
     }
     setErrorMsg(null);
@@ -106,7 +114,14 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
 
   const handleToggleActive = async (user: AdminUser) => {
     const actionText = user.is_active ? 'deaktivieren' : 'wieder aktivieren';
-    if (!window.confirm(`Möchtest du das Konto von ${user.email} wirklich ${actionText}?`)) {
+    const confirmed = await confirmDialog({
+      title: 'Kontostatus ändern?',
+      message: `Möchtest du das Konto von ${user.email} wirklich ${actionText}?`,
+      confirmText: user.is_active ? 'Deaktivieren' : 'Aktivieren',
+      cancelText: 'Abbrechen',
+      variant: user.is_active ? 'danger' : 'primary',
+    });
+    if (!confirmed) {
       return;
     }
     setErrorMsg(null);
@@ -130,11 +145,14 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
   };
 
   const handleDeleteUser = async (user: AdminUser) => {
-    if (
-      !window.confirm(
-        `ACHTUNG: Möchtest du das Benutzerkonto von ${user.email} unwiderruflich löschen?\nAlle verschlüsselten Daten werden vollständig vom Server entfernt.`
-      )
-    ) {
+    const confirmed = await confirmDialog({
+      title: 'Benutzerkonto löschen?',
+      message: `ACHTUNG: Möchtest du das Benutzerkonto von ${user.email} unwiderruflich löschen?\nAlle verschlüsselten Daten werden vollständig vom Server entfernt.`,
+      confirmText: 'Unwiderruflich löschen',
+      cancelText: 'Abbrechen',
+      variant: 'danger',
+    });
+    if (!confirmed) {
       return;
     }
     setErrorMsg(null);

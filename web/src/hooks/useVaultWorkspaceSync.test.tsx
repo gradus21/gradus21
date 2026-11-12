@@ -14,6 +14,8 @@ import {
 import { findLocalCachedVault } from '../components/vault/vaultTypes';
 import { wasm_encrypt_envelope, wasm_decrypt_envelope } from '../wasm-pkg/gradus21_core';
 import * as localBackupStorage from '../utils/localBackupStorage';
+import { dialogPromptManager } from '../utils/dialogPrompt';
+import { toast } from '../utils/toast';
 
 vi.mock('../utils/wasmLoader', () => ({
   ensureWasmLoaded: vi.fn().mockResolvedValue(undefined),
@@ -52,8 +54,8 @@ describe('useVaultWorkspaceSync - handleImportEncryptedBackup', () => {
       JSON.stringify({ userId: existingUserId, classEnvelopes: {} })
     );
 
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    const confirmSpy = vi.spyOn(dialogPromptManager, 'confirm').mockResolvedValue(false);
+    const alertSpy = vi.spyOn(toast, 'success').mockImplementation(() => '');
 
     const { result } = renderHook(() => useVaultWorkspaceSync());
 
@@ -87,7 +89,7 @@ describe('useVaultWorkspaceSync - handleImportEncryptedBackup', () => {
       JSON.stringify({ userId: legacyUserId, classEnvelopes: {} })
     );
 
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const confirmSpy = vi.spyOn(dialogPromptManager, 'confirm').mockResolvedValue(false);
 
     const { result } = renderHook(() => useVaultWorkspaceSync());
 
@@ -114,7 +116,7 @@ describe('useVaultWorkspaceSync - handleImportEncryptedBackup', () => {
   it('prompts confirmation when active in-memory students exist even without a cached vault', async () => {
     expect(localStorage.getItem(ACTIVE_USER_ID_STORAGE_KEY)).toBeNull();
 
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const confirmSpy = vi.spyOn(dialogPromptManager, 'confirm').mockResolvedValue(false);
 
     const { result } = renderHook(() => useVaultWorkspaceSync());
 
@@ -172,8 +174,8 @@ describe('useVaultWorkspaceSync - handleImportEncryptedBackup', () => {
   });
 
   it('imports backup, purges credentials, locks vault and notifies user when confirmed', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
-    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    const confirmSpy = vi.spyOn(dialogPromptManager, 'confirm').mockResolvedValue(true);
+    const alertSpy = vi.spyOn(toast, 'success').mockImplementation(() => '');
 
     // Set lingering session credentials and legacy cache for the imported user
     sessionStorage.setItem('gradus21_dek_imported-user', 'old-lingering-dek');
@@ -217,8 +219,8 @@ describe('useVaultWorkspaceSync - handleImportEncryptedBackup', () => {
   });
 
   it('does not re-inject session credentials when restoring backup while an active session was unlocked', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-    vi.spyOn(window, 'alert').mockImplementation(() => {});
+    vi.spyOn(dialogPromptManager, 'confirm').mockResolvedValue(true);
+    vi.spyOn(toast, 'success').mockImplementation(() => '');
 
     const { result } = renderHook(() => useVaultWorkspaceSync());
 
@@ -316,8 +318,8 @@ describe('useVaultWorkspaceSync - handleImportEncryptedBackup', () => {
   });
 
   it('populates minimal locked session when backup bundle lacks a session sub-object', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-    vi.spyOn(window, 'alert').mockImplementation(() => {});
+    vi.spyOn(dialogPromptManager, 'confirm').mockResolvedValue(true);
+    vi.spyOn(toast, 'success').mockImplementation(() => '');
 
     const { result } = renderHook(() => useVaultWorkspaceSync());
 
@@ -370,8 +372,8 @@ describe('useVaultWorkspaceSync - handleImportEncryptedBackup', () => {
   });
 
   it('synthesizes valid classEnvelopes with matching AAD on handleExportEncryptedBackup when localStorage cache is empty and decrypts them on unlock', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-    vi.spyOn(window, 'alert').mockImplementation(() => {});
+    vi.spyOn(dialogPromptManager, 'confirm').mockResolvedValue(true);
+    vi.spyOn(toast, 'success').mockImplementation(() => '');
 
     vi.mocked(wasm_encrypt_envelope).mockImplementation(
       (dek: string, uid: string, aad: string, plain: string) =>
@@ -587,7 +589,7 @@ describe('useVaultWorkspaceSync - handleImportEncryptedBackup', () => {
   });
 
   it('re-encrypts merged dataset and updates local cache without using stale remote envelope (Audit #12)', async () => {
-    vi.spyOn(window, 'alert').mockImplementation(() => {});
+    vi.spyOn(toast, 'success').mockImplementation(() => '');
     const userId = '00000000-0000-4000-8000-000000000001';
     const classId = '11111111-1111-4111-8111-111111111111';
     const userCacheKey = getUserEncryptedCacheKey(userId);
@@ -660,7 +662,8 @@ describe('useVaultWorkspaceSync - handleImportEncryptedBackup', () => {
   });
 
   it('marks the sync as pending and keeps envelopes dirty when the reconciliation batch upload fails', async () => {
-    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    const alertSpy = vi.spyOn(toast, 'success').mockImplementation(() => '');
+    vi.spyOn(toast, 'warning').mockImplementation(() => '');
     const userId = '00000000-0000-4000-8000-000000000021';
     const classId = '22222222-2222-4222-8222-222222222222';
     const userCacheKey = getUserEncryptedCacheKey(userId);
@@ -729,7 +732,7 @@ describe('useVaultWorkspaceSync - handleImportEncryptedBackup', () => {
   });
 
   it('deletes local-only envelopes on the server when downloading the remote state', async () => {
-    vi.spyOn(window, 'alert').mockImplementation(() => {});
+    vi.spyOn(toast, 'success').mockImplementation(() => '');
     const userId = '00000000-0000-4000-8000-000000000022';
     const localClassId = '33333333-3333-4333-8333-333333333333';
     const userCacheKey = getUserEncryptedCacheKey(userId);

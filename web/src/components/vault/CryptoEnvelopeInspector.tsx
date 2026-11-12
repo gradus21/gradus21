@@ -25,6 +25,7 @@ import {
 import { ActiveVaultSession, UserPasskeyItem, LocalPasskeyStoreEntry } from './vaultTypes';
 import { LegalModal, LegalTab } from '../LegalModal';
 import { useLegalConfig, getDisplayDomain } from '../../utils/legalConfig';
+import { confirmDialog, promptDialog } from '../../utils/dialogPrompt';
 import {
   checkNativeBiometricAvailability,
   hasNativeBiometricEnrollment,
@@ -169,7 +170,14 @@ export const CryptoEnvelopeInspector: React.FC<CryptoEnvelopeInspectorProps> = (
   };
 
   const handleDisableBiometric = async () => {
-    if (window.confirm('Möchtest du die biometrische Entsperrung für dieses Gerät wirklich deaktivieren?')) {
+    const confirmed = await confirmDialog({
+      title: 'Biometrie deaktivieren?',
+      message: 'Möchtest du die biometrische Entsperrung für dieses Gerät wirklich deaktivieren?',
+      confirmText: 'Deaktivieren',
+      cancelText: 'Abbrechen',
+      variant: 'danger',
+    });
+    if (confirmed) {
       const target = session?.userId || session?.email;
       if (target) {
         await disableNativeBiometricLock(target);
@@ -199,7 +207,14 @@ export const CryptoEnvelopeInspector: React.FC<CryptoEnvelopeInspectorProps> = (
   };
 
   const handleDisableLinuxKeyring = async () => {
-    if (window.confirm('Möchtest du die Entsperrung über den Linux-Schlüsselbund wirklich deaktivieren?')) {
+    const confirmed = await confirmDialog({
+      title: 'Schlüsselbund trennen?',
+      message: 'Möchtest du die Entsperrung über den Linux-Schlüsselbund wirklich deaktivieren?',
+      confirmText: 'Trennen',
+      cancelText: 'Abbrechen',
+      variant: 'danger',
+    });
+    if (confirmed) {
       if (session?.userId) {
         await disableLinuxKeyringUnlock(session.userId);
       }
@@ -252,7 +267,13 @@ export const CryptoEnvelopeInspector: React.FC<CryptoEnvelopeInspectorProps> = (
             <button
               type="button"
               onClick={async () => {
-                const newEmail = prompt('Neue E-Mail-Adresse für diesen Tresor eingeben:', session.email);
+                const newEmail = await promptDialog({
+                  title: 'E-Mail-Adresse ändern',
+                  message: 'Neue E-Mail-Adresse für diesen Tresor eingeben:',
+                  defaultValue: session.email,
+                  placeholder: 'name@schule.de',
+                  confirmText: 'Speichern',
+                });
                 if (newEmail && newEmail.trim() && newEmail.trim().toLowerCase() !== session.email.toLowerCase()) {
                   await onUpdateVaultEmail(newEmail.trim().toLowerCase());
                 }
@@ -1212,7 +1233,13 @@ export const CryptoEnvelopeInspector: React.FC<CryptoEnvelopeInspectorProps> = (
               <button
                 type="button"
                 onClick={async () => {
-                  const newEmail = prompt('Neue E-Mail-Adresse für diesen Tresor eingeben:', session.email);
+                  const newEmail = await promptDialog({
+                    title: 'E-Mail-Adresse ändern',
+                    message: 'Neue E-Mail-Adresse für diesen Tresor eingeben:',
+                    defaultValue: session.email,
+                    placeholder: 'name@schule.de',
+                    confirmText: 'Speichern',
+                  });
                   if (newEmail && newEmail.trim() && newEmail.trim().toLowerCase() !== session.email.toLowerCase()) {
                     await onUpdateVaultEmail(newEmail.trim().toLowerCase());
                   }

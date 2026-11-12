@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { SettingsModal } from './SettingsModal';
 import { AppHeader } from './AppHeader';
+import { dialogPromptManager } from '../utils/dialogPrompt';
 import {
   DEFAULT_USER_SYNC_SETTINGS,
   INITIAL_CLASS_DATASETS,
@@ -51,10 +52,9 @@ describe('SettingsModal Navigation & Account Security Architecture', () => {
     expect(storageTab).toBeDefined();
   });
 
-  it('opens "Konto & Schutz" and displays account email and allows changing email under konto', () => {
+  it('opens "Konto & Schutz" and displays account email and allows changing email under konto', async () => {
     const onUpdateVaultEmail = vi.fn();
-    const originalPrompt = window.prompt;
-    window.prompt = vi.fn().mockReturnValue('neu@schule.de');
+    const promptSpy = vi.spyOn(dialogPromptManager, 'prompt').mockResolvedValue('neu@schule.de');
 
     try {
       render(
@@ -73,10 +73,12 @@ describe('SettingsModal Navigation & Account Security Architecture', () => {
       expect(changeEmailBtn).toBeDefined();
 
       fireEvent.click(changeEmailBtn);
-      expect(window.prompt).toHaveBeenCalled();
-      expect(onUpdateVaultEmail).toHaveBeenCalledWith('neu@schule.de');
+      await vi.waitFor(() => {
+        expect(promptSpy).toHaveBeenCalled();
+        expect(onUpdateVaultEmail).toHaveBeenCalledWith('neu@schule.de');
+      });
     } finally {
-      window.prompt = originalPrompt;
+      promptSpy.mockRestore();
     }
   });
 

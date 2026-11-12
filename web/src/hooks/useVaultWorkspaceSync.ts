@@ -45,6 +45,8 @@ import {
   writeVaultToNativeDirectory,
 } from '../utils/localBackupStorage';
 import { isTauri } from '../utils/platform';
+import { toast } from '../utils/toast';
+import { confirmDialog } from '../utils/dialogPrompt';
 import {
   DEMO_OWNER_USER_ID,
   ACTIVE_USER_ID_STORAGE_KEY,
@@ -1945,12 +1947,12 @@ export function useVaultWorkspaceSync() {
   const handleUpdateVaultEmail = async (newEmail: string): Promise<boolean> => {
     const trimmed = (newEmail || '').trim().toLowerCase();
     if (!trimmed || !trimmed.includes('@') || trimmed.length < 5) {
-      alert('Bitte gib eine gültige E-Mail-Adresse ein.');
+      toast.error('Bitte gib eine gültige E-Mail-Adresse ein.');
       return false;
     }
 
     if (!vaultSession) {
-      alert('Kein aktiver Tresor geöffnet.');
+      toast.error('Kein aktiver Tresor geöffnet.');
       return false;
     }
 
@@ -1983,12 +1985,12 @@ export function useVaultWorkspaceSync() {
           }
         } else {
           const errText = await res.text().catch(() => '');
-          alert(errText || 'Die E-Mail-Adresse konnte auf dem Cloud-Server nicht aktualisiert werden.');
+          toast.error(errText || 'Die E-Mail-Adresse konnte auf dem Cloud-Server nicht aktualisiert werden.');
           return false;
         }
       } catch (e) {
         console.warn('Fehler beim Aktualisieren der E-Mail auf dem Server:', e);
-        alert('Server nicht erreichbar. Die E-Mail-Adresse konnte in der Cloud nicht aktualisiert werden.');
+        toast.error('Server nicht erreichbar. Die E-Mail-Adresse konnte in der Cloud nicht aktualisiert werden.');
         return false;
       }
     }
@@ -2042,7 +2044,7 @@ export function useVaultWorkspaceSync() {
     }
 
     if (!vaultSession?.email) {
-      alert('Bitte entsperre oder erstelle zuerst einen Tresor mit einer E-Mail-Adresse.');
+      toast.warning('Bitte entsperre oder erstelle zuerst einen Tresor mit einer E-Mail-Adresse.');
       return;
     }
 
@@ -2276,7 +2278,7 @@ export function useVaultWorkspaceSync() {
         setIsPasswordPromptOpen(true);
         return;
       }
-      alert(
+      toast.error(
         'Konnte keine Verbindung zum Cloud-Server herstellen. Bitte prüfe deine Internetverbindung und Server-Adresse.'
       );
       setSyncStatus('offline_local');
@@ -2696,16 +2698,16 @@ export function useVaultWorkspaceSync() {
       setReconciliationMeta(null);
       if ((strategy === 'upload_local' || strategy === 'merge') && !uploadSucceeded) {
         setSyncStatus('sync_pending');
-        alert(
+        toast.warning(
           'Der Abgleich wurde lokal übernommen, konnte aber nicht in die Cloud hochgeladen werden. Die Änderungen bleiben vorgemerkt und werden automatisch erneut übertragen, sobald der Server erreichbar ist.'
         );
       } else {
         setSyncStatus('synced');
-        alert('Synchronisations-Abgleich erfolgreich abgeschlossen!');
+        toast.success('Synchronisations-Abgleich erfolgreich abgeschlossen!');
       }
     } catch (err) {
       console.error('Fehler bei der Reconciliation:', err);
-      alert('Fehler beim Ausführen des Datenabgleichs.');
+      toast.error('Fehler beim Ausführen des Datenabgleichs.');
     }
   };
 
@@ -2994,7 +2996,7 @@ export function useVaultWorkspaceSync() {
     try {
       const parsed = await readVaultFromFile(file);
       if (!parsed.userId) {
-        alert('Die Datei enthält keine gültige Benutzer-ID.');
+        toast.error('Die Datei enthält keine gültige Benutzer-ID.');
         return;
       }
 
@@ -3012,9 +3014,14 @@ export function useVaultWorkspaceSync() {
         );
 
       if (typeof window !== 'undefined' && (hasActiveStudents || hasExistingVault)) {
-        const confirmed = window.confirm(
-          'Achtung: Durch das Einspielen dieses Backups wird der vorhandene lokale Notenbestand auf diesem Gerät überschrieben. Möchtest du wirklich fortfahren?'
-        );
+        const confirmed = await confirmDialog({
+          title: 'Backup einspielen?',
+          message:
+            'Achtung: Durch das Einspielen dieses Backups wird der vorhandene lokale Notenbestand auf diesem Gerät überschrieben. Möchtest du wirklich fortfahren?',
+          confirmText: 'Backup einspielen',
+          cancelText: 'Abbrechen',
+          variant: 'danger',
+        });
         if (!confirmed) {
           return;
         }
@@ -3061,13 +3068,13 @@ export function useVaultWorkspaceSync() {
       removeStoredAuthKey(parsed.userId);
       handleLockVault({ skipPersistSessionCredentials: true });
 
-      alert(
+      toast.success(
         isTauri()
           ? 'Das Tresor-Backup wurde erfolgreich importiert! Bitte entsperre den Tresor mit deinem Master-Passwort.'
           : 'Das Tresor-Backup wurde erfolgreich in den Browser importiert! Bitte entsperre den Tresor mit deinem Master-Passwort.'
       );
     } catch (err: any) {
-      alert(err.message || 'Fehler beim Einlesen der Backup-Datei.');
+      toast.error(err.message || 'Fehler beim Einlesen der Backup-Datei.');
     }
   };
 
@@ -3132,7 +3139,7 @@ export function useVaultWorkspaceSync() {
       } catch (err: any) {
         const msg = typeof err === 'string' ? err : err?.message || String(err);
         console.warn('Nativer Backup-Ordner-Dialog fehlgeschlagen:', msg);
-        alert(msg);
+        toast.error(msg);
       }
       return;
     }
@@ -3199,12 +3206,12 @@ export function useVaultWorkspaceSync() {
         }
       }
       await loadIsolatedUserWorkspace(vaultSession, true);
-      alert(
+      toast.success(
         'Der Server-Snapshot wurde erfolgreich eingespielt! Dein Arbeitsbereich wurde auf den Stand des Snapshots zurückgesetzt.'
       );
     } catch (e: any) {
       console.error('Fehler beim Neuladen nach Snapshot:', e);
-      alert(
+      toast.info(
         'Der Snapshot wurde eingespielt. Bitte melde dich erneut an, um den wiederhergestellten Tresor zu entschlüsseln.'
       );
       handleLockVault();

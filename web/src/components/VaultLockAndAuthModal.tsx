@@ -15,6 +15,7 @@ import { restoreSessionCredentials } from '../hooks/useVaultWorkspaceSync';
 import { escapeHtml } from './ExportAndPrintHelpers';
 import { FlowRibbonLogo } from './FlowRibbonLogo';
 import { LegalModal, LegalTab } from './LegalModal';
+import { confirmDialog, promptDialog } from '../utils/dialogPrompt';
 import {
   AlertCircle,
   ArrowLeft,
@@ -728,7 +729,14 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
   const handleDeletePasskeyById = async (passkeyId: string, credentialId: string) => {
     if (!session) return;
-    if (!window.confirm('Möchtest du diesen Passkey wirklich von deinem Konto entfernen?')) {
+    const confirmed = await confirmDialog({
+      title: 'Passkey entfernen?',
+      message: 'Möchtest du diesen Passkey wirklich von deinem Konto entfernen?',
+      confirmText: 'Passkey entfernen',
+      cancelText: 'Abbrechen',
+      variant: 'danger',
+    });
+    if (!confirmed) {
       return;
     }
     setErrorMsg(null);
@@ -2534,9 +2542,16 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     let totpCodeCandidate: string | undefined;
 
     if (!authKey && session.totpEnabled) {
-      const code = window.prompt(
-        'Sicherheitsabfrage: Bitte gib zur Neueinrichtung von 2FA deinen aktuellen 6-stelligen 2FA-Code ein:'
-      );
+      const code = await promptDialog({
+        title: '2FA-Sicherheitsabfrage',
+        message: 'Bitte gib zur Neueinrichtung von 2FA deinen aktuellen 6-stelligen 2FA-Code ein:',
+        placeholder: '000000',
+        inputMode: 'numeric',
+        maxLength: 6,
+        autoComplete: 'one-time-code',
+        confirmText: 'Bestätigen',
+        cancelText: 'Abbrechen',
+      });
       if (!code || !code.trim()) {
         setStatusMsg(null);
         return;
@@ -2594,11 +2609,14 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
   const handleDisable2FA = async () => {
     if (!session) return;
-    if (
-      !window.confirm(
-        'Möchtest du die Zwei-Faktor-Authentifizierung (2FA) wirklich für dieses Konto deaktivieren?'
-      )
-    ) {
+    const confirmed = await confirmDialog({
+      title: '2FA deaktivieren?',
+      message: 'Möchtest du die Zwei-Faktor-Authentifizierung (2FA) wirklich für dieses Konto deaktivieren?',
+      confirmText: '2FA deaktivieren',
+      cancelText: 'Abbrechen',
+      variant: 'danger',
+    });
+    if (!confirmed) {
       return;
     }
     setErrorMsg(null);
@@ -2631,9 +2649,17 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     let totpCodeCandidate: string | undefined;
 
     if (!authKey && session.totpEnabled) {
-      const code = window.prompt(
-        'Sicherheitsabfrage: Bitte gib zur Deaktivierung von 2FA deinen aktuellen 6-stelligen 2FA-Code ein:'
-      );
+      const code = await promptDialog({
+        title: '2FA-Sicherheitsabfrage',
+        message: 'Bitte gib zur Deaktivierung von 2FA deinen aktuellen 6-stelligen 2FA-Code ein:',
+        placeholder: '000000',
+        inputMode: 'numeric',
+        maxLength: 6,
+        autoComplete: 'one-time-code',
+        confirmText: 'Deaktivieren',
+        cancelText: 'Abbrechen',
+        variant: 'danger',
+      });
       if (!code || !code.trim()) {
         setStatusMsg(null);
         return;
