@@ -1,8 +1,8 @@
 use crate::crypto::{
-    decrypt_entity_envelope, derive_recovery_auth_key, encrypt_entity_envelope,
-    generate_vault_bundle, rewrap_dek_for_new_password, unlock_dek_with_recovery_key,
-    unlock_vault_with_password, unwrap_dek_with_passkey_secret, wrap_dek_with_passkey_secret,
-    wrap_dek_with_recovery_key, KdfParams,
+    decrypt_dek_with_kek, decrypt_entity_envelope, derive_password_keys, derive_recovery_auth_key,
+    encrypt_entity_envelope, generate_vault_bundle, rewrap_dek_for_new_password,
+    unlock_dek_with_recovery_key, unlock_vault_with_password, unwrap_dek_with_passkey_secret,
+    wrap_dek_with_passkey_secret, wrap_dek_with_recovery_key, KdfParams,
 };
 use crate::grading::{
     calculate_class_report, simulate_needed_score_v2, AssessmentConfig,
@@ -35,6 +35,27 @@ pub fn wasm_unwrap_dek_with_passkey(
 ) -> Result<String, JsValue> {
     unwrap_dek_with_passkey_secret(passkey_secret_b64, credential_id, passkey_encrypted_dek)
         .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+#[wasm_bindgen]
+pub fn wasm_derive_password_keys(
+    password: &str,
+    salt_b64: &str,
+    kdf_params_json: &str,
+) -> Result<String, JsValue> {
+    let params: KdfParams =
+        serde_json::from_str(kdf_params_json).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let derived = derive_password_keys(password, salt_b64, &params)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    serde_json::to_string(&derived).map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+#[wasm_bindgen]
+pub fn wasm_decrypt_dek_with_kek(
+    kek_b64: &str,
+    encrypted_dek: &str,
+) -> Result<String, JsValue> {
+    decrypt_dek_with_kek(kek_b64, encrypted_dek).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
 #[wasm_bindgen]

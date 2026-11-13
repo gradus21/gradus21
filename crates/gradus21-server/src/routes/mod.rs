@@ -25,6 +25,7 @@ pub fn create_app_router(state: AppState, cors: CorsLayer) -> Router {
         .route("/api/auth/salt", post(get_user_salt))
         .route("/api/auth/register", post(register_user))
         .route("/api/auth/login", post(login_user))
+        .route("/api/auth/recover/init", post(recover_init))
         .route("/api/auth/recover", post(recover_password))
         .route("/api/auth/recovery/rotate", post(rotate_recovery_key))
         .route("/api/auth/passkey/register/start", post(passkey_register_start))
@@ -118,6 +119,7 @@ pub fn create_app_router(state: AppState, cors: CorsLayer) -> Router {
             "/api/admin/mail-templates/:id",
             put(admin::update_mail_template),
         )
+        .layer(axum::middleware::from_fn(crate::middleware::client_ip_middleware))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
         .layer(cors)
         .with_state(state)

@@ -96,7 +96,7 @@ async fn test_register_login_and_cryptographic_recovery_verification() {
     .expect("register_user");
     assert_eq!(reg_resp.email, "teacher@schule.de");
 
-    // 2. Verify salt endpoint does NOT leak passkey_credential_id
+    // 2. Verify salt endpoint ONLY returns kdf_salt_b64 and kdf_params (Issue #51)
     let Json(salt_resp) = get_user_salt(
         State(state.clone()),
         Json(SaltQueryRequest {
@@ -105,7 +105,12 @@ async fn test_register_login_and_cryptographic_recovery_verification() {
     )
     .await
     .expect("get_user_salt");
-    assert!(!salt_resp.has_passkey);
+    assert_eq!(salt_resp.kdf_salt_b64, bundle.kdf_salt_b64);
+    let salt_json = serde_json::to_value(&salt_resp).unwrap();
+    assert!(salt_json.get("encrypted_dek").is_none());
+    assert!(salt_json.get("recovery_encrypted_dek").is_none());
+    assert!(salt_json.get("has_passkey").is_none());
+    assert!(salt_json.get("totp_enabled").is_none());
 
     // 3. Attempt password recovery with WRONG recovery_auth_key_b64 -> must fail with 401
     let (new_salt, new_params, new_auth_key, new_enc_dek) =
@@ -245,6 +250,12 @@ async fn test_2fa_setup_locks_after_enabling_and_tenant_isolation() {
     .await
     .expect("enable 2fa");
     assert_eq!(verified_info["totp_enabled"], true);
+    // Old token must now be invalidated due to token_version increment (Issue #52)
+    assert!(get_2fa_setup_info(State(state.clone()), headers.clone()).await.is_err());
+    headers.insert(
+        "authorization",
+        HeaderValue::from_str(&format!("Bearer {}", verified_info["token"].as_str().unwrap())).unwrap(),
+    );
 
     // 3. Calling get_2fa_setup_info again after 2FA is enabled must be rejected with 409 CONFLICT
     let second_setup = get_2fa_setup_info(State(state.clone()), headers.clone()).await;
@@ -267,6 +278,10 @@ async fn test_2fa_setup_locks_after_enabling_and_tenant_isolation() {
     .await
     .expect("reconfigure 2fa");
     assert_eq!(reconf_info["totp_enabled"], false);
+    headers.insert(
+        "authorization",
+        HeaderValue::from_str(&format!("Bearer {}", reconf_info["token"].as_str().unwrap())).unwrap(),
+    );
     let new_secret_b32 = reconf_info["totp_secret_base32"].as_str().unwrap().to_string();
     assert_ne!(new_secret_b32, secret_b32);
 
@@ -282,6 +297,10 @@ async fn test_2fa_setup_locks_after_enabling_and_tenant_isolation() {
     .await
     .expect("re-enable 2fa");
     assert_eq!(re_verified["totp_enabled"], true);
+    headers.insert(
+        "authorization",
+        HeaderValue::from_str(&format!("Bearer {}", re_verified["token"].as_str().unwrap())).unwrap(),
+    );
 
     // 3c. Disabling 2FA requires password auth_key or valid totp_code
     let unauth_err = disable_2fa(State(state.clone()), headers.clone(), None).await;
@@ -299,6 +318,10 @@ async fn test_2fa_setup_locks_after_enabling_and_tenant_isolation() {
     .await
     .expect("disable 2fa");
     assert_eq!(disabled_info["totp_enabled"], false);
+    headers.insert(
+        "authorization",
+        HeaderValue::from_str(&format!("Bearer {}", disabled_info["token"].as_str().unwrap())).unwrap(),
+    );
     let disabled_rotated_secret = disabled_info["totp_secret_base32"]
         .as_str()
         .expect("disable_2fa must return rotated totp_secret_base32")
@@ -330,6 +353,10 @@ async fn test_2fa_setup_locks_after_enabling_and_tenant_isolation() {
     .await
     .expect("re-enable 2fa again");
     assert_eq!(reenabled_info["totp_enabled"], true);
+    headers.insert(
+        "authorization",
+        HeaderValue::from_str(&format!("Bearer {}", reenabled_info["token"].as_str().unwrap())).unwrap(),
+    );
 
     // 4. Upsert envelope and verify tenant isolation + OCC
     let env_id = Uuid::new_v4();
@@ -450,8 +477,12 @@ async fn test_passkey_prf_registration_and_login_flow() {
     .expect("register passkey");
     assert_eq!(passkey_reg_resp["passkey_credential_id"], cred_id);
     assert_eq!(passkey_reg_resp["passkey_prf_salt_b64"], prf_salt_b64);
+    headers.insert(
+        "authorization",
+        HeaderValue::from_str(&format!("Bearer {}", passkey_reg_resp["token"].as_str().unwrap())).unwrap(),
+    );
 
-    // 4. Verify salt query returns has_passkey = true and passkey_prf_salt_b64
+    // 4. Verify salt query only returns kdf_salt_b64 and kdf_params (Issue #51)
     let Json(salt_info) = get_user_salt(
         State(state.clone()),
         Json(SaltQueryRequest {
@@ -460,8 +491,7 @@ async fn test_passkey_prf_registration_and_login_flow() {
     )
     .await
     .expect("get salt");
-    assert!(salt_info.has_passkey);
-    assert_eq!(salt_info.passkey_prf_salt_b64, Some(prf_salt_b64.clone()));
+    assert_eq!(salt_info.kdf_salt_b64, bundle.kdf_salt_b64);
 
     // 5. Verify unauthenticated legacy passkey login endpoint is strictly disabled (Issue #8)
     let legacy_attempt = legacy_passkey_login_disabled(
@@ -488,6 +518,7 @@ async fn test_passkey_prf_registration_and_login_flow() {
     .await
     .expect("delete passkey");
     assert_eq!(del_resp["success"], true);
+    assert!(del_resp["token"].as_str().is_some());
 
     let Json(salt_after_del) = get_user_salt(
         State(state.clone()),
@@ -497,7 +528,7 @@ async fn test_passkey_prf_registration_and_login_flow() {
     )
     .await
     .expect("get salt after del");
-    assert!(!salt_after_del.has_passkey);
+    assert_eq!(salt_after_del.kdf_salt_b64, bundle.kdf_salt_b64);
 
     let _ = fs::remove_file(&state.disk_store_path);
 }
@@ -715,6 +746,10 @@ async fn test_full_registration_onboarding_recovery_totp_and_passkey_flow() {
     .await
     .expect("verify 2fa");
     assert_eq!(verified_info["totp_enabled"], true);
+    auth_headers.insert(
+        "authorization",
+        format!("Bearer {}", verified_info["token"].as_str().unwrap()).parse().unwrap(),
+    );
 
     // 4. Optional Passkey Registration Step
     let cred_id = "test_passkey_cred_123";
@@ -737,6 +772,10 @@ async fn test_full_registration_onboarding_recovery_totp_and_passkey_flow() {
     .await
     .expect("register passkey");
     assert_eq!(passkey_reg_resp["passkey_credential_id"], cred_id);
+    auth_headers.insert(
+        "authorization",
+        format!("Bearer {}", passkey_reg_resp["token"].as_str().unwrap()).parse().unwrap(),
+    );
 
     // 5. Subsequent Login Verification:
     // A) Password login without TOTP code must now be rejected with 2FA_REQUIRED
@@ -845,6 +884,8 @@ async fn test_backup_snapshot_and_schedule_configuration() {
                 email_verification_expires_at: None,
                 email_verification_attempts: 0,
                 email_verification_cooldown_until: None,
+                token_version: 0,
+                last_used_totp_step: None,
             },
         );
     }
@@ -853,6 +894,7 @@ async fn test_backup_snapshot_and_schedule_configuration() {
         email: "admin@example.com".into(),
         is_admin: true,
         two_factor_verified: true,
+        token_version: 0,
         exp: (Utc::now() + chrono::Duration::hours(1)).timestamp() as usize,
     };
     let token = encode(
@@ -986,7 +1028,7 @@ async fn test_multi_passkey_management() {
     let prf_secret_1 = [10u8; 32];
     let enc_dek_1 = wrap_dek_with_passkey_secret(&bundle.dek_b64, &B64.encode(prf_secret_1), "cred_ipad_1")
         .unwrap();
-    let _ = register_passkey(
+    let Json(pk1_resp) = register_passkey(
         State(state.clone()),
         headers.clone(),
         Json(PasskeyRegisterRequest {
@@ -1002,12 +1044,16 @@ async fn test_multi_passkey_management() {
     )
     .await
     .expect("register ipad passkey");
+    headers.insert(
+        "authorization",
+        HeaderValue::from_str(&format!("Bearer {}", pk1_resp["token"].as_str().unwrap())).unwrap(),
+    );
 
     // 3. Register second passkey (MacBook)
     let prf_secret_2 = [20u8; 32];
     let enc_dek_2 = wrap_dek_with_passkey_secret(&bundle.dek_b64, &B64.encode(prf_secret_2), "cred_macbook_2")
         .unwrap();
-    let _ = register_passkey(
+    let Json(pk2_resp) = register_passkey(
         State(state.clone()),
         headers.clone(),
         Json(PasskeyRegisterRequest {
@@ -1023,6 +1069,10 @@ async fn test_multi_passkey_management() {
     )
     .await
     .expect("register macbook passkey");
+    headers.insert(
+        "authorization",
+        HeaderValue::from_str(&format!("Bearer {}", pk2_resp["token"].as_str().unwrap())).unwrap(),
+    );
 
     // 4. List passkeys
     let Json(list) = list_user_passkeys(State(state.clone()), headers.clone())
@@ -1070,6 +1120,10 @@ async fn test_multi_passkey_management() {
     .await
     .expect("delete passkey by id");
     assert_eq!(del_resp["success"], true);
+    headers.insert(
+        "authorization",
+        HeaderValue::from_str(&format!("Bearer {}", del_resp["token"].as_str().unwrap())).unwrap(),
+    );
 
     // 8. Verify list has only 1 remaining passkey
     let Json(list_after) = list_user_passkeys(State(state.clone()), headers.clone())
@@ -1743,13 +1797,16 @@ async fn test_email_verification_requirement_in_test_and_production_environments
     )
     .await
     .unwrap();
-    let dev_code = verify_start
-        .dev_code
-        .or_else(|| {
-            let verifs = state.mem_email_verifications.read();
-            verifs.get("second_teacher@schule.de").map(|v| v.code.clone())
-        })
-        .expect("code available");
+    assert!(verify_start.dev_code.is_none(), "production mode must never leak dev_code");
+    let stored_code_hash = {
+        let verifs = state.mem_email_verifications.read();
+        verifs.get("second_teacher@schule.de").map(|v| v.code.clone()).expect("verification entry stored")
+    };
+    assert_eq!(stored_code_hash.len(), 64, "verification code must be stored as SHA-256 hex digest (Issue #57 N-3)");
+    let dev_code = (0..1_000_000u32)
+        .map(|n| format!("{:06}", n))
+        .find(|candidate| crate::routes::auth::hash_verification_code(candidate) == stored_code_hash)
+        .expect("matching 6-digit code for stored SHA-256 hash");
 
     // 4. Confirm verification code
     let confirm_res = verify_email_confirm(
@@ -1814,6 +1871,8 @@ async fn test_email_verification_requirement_in_test_and_production_environments
         email_verification_expires_at: None,
         email_verification_attempts: 0,
         email_verification_cooldown_until: None,
+        token_version: 0,
+        last_used_totp_step: None,
     });
 
     let bundle3 = generate_vault_bundle("DevTeacher789!").unwrap();
@@ -3018,7 +3077,7 @@ async fn test_invariant_i7_passkey_only_anti_lockout_and_batch_limits() {
     );
 
     // Register 1st passkey
-    let _ = register_passkey(
+    let Json(pk1_reg_resp) = register_passkey(
         State(state.clone()),
         headers.clone(),
         Json(PasskeyRegisterRequest {
@@ -3034,6 +3093,10 @@ async fn test_invariant_i7_passkey_only_anti_lockout_and_batch_limits() {
     )
     .await
     .expect("register 1st passkey");
+    headers.insert(
+        "authorization",
+        format!("Bearer {}", pk1_reg_resp["token"].as_str().unwrap()).parse().unwrap(),
+    );
 
     let Json(pk_list_1) = list_user_passkeys(State(state.clone()), headers.clone())
         .await
@@ -3069,7 +3132,7 @@ async fn test_invariant_i7_passkey_only_anti_lockout_and_batch_limits() {
     assert_eq!(del_all_pk.unwrap_err().0, StatusCode::BAD_REQUEST);
 
     // Register 2nd passkey -> now deleting the 1st passkey succeeds, while the 2nd remains protected
-    let _ = register_passkey(
+    let Json(pk2_reg_resp) = register_passkey(
         State(state.clone()),
         headers.clone(),
         Json(PasskeyRegisterRequest {
@@ -3085,6 +3148,10 @@ async fn test_invariant_i7_passkey_only_anti_lockout_and_batch_limits() {
     )
     .await
     .expect("register 2nd passkey");
+    headers.insert(
+        "authorization",
+        format!("Bearer {}", pk2_reg_resp["token"].as_str().unwrap()).parse().unwrap(),
+    );
 
     let del_first_ok = delete_user_passkey_by_id(
         State(state.clone()),
@@ -3093,6 +3160,11 @@ async fn test_invariant_i7_passkey_only_anti_lockout_and_batch_limits() {
     )
     .await;
     assert!(del_first_ok.is_ok());
+    let Json(del_first_json) = del_first_ok.unwrap();
+    headers.insert(
+        "authorization",
+        format!("Bearer {}", del_first_json["token"].as_str().unwrap()).parse().unwrap(),
+    );
 
     // 2. Verify batch_sync_envelopes rejects > 500 items or invalid entity_type
     let oversized_items: Vec<BatchUpsertItem> = (0..501)
@@ -3230,5 +3302,183 @@ async fn test_audit7_invite_origin_validation_backup_whitelist_and_unique_snapsh
     if let Some(parent) = state.disk_store_path.parent() {
         let _ = fs::remove_dir_all(parent.join("backups"));
     }
+    let _ = fs::remove_file(&state.disk_store_path);
+}
+
+#[tokio::test]
+async fn test_security_hardening_issues_51_52_53_57() {
+    let state = create_test_state();
+    let bundle = generate_vault_bundle("HardenedPass2026!").expect("bundle");
+
+    // 1. Issue #51 (H-3): /api/auth/salt returns deterministic fake salt for unknown emails (no 404 enumeration)
+    let Json(fake_salt_1) = get_user_salt(
+        State(state.clone()),
+        Json(SaltQueryRequest {
+            email: "nonexistent_user@schule.de".into(),
+        }),
+    )
+    .await
+    .expect("get_user_salt for unknown email must return 200");
+    let Json(fake_salt_2) = get_user_salt(
+        State(state.clone()),
+        Json(SaltQueryRequest {
+            email: "NONEXISTENT_USER@schule.de".into(),
+        }),
+    )
+    .await
+    .expect("get_user_salt second call");
+    assert_eq!(
+        fake_salt_1.kdf_salt_b64, fake_salt_2.kdf_salt_b64,
+        "Fake salt for unknown email must be deterministic"
+    );
+
+    // Register user and verify /api/auth/recover/init requires valid recovery_auth_key_b64 before returning recovery_encrypted_dek
+    let Json(reg_resp) = register_user(
+        State(state.clone()),
+        Json(RegisterRequest {
+            email: "hardened@schule.de".into(),
+            auth_key_b64: bundle.auth_key_b64.clone(),
+            kdf_salt_b64: bundle.kdf_salt_b64.clone(),
+            kdf_params: bundle.kdf_params.clone(),
+            encrypted_dek: bundle.encrypted_dek.clone(),
+            recovery_encrypted_dek: bundle.recovery_encrypted_dek.clone(),
+            recovery_auth_key_b64: Some(bundle.recovery_auth_key_b64.clone()),
+            user_id: None,
+            totp_secret_base32: None,
+            totp_enabled: None,
+            invite_token: None,
+        }),
+    )
+    .await
+    .expect("register user");
+
+    let bad_recover_init = crate::routes::auth::recover_init(
+        State(state.clone()),
+        Json(crate::routes::auth::RecoverInitRequest {
+            email: "hardened@schule.de".into(),
+            recovery_auth_key_b64: "wrong_recovery_auth_key".into(),
+        }),
+    )
+    .await;
+    assert!(bad_recover_init.is_err());
+    assert_eq!(bad_recover_init.unwrap_err().0, StatusCode::UNAUTHORIZED);
+
+    let Json(good_recover_init) = crate::routes::auth::recover_init(
+        State(state.clone()),
+        Json(crate::routes::auth::RecoverInitRequest {
+            email: "hardened@schule.de".into(),
+            recovery_auth_key_b64: bundle.recovery_auth_key_b64.clone(),
+        }),
+    )
+    .await
+    .expect("valid recover_init");
+    assert_eq!(good_recover_init.recovery_encrypted_dek, bundle.recovery_encrypted_dek);
+
+    // 2. Issue #52 (M-1): Step-up authentication required for passkey_register_start, and token_version revokes old JWTs on password recovery
+    let mut old_headers = HeaderMap::new();
+    old_headers.insert(
+        "authorization",
+        HeaderValue::from_str(&format!("Bearer {}", reg_resp.token)).unwrap(),
+    );
+
+    let pk_start_without_stepup = passkey_register_start(
+        State(state.clone()),
+        old_headers.clone(),
+        None,
+    )
+    .await;
+    assert!(
+        pk_start_without_stepup.is_err(),
+        "passkey_register_start must reject requests without step-up auth"
+    );
+    assert_eq!(pk_start_without_stepup.err().unwrap().0, StatusCode::UNAUTHORIZED);
+
+    let pk_start_with_stepup = passkey_register_start(
+        State(state.clone()),
+        old_headers.clone(),
+        Some(Json(crate::routes::passkey::PasskeyRegisterStartRequest {
+            auth_key_b64: Some(bundle.auth_key_b64.clone()),
+            totp_code: None,
+        })),
+    )
+    .await;
+    assert!(pk_start_with_stepup.is_ok(), "passkey_register_start with valid step-up auth must succeed");
+
+    // Password recovery increments token_version and invalidates old_headers
+    let (new_salt, new_params, new_auth_key, new_enc_dek) =
+        rewrap_dek_for_new_password(&bundle.dek_b64, "RecoveredPassword789!").expect("rewrap");
+    let Json(rec_resp) = recover_password(
+        State(state.clone()),
+        Json(RecoverPasswordRequest {
+            email: "hardened@schule.de".into(),
+            recovery_auth_key_b64: bundle.recovery_auth_key_b64.clone(),
+            new_auth_key_b64: new_auth_key.clone(),
+            new_kdf_salt_b64: new_salt,
+            new_kdf_params: new_params,
+            new_encrypted_dek: new_enc_dek,
+            new_recovery_encrypted_dek: None,
+            new_recovery_auth_key_b64: None,
+            totp_code: None,
+        }),
+    )
+    .await
+    .expect("recover password");
+
+    let stale_req = list_envelopes(State(state.clone()), old_headers).await;
+    assert!(stale_req.is_err(), "JWT from before password recovery must be rejected");
+    assert_eq!(stale_req.unwrap_err().0, StatusCode::UNAUTHORIZED);
+
+    let mut fresh_headers = HeaderMap::new();
+    fresh_headers.insert(
+        "authorization",
+        HeaderValue::from_str(&format!("Bearer {}", rec_resp.token)).unwrap(),
+    );
+    assert!(list_envelopes(State(state.clone()), fresh_headers).await.is_ok());
+
+    // 3. Issue #53 (M-2, M-3): IP-scoped rate limiting prevents cross-IP account lockout DoS
+    for _ in 0..12 {
+        assert!(crate::middleware::check_auth_rate_limit_with_ip(
+            &state,
+            "login:target@schule.de",
+            "203.0.113.10"
+        )
+        .is_ok());
+    }
+    assert!(
+        crate::middleware::check_auth_rate_limit_with_ip(
+            &state,
+            "login:target@schule.de",
+            "203.0.113.10"
+        )
+        .is_err(),
+        "Attacker IP must be rate-limited after 12 attempts"
+    );
+    assert!(
+        crate::middleware::check_auth_rate_limit_with_ip(
+            &state,
+            "login:target@schule.de",
+            "198.51.100.55"
+        )
+        .is_ok(),
+        "Legitimate user on a different IP must NOT be locked out by attacker IP"
+    );
+
+    // 4. Issue #57 (N-7, N-9): LegalConfig default has no personal data, desktop_relay_complete rejects unencrypted payloads
+    let legal = LegalConfig::default();
+    assert!(!legal.name.contains("Kallidat"));
+    assert!(!legal.address.contains("Bietigheim"));
+
+    let init_relay = desktop_relay_init(State(state.clone()), HeaderMap::new()).await.unwrap();
+    let bad_relay = desktop_relay_complete(
+        State(state.clone()),
+        Json(DesktopRelayCompleteRequest {
+            session_token: init_relay.0.session_token,
+            encrypted_payload: "{\"unencrypted\":\"json\"}".into(),
+        }),
+    )
+    .await;
+    assert!(bad_relay.is_err(), "desktop_relay_complete must reject non-v1 encrypted_payload");
+    assert_eq!(bad_relay.unwrap_err().0, StatusCode::BAD_REQUEST);
+
     let _ = fs::remove_file(&state.disk_store_path);
 }

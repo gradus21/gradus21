@@ -9,7 +9,6 @@ use tauri::Manager;
 #[derive(serde::Deserialize)]
 struct CallbackBody {
     state: String,
-    session: Option<serde_json::Value>,
     encrypted_payload: Option<String>,
 }
 
@@ -196,10 +195,8 @@ pub fn start_desktop_browser_auth(
                                             return Err(format!("Fehler beim Entschlüsseln des Authentifizierungs-Payloads: {:?}", e));
                                         }
                                     }
-                                } else if let Some(sess) = callback_req.session {
-                                    sess
                                 } else {
-                                    return Err("Keine Session-Daten übergeben".into());
+                                    return Err("Unverschlüsselte Session-Daten werden nicht akzeptiert (encrypted_payload erforderlich).".into());
                                 };
 
                                 // Send successful response HTML

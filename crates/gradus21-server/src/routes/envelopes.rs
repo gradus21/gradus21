@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::middleware::authenticate_request;
 use crate::state::{
-    delete_all_envelopes_from_pg, delete_envelope_from_pg, persist_to_disk, sync_user_to_pg,
+    delete_envelope_from_pg, persist_to_disk,
     tenant_env_key, AppState, EncryptedEnvelopeRecord,
 };
 
@@ -214,9 +214,10 @@ async fn apply_envelope_upserts(
         }
         Ok(None) => {}
         Err(err_msg) => {
+            tracing::error!("Datenbankfehler beim Speichern der Umschläge: {}", err_msg);
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Datenbankfehler beim Speichern der Umschläge: {}", err_msg),
+                "Interner Datenbankfehler beim Speichern der Umschläge.".into(),
             ));
         }
     }
@@ -314,11 +315,17 @@ pub async fn delete_envelope(
     let pg_deleted = if state.db.is_some() {
         let res1 = delete_envelope_from_pg(&state, id, owner_id)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler beim Löschen: {}", e)))?;
+            .map_err(|e| {
+                tracing::error!("Datenbankfehler beim Löschen von Envelope {}: {}", id, e);
+                (StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler beim Löschen.".to_string())
+            })?;
         let res2 = if legacy_namespaced_id != id {
             delete_envelope_from_pg(&state, legacy_namespaced_id, owner_id)
                 .await
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler beim Löschen: {}", e)))?
+                .map_err(|e| {
+                    tracing::error!("Datenbankfehler beim Löschen von Legacy-Envelope {}: {}", legacy_namespaced_id, e);
+                    (StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler beim Löschen.".to_string())
+                })?
         } else {
             0
         };
@@ -429,7 +436,8 @@ pub async fn delete_all_user_envelopes(
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
 
     if let Err(e) = crate::state::delete_all_envelopes_from_pg(&state, owner_id).await {
-        return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e)));
+        tracing::error!("Datenbankfehler beim Löschen aller Envelopes für {}: {}", owner_id, e);
+        return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler.".into()));
     }
 
     {
@@ -465,7 +473,10 @@ pub async fn update_preferences(
         }
     };
     if let Some(saved_user) = updated_user_opt {
-        if let Err(e) = crate::state::sync_user_to_pg(&state, &saved_user).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+        if let Err(e) = crate::state::sync_user_to_pg(&state, &saved_user).await {
+            tracing::error!("Datenbankfehler beim Speichern der Benutzereinstellungen: {}", e);
+            return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler.".into()));
+        }
     }
     persist_to_disk(&state);
     Ok(Json(prefs))

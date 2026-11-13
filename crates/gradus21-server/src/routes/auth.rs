@@ -11,15 +11,17 @@ use chrono::Utc;
 use gradus21_core::crypto::{decrypt_entity_envelope, encrypt_entity_envelope, KdfParams};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
 use crate::admin;
 use crate::middleware::{
-    authenticate_request, check_auth_rate_limit, extract_client_ip, hash_client_key, issue_jwt,
+    authenticate_request, check_auth_rate_limit, extract_client_ip, hash_client_key,
+    issue_jwt_with_version,
 };
 use crate::state::{
-    find_user_by_email, persist_to_disk, sync_user_to_pg, AppState, EmailVerificationEntry,
+    find_user_by_email, persist_to_disk, AppState, EmailVerificationEntry,
     LegalConfig, UserRecord,
 };
 use crate::totp;
@@ -133,16 +135,22 @@ pub struct SaltQueryRequest {
     pub email: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug, Clone)]
 pub struct SaltQueryResponse {
     pub kdf_salt_b64: String,
     pub kdf_params: KdfParams,
-    pub encrypted_dek: String,
+}
+
+#[derive(Deserialize)]
+pub struct RecoverInitRequest {
+    pub email: String,
+    pub recovery_auth_key_b64: String,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct RecoverInitResponse {
     pub recovery_encrypted_dek: String,
     pub totp_enabled: bool,
-    pub has_passkey: bool,
-    pub passkey_label: Option<String>,
-    pub passkey_prf_salt_b64: Option<String>,
 }
 
 
@@ -215,6 +223,18 @@ pub async fn get_legal_info(State(state): State<AppState>) -> Json<LegalConfig> 
     Json(state.legal_config.clone())
 }
 
+pub fn compute_deterministic_fake_salt(server_key_b64: &str, email: &str) -> String {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+    use hmac::{Hmac, Mac};
+    type HmacSha256 = Hmac<Sha256>;
+    let mut mac = <HmacSha256 as Mac>::new_from_slice(server_key_b64.as_bytes())
+        .expect("HMAC accepts any key size");
+    mac.update(b"gradus21:fake-kdf-salt:v1:");
+    mac.update(email.trim().to_lowercase().as_bytes());
+    let digest = mac.finalize().into_bytes();
+    B64.encode(&digest[..16])
+}
+
 pub async fn get_user_salt(
     State(state): State<AppState>,
     Json(req): Json<SaltQueryRequest>,
@@ -223,42 +243,21 @@ pub async fn get_user_salt(
     check_auth_rate_limit(&state, &format!("salt:{}", email))?;
 
     if let Some(u) = find_user_by_email(&state, &email).await {
-        let (has_passkey, passkey_label, passkey_prf_salt_b64) = {
-            let pks = state.mem_passkeys.read();
-            let user_pks: Vec<_> = pks.values().filter(|p| p.user_id == u.id).collect();
-            if !user_pks.is_empty() {
-                let primary = user_pks
-                    .iter()
-                    .find(|p| u.passkey_credential_id.as_deref() == Some(&p.credential_id))
-                    .or_else(|| user_pks.first())
-                    .unwrap();
-                (
-                    true,
-                    Some(primary.passkey_label.clone()),
-                    primary.passkey_prf_salt.clone(),
-                )
-            } else {
-                (
-                    u.passkey_credential_id.is_some(),
-                    u.passkey_label.clone(),
-                    u.passkey_prf_salt.clone(),
-                )
-            }
-        };
-
-        return Ok(Json(SaltQueryResponse {
-            kdf_salt_b64: u.kdf_salt,
-            kdf_params: u.kdf_params,
-            encrypted_dek: u.encrypted_dek,
-            recovery_encrypted_dek: u.recovery_encrypted_dek,
-            totp_enabled: u.totp_enabled,
-            has_passkey,
-            passkey_label,
-            passkey_prf_salt_b64,
-        }));
+        if !u.kdf_salt.trim().is_empty() {
+            return Ok(Json(SaltQueryResponse {
+                kdf_salt_b64: u.kdf_salt,
+                kdf_params: u.kdf_params,
+            }));
+        }
     }
 
-    Err((StatusCode::NOT_FOUND, "Kein Tresor unter dieser E-Mail gefunden".into()))
+    // Issue #51 (H-3): Never leak `encrypted_dek`, `recovery_encrypted_dek`, `totp_enabled`,
+    // `has_passkey`, or user existence (404 vs 200) on `/api/auth/salt`.
+    // For unknown or passkey-only emails, return a deterministic HMAC-derived salt and default KDF params.
+    Ok(Json(SaltQueryResponse {
+        kdf_salt_b64: compute_deterministic_fake_salt(&state.server_encryption_key_b64, &email),
+        kdf_params: KdfParams::default(),
+    }))
 }
 
 pub async fn register_user(
@@ -298,7 +297,13 @@ pub async fn register_user(
         &user_id.to_string(),
         &totp_secret_b32,
     )
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .map_err(|e| {
+        tracing::error!("Server envelope encryption error: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Interner Verschlüsselungsfehler".into(),
+        )
+    })?;
 
     let ui_prefs = serde_json::json!({ "theme": "teal", "mode": "light" });
 
@@ -372,9 +377,11 @@ pub async fn register_user(
         email_verification_expires_at: None,
         email_verification_attempts: 0,
         email_verification_cooldown_until: None,
+        token_version: 0,
+        last_used_totp_step: None,
     };
 
-    if let Err(e) = crate::state::insert_user_to_pg(&state, &record).await {
+    if let Err(_e) = crate::state::insert_user_to_pg(&state, &record).await {
         return Err((axum::http::StatusCode::CONFLICT, "Diese E-Mail oder Benutzer-ID wird bereits verwendet".into()));
     }
 
@@ -410,7 +417,7 @@ pub async fn register_user(
 
     persist_to_disk(&state);
 
-    let token = issue_jwt(&state.jwt_secret, user_id, &email, is_admin, true)?;
+    let token = issue_jwt_with_version(&state.jwt_secret, user_id, &email, is_admin, true, new_user.token_version)?;
     Ok(Json(AuthResponse {
         token,
         user_id,
@@ -463,6 +470,7 @@ pub async fn login_user(
         .verify_password(req.auth_key_b64.as_bytes(), &parsed_hash)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültiges Passwort / AuthKey".into()))?;
 
+    let mut consumed_totp_step: Option<i64> = None;
     if user.totp_enabled {
         let Some(code) = req.totp_code.as_deref().filter(|s| !s.trim().is_empty()) else {
             return Err((StatusCode::FORBIDDEN, "2FA_REQUIRED".into()));
@@ -478,9 +486,15 @@ pub async fn login_user(
         )
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "2FA Entschlüsselungsfehler".into()))?;
 
-        if !totp::verify_totp_code_once(user.id, &secret_b32, code) {
+        let Some(step) = totp::verify_totp_code_once_with_persisted_step(
+            user.id,
+            &secret_b32,
+            code,
+            user.last_used_totp_step,
+        ) else {
             return Err((StatusCode::UNAUTHORIZED, "Ungültiger oder bereits verwendeter 6-stelliger 2FA-TOTP-Code".into()));
-        }
+        };
+        consumed_totp_step = Some(step);
     }
 
     // Invariant I-6: Admin role is governed by the persisted UserRecord (`user.is_admin`),
@@ -491,15 +505,24 @@ pub async fn login_user(
         let mut users = state.mem_users.write();
         if let Some(u) = users.get_mut(&user.id) {
             u.last_login_at = Some(now);
+            if let Some(step) = consumed_totp_step {
+                u.last_used_totp_step = Some(step);
+            }
         }
     }
     if let Some(mut updated_user) = find_user_by_email(&state, &email).await {
         updated_user.last_login_at = Some(now);
-        if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+        if let Some(step) = consumed_totp_step {
+            updated_user.last_used_totp_step = Some(step);
+        }
+        if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await {
+            tracing::error!("Database error in login_user: {}", e);
+            return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler".into()));
+        }
     }
     persist_to_disk(&state);
 
-    let token = issue_jwt(&state.jwt_secret, user.id, &user.email, is_admin, true)?;
+    let token = issue_jwt_with_version(&state.jwt_secret, user.id, &user.email, is_admin, true, user.token_version)?;
     Ok(Json(AuthResponse {
         token,
         user_id: user.id,
@@ -520,6 +543,53 @@ pub async fn login_user(
     }))
 }
 
+pub async fn recover_init(
+    State(state): State<AppState>,
+    Json(req): Json<RecoverInitRequest>,
+) -> Result<Json<RecoverInitResponse>, (StatusCode, String)> {
+    let email = validate_email(&req.email)?;
+    check_auth_rate_limit(&state, &format!("recover_init:{}", email))?;
+
+    let Some(existing_user) = find_user_by_email(&state, &email).await else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "Ungültige E-Mail oder Recovery-Schlüssel (kryptografischer Nachweis fehlgeschlagen)".into(),
+        ));
+    };
+
+    if !existing_user.is_active {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Dieses Benutzerkonto wurde von der Administration vorübergehend deaktiviert.".into(),
+        ));
+    }
+
+    if existing_user.recovery_auth_key_hash.trim().is_empty()
+        || req.recovery_auth_key_b64.trim().is_empty()
+    {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "Recovery-Nachweis fehlt oder für dieses Konto nicht hinterlegt".into(),
+        ));
+    }
+
+    let parsed_rec_hash = PasswordHash::new(&existing_user.recovery_auth_key_hash)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Recovery-Hash-Fehler".into()))?;
+    Argon2::default()
+        .verify_password(req.recovery_auth_key_b64.as_bytes(), &parsed_rec_hash)
+        .map_err(|_| {
+            (
+                StatusCode::UNAUTHORIZED,
+                "Ungültiger Recovery-Schlüssel (kryptografischer Nachweis fehlgeschlagen)".into(),
+            )
+        })?;
+
+    Ok(Json(RecoverInitResponse {
+        recovery_encrypted_dek: existing_user.recovery_encrypted_dek,
+        totp_enabled: existing_user.totp_enabled,
+    }))
+}
+
 pub async fn recover_password(
     State(state): State<AppState>,
     Json(req): Json<RecoverPasswordRequest>,
@@ -527,7 +597,7 @@ pub async fn recover_password(
     let email = validate_email(&req.email)?;
     check_auth_rate_limit(&state, &format!("recover:{}", email))?;
 
-    let Some(existing_user) = find_user_by_email(&state, &email).await else {
+    let Some(mut existing_user) = find_user_by_email(&state, &email).await else {
         return Err((StatusCode::NOT_FOUND, "Kein Tresor unter dieser E-Mail gefunden".into()));
     };
 
@@ -565,7 +635,7 @@ pub async fn recover_password(
         let Some(code) = req.totp_code.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
             return Err((StatusCode::UNAUTHORIZED, "2FA_REQUIRED".into()));
         };
-        if !verify_user_step_up_auth(&state, &existing_user, None, Some(code)) {
+        if !verify_user_step_up_auth(&state, &mut existing_user, None, Some(code)) {
             return Err((
                 StatusCode::UNAUTHORIZED,
                 "Ungültiger oder bereits verwendeter 6-stelliger 2FA-Sicherheitscode".into(),
@@ -592,6 +662,8 @@ pub async fn recover_password(
         user.kdf_salt = req.new_kdf_salt_b64.clone();
         user.kdf_params = req.new_kdf_params.clone();
         user.encrypted_dek = req.new_encrypted_dek.clone();
+        user.token_version = user.token_version.wrapping_add(1);
+        user.last_used_totp_step = existing_user.last_used_totp_step;
         if let Some(rec_dek) = req
             .new_recovery_encrypted_dek
             .as_ref()
@@ -608,10 +680,13 @@ pub async fn recover_password(
         .reg_challenges
         .write()
         .remove(&existing_user.id.to_string());
-    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await {
+        tracing::error!("Database error in recover_password: {}", e);
+        return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler".into()));
+    }
     persist_to_disk(&state);
 
-    let token = issue_jwt(&state.jwt_secret, updated_user.id, &updated_user.email, updated_user.is_admin, true)?;
+    let token = issue_jwt_with_version(&state.jwt_secret, updated_user.id, &updated_user.email, updated_user.is_admin, true, updated_user.token_version)?;
     Ok(Json(AuthResponse {
         token,
         user_id: updated_user.id,
@@ -634,9 +709,9 @@ pub async fn recover_password(
 
 /// Architectural Invariant (I-1 & I-2): Single source of truth for step-up authentication
 /// (verifying either the user's Master Password `auth_key_b64` or a single-use TOTP code).
-fn verify_user_step_up_auth(
+pub(crate) fn verify_user_step_up_auth(
     state: &AppState,
-    user: &UserRecord,
+    user: &mut UserRecord,
     auth_key_b64: Option<&str>,
     totp_code: Option<&str>,
 ) -> bool {
@@ -661,7 +736,13 @@ fn verify_user_step_up_auth(
                     &user.id.to_string(),
                     enc,
                 ) {
-                    if totp::verify_totp_code_once(user.id, &totp_secret, code) {
+                    if let Some(step) = totp::verify_totp_code_once_with_persisted_step(
+                        user.id,
+                        &totp_secret,
+                        code,
+                        user.last_used_totp_step,
+                    ) {
+                        user.last_used_totp_step = Some(step);
                         return true;
                     }
                 }
@@ -695,7 +776,7 @@ pub async fn rotate_recovery_key(
             req.auth_key_b64.as_deref(),
             req.totp_code.as_deref(),
         );
-        if !authorized && !user.auth_key_hash.is_empty() {
+        if !authorized && (!user.auth_key_hash.is_empty() || user.totp_enabled) {
             return Err((
                 StatusCode::UNAUTHORIZED,
                 "Zur Erneuerung des Notfall-Schlüssels ist dein Master-Passwort oder ein 2FA-Code erforderlich.".into(),
@@ -707,7 +788,10 @@ pub async fn rotate_recovery_key(
         user.clone()
     };
 
-    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_record).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_record).await {
+        tracing::error!("Database error in rotate_recovery_key: {}", e);
+        return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler".into()));
+    }
     persist_to_disk(&state);
 
     Ok(Json(serde_json::json!({
@@ -776,7 +860,10 @@ pub async fn get_2fa_setup_info(
     };
 
     if let Some(saved_user) = updated_user_opt {
-        if let Err(e) = crate::state::sync_user_to_pg(&state, &saved_user).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+        if let Err(e) = crate::state::sync_user_to_pg(&state, &saved_user).await {
+            tracing::error!("Database error in get_2fa_setup_info: {}", e);
+            return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler".into()));
+        }
         persist_to_disk(&state);
     }
 
@@ -798,7 +885,7 @@ pub async fn verify_and_enable_2fa(
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
     check_auth_rate_limit(&state, &format!("2fa_verify:{}", user_id))?;
 
-    let updated_user_opt = {
+    let saved_user = {
         let mut users = state.mem_users.write();
         let user_opt = if let Some(u) = users.get_mut(&user_id) {
             Some(u)
@@ -820,7 +907,8 @@ pub async fn verify_and_enable_2fa(
                     return Err((StatusCode::BAD_REQUEST, "6-stelliger 2FA-Code ist ungültig".into()));
                 }
                 user.totp_enabled = true;
-                Some(user.clone())
+                user.token_version = user.token_version.wrapping_add(1);
+                user.clone()
             } else {
                 return Err((StatusCode::BAD_REQUEST, "Kein 2FA-Secret initialisiert".into()));
             }
@@ -828,11 +916,23 @@ pub async fn verify_and_enable_2fa(
             return Err((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()));
         }
     };
-    if let Some(saved_user) = updated_user_opt {
-        if let Err(e) = crate::state::sync_user_to_pg(&state, &saved_user).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &saved_user).await {
+        tracing::error!("Database error in verify_and_enable_2fa: {}", e);
+        return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler".into()));
     }
     persist_to_disk(&state);
-    Ok(Json(serde_json::json!({ "totp_enabled": true })))
+    let new_token = issue_jwt_with_version(
+        &state.jwt_secret,
+        saved_user.id,
+        &saved_user.email,
+        saved_user.is_admin,
+        true,
+        saved_user.token_version,
+    )?;
+    Ok(Json(serde_json::json!({
+        "totp_enabled": true,
+        "token": new_token
+    })))
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -886,10 +986,15 @@ pub async fn reconfigure_2fa(
                 &user.id.to_string(),
                 &new_secret_b32,
             )
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .map_err(|e| {
+                tracing::error!("Encryption error in reconfigure_2fa: {}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, "Interner Verschlüsselungsfehler".into())
+            })?;
 
             user.totp_secret_server_encrypted = Some(enc);
             user.totp_enabled = false;
+            user.last_used_totp_step = None;
+            user.token_version = user.token_version.wrapping_add(1);
             totp::clear_totp_replay_state(user.id);
             (user.email.clone(), user.clone())
         } else {
@@ -897,14 +1002,26 @@ pub async fn reconfigure_2fa(
         }
     };
 
-    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await {
+        tracing::error!("Database error in reconfigure_2fa: {}", e);
+        return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler".into()));
+    }
     persist_to_disk(&state);
 
+    let new_token = issue_jwt_with_version(
+        &state.jwt_secret,
+        updated_user.id,
+        &updated_user.email,
+        updated_user.is_admin,
+        true,
+        updated_user.token_version,
+    )?;
     let uri = totp::build_otpauth_uri(&email, &new_secret_b32);
     Ok(Json(serde_json::json!({
         "totp_enabled": false,
         "totp_secret_base32": new_secret_b32,
-        "totp_setup_uri": uri
+        "totp_setup_uri": uri,
+        "token": new_token
     })))
 }
 
@@ -959,10 +1076,15 @@ pub async fn disable_2fa(
                 &user.id.to_string(),
                 &new_secret_b32,
             )
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .map_err(|e| {
+                tracing::error!("Encryption error in disable_2fa: {}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, "Interner Verschlüsselungsfehler".into())
+            })?;
 
             user.totp_secret_server_encrypted = Some(enc);
             user.totp_enabled = false;
+            user.last_used_totp_step = None;
+            user.token_version = user.token_version.wrapping_add(1);
             totp::clear_totp_replay_state(user.id);
             (user.email.clone(), user.clone())
         } else {
@@ -970,15 +1092,27 @@ pub async fn disable_2fa(
         }
     };
 
-    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await {
+        tracing::error!("Database error in disable_2fa: {}", e);
+        return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler".into()));
+    }
     persist_to_disk(&state);
 
+    let new_token = issue_jwt_with_version(
+        &state.jwt_secret,
+        updated_user.id,
+        &updated_user.email,
+        updated_user.is_admin,
+        true,
+        updated_user.token_version,
+    )?;
     let uri = totp::build_otpauth_uri(&email, &new_secret_b32);
     Ok(Json(serde_json::json!({
         "success": true,
         "totp_enabled": false,
         "totp_secret_base32": new_secret_b32,
-        "totp_setup_uri": uri
+        "totp_setup_uri": uri,
+        "token": new_token
     })))
 }
 
@@ -1015,8 +1149,8 @@ pub async fn update_user_email(
 
     // 1. Prevent privilege escalation to admin accounts (Finding 1) & require mandatory step-up auth (Invariant I-2)
     {
-        let users = state.mem_users.read();
-        if let Some(user) = users.get(&user_id) {
+        let mut users = state.mem_users.write();
+        if let Some(user) = users.get_mut(&user_id) {
             if !user.is_admin && state.admin_emails.contains(&new_email) {
                 return Err((
                     StatusCode::FORBIDDEN,
@@ -1078,10 +1212,20 @@ pub async fn update_user_email(
         user.clone()
     };
 
-    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await {
+        tracing::error!("Database error in update_user_email: {}", e);
+        return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler".into()));
+    }
     persist_to_disk(&state);
 
-    let new_token = issue_jwt(&state.jwt_secret, updated_user.id, &updated_user.email, updated_user.is_admin, true)?;
+    let new_token = issue_jwt_with_version(
+        &state.jwt_secret,
+        updated_user.id,
+        &updated_user.email,
+        updated_user.is_admin,
+        true,
+        updated_user.token_version,
+    )?;
 
     Ok(Json(serde_json::json!({
         "status": "ok",
@@ -1118,6 +1262,13 @@ pub struct VerifyEmailConfirmResponse {
     pub message: String,
 }
 
+pub fn hash_verification_code(code: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"gradus21:email_verification_code:v1:");
+    hasher.update(code.trim().as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
 pub async fn verify_email_start(
     State(state): State<AppState>,
     Json(req): Json<VerifyEmailStartRequest>,
@@ -1127,7 +1278,7 @@ pub async fn verify_email_start(
         return Err((StatusCode::BAD_REQUEST, "Ungültige E-Mail-Adresse".into()));
     }
 
-    // Rate-limiting: max 3 requests per 15 minutes
+    // Rate-limiting: per-(IP, email) + per-IP verification cap
     check_auth_rate_limit(&state, &format!("verify_start:{}", email))?;
 
     let now = Utc::now();
@@ -1147,12 +1298,13 @@ pub async fn verify_email_start(
     }
 
     let code = format!("{:06}", rand::thread_rng().gen_range(100000..=999999));
+    let code_hash = hash_verification_code(&code);
     let expires_at = now + chrono::Duration::minutes(15);
     let cooldown_until = now + chrono::Duration::seconds(60);
 
     let entry = EmailVerificationEntry {
         email: email.clone(),
-        code: code.clone(),
+        code: code_hash.clone(),
         expires_at,
         attempts: 0,
         cooldown_until,
@@ -1162,20 +1314,29 @@ pub async fn verify_email_start(
         let mut verifs = state.mem_email_verifications.write();
         // Prune expired entries to prevent unbounded RAM growth under automated scans
         verifs.retain(|_, v| v.expires_at >= now);
-        if !verifs.contains_key(&email) && verifs.len() >= 2048 {
-            return Err((
-                StatusCode::TOO_MANY_REQUESTS,
-                "Zu viele gleichzeitige E-Mail-Verifikationen aktiv. Bitte kurz warten.".into(),
-            ));
+        // Issue #53 (M-3): When the map reaches capacity (2048), evict the oldest pending
+        // (unverified) entry instead of globally blocking new registrations for 15 minutes.
+        while !verifs.contains_key(&email) && verifs.len() >= 2048 {
+            if let Some(oldest_key) = verifs
+                .iter()
+                .filter(|(_, v)| !v.code.is_empty())
+                .min_by_key(|(_, v)| v.expires_at)
+                .or_else(|| verifs.iter().min_by_key(|(_, v)| v.expires_at))
+                .map(|(k, _)| k.clone())
+            {
+                verifs.remove(&oldest_key);
+            } else {
+                break;
+            }
         }
         verifs.insert(email.clone(), entry);
     }
 
-    // Also update user record if user exists
+    // Issue #57 (N-3): Store only the SHA-256 hash of the verification code in UserRecord / DB
     {
         let mut users = state.mem_users.write();
         if let Some(user) = users.values_mut().find(|u| u.email == email) {
-            user.email_verification_code = Some(code.clone());
+            user.email_verification_code = Some(code_hash);
             user.email_verification_expires_at = Some(expires_at);
             user.email_verification_attempts = 0;
             user.email_verification_cooldown_until = Some(cooldown_until);
@@ -1202,7 +1363,7 @@ pub async fn verify_email_start(
                     tracing::info!("Verifikationscode für {}: {}", email, code);
                     dev_code = Some(code);
                 }
-                mail_error = Some(format!("SMTP-Versand fehlgeschlagen: {}", e));
+                mail_error = Some("E-Mail-Versand fehlgeschlagen. Bitte kontaktiere die Administration oder versuche es später erneut.".into());
             }
         } else {
             if !is_prod {
@@ -1244,6 +1405,7 @@ pub async fn verify_email_confirm(
 
     check_auth_rate_limit(&state, &format!("verify_confirm:{}", email))?;
 
+    let submitted_hash = hash_verification_code(submitted_code);
     let now = Utc::now();
     let (is_valid, remaining) = {
         let mut verifs = state.mem_email_verifications.write();
@@ -1271,7 +1433,7 @@ pub async fn verify_email_confirm(
             ));
         }
 
-        let valid: bool = entry.code.as_bytes().ct_eq(submitted_code.as_bytes()).into();
+        let valid: bool = entry.code.as_bytes().ct_eq(submitted_hash.as_bytes()).into();
         let remaining = 5usize.saturating_sub(entry.attempts as usize);
         if valid {
             entry.code.clear();
@@ -1301,7 +1463,10 @@ pub async fn verify_email_confirm(
     };
 
     if let Some(u) = user_to_sync {
-        if let Err(e) = crate::state::sync_user_to_pg(&state, &u).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+        if let Err(e) = crate::state::sync_user_to_pg(&state, &u).await {
+            tracing::error!("Database error in verify_email_confirm: {}", e);
+            return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler".into()));
+        }
         persist_to_disk(&state);
     }
 
@@ -1380,11 +1545,20 @@ pub async fn desktop_relay_complete(
     Json(payload): Json<DesktopRelayCompleteRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let token = payload.session_token.trim();
-    if token.is_empty() || payload.encrypted_payload.trim().is_empty() {
+    let enc_payload = payload.encrypted_payload.trim();
+    if token.is_empty() || enc_payload.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "Ungültige Parameter".into()));
     }
+    // Issue #57 (N-9): Enforce AES-256-GCM transit-encrypted envelope format ("v1:<nonce>:<ciphertext>")
+    // so unencrypted session JSON can never be relayed through the server.
+    if !enc_payload.starts_with("v1:") || enc_payload.split(':').count() < 3 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Ungültiges Format der Relay-Nutzlast: Nur E2EE-verschlüsselte v1-Envelopes sind zulässig.".into(),
+        ));
+    }
     // Invariant I-6: Reject oversized relay payloads (> 16 KB) at the boundary
-    if payload.encrypted_payload.len() > 16_384 {
+    if enc_payload.len() > 16_384 {
         return Err((
             StatusCode::BAD_REQUEST,
             "Verschlüsselte Relay-Nutzlast überschreitet das zulässige Größenlimit (max. 16 KB).".into(),
@@ -1480,12 +1654,12 @@ pub async fn delete_user_account(
         return Err((StatusCode::FORBIDDEN, "Admin-Konten können nicht über diesen Endpunkt gelöscht werden.".into()));
     }
 
-    let user_to_delete = {
+    let mut user_to_delete = {
         let users = state.mem_users.read();
         users.get(&user_id).cloned().ok_or((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()))?
     };
 
-    if !verify_user_step_up_auth(&state, &user_to_delete, req.auth_key_b64.as_deref(), req.totp_code.as_deref()) {
+    if !verify_user_step_up_auth(&state, &mut user_to_delete, req.auth_key_b64.as_deref(), req.totp_code.as_deref()) {
         if user_to_delete.auth_key_hash.is_empty() && !user_to_delete.totp_enabled {
             let iat = claims.exp as i64 - 86400 * 7;
             if Utc::now().timestamp() - iat > 900 {
@@ -1497,7 +1671,8 @@ pub async fn delete_user_account(
     }
 
     if let Err(e) = crate::state::delete_user_account_everywhere(&state, user_id).await {
-        return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler beim Löschen: {}", e)));
+        tracing::error!("Database error deleting user {}: {}", user_id, e);
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler beim Löschen".into()));
     }
     
     persist_to_disk(&state);

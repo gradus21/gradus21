@@ -195,7 +195,10 @@ pub async fn update_user_status(
         (summary, user_clone)
     };
 
-    if let Err(e) = crate::state::sync_user_to_pg(&state, &user_clone).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &user_clone).await {
+        tracing::error!("Datenbankfehler beim Aktualisieren des Benutzerstatus: {}", e);
+        return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler.".into()));
+    }
     persist_to_disk(&state);
 
     Ok(Json(summary))
@@ -233,7 +236,7 @@ pub async fn delete_user(
     }
 
     // Architectural Invariant (I-4): Use centralized user account purge across memory and PostgreSQL
-    crate::state::delete_user_account_everywhere(&state, target_id).await;
+    let _ = crate::state::delete_user_account_everywhere(&state, target_id).await;
     persist_to_disk(&state);
 
     Ok(StatusCode::NO_CONTENT)
@@ -626,7 +629,10 @@ pub async fn download_backup(
     }
 
     let content = fs::read_to_string(file_path)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| {
+            tracing::error!("Fehler beim Lesen der Backup-Datei {}: {}", filename, e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "Backup-Datei konnte nicht gelesen werden.".to_string())
+        })?;
 
     let response = (
         [
@@ -736,8 +742,9 @@ pub async fn restore_backup(
                     totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek,
                     passkey_prf_salt, ui_preferences, is_admin, is_active, last_login_at,
                     email_verified, email_verification_code, email_verification_expires_at,
-                    email_verification_attempts, email_verification_cooldown_until, updated_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NOW())"#,
+                    email_verification_attempts, email_verification_cooldown_until,
+                    token_version, last_used_totp_step, updated_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, NOW())"#,
             )
             .bind(user.id)
             .bind(&user.email)
@@ -762,6 +769,8 @@ pub async fn restore_backup(
             .bind(user.email_verification_expires_at)
             .bind(user.email_verification_attempts)
             .bind(user.email_verification_cooldown_until)
+            .bind(user.token_version)
+            .bind(user.last_used_totp_step)
             .execute(&mut *tx)
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Einfügen von Benutzer {}: {}", user.id, e)))?;

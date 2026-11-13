@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import {
+  wasm_decrypt_dek_with_kek,
+  wasm_derive_password_keys,
   wasm_derive_recovery_auth_key,
   wasm_generate_vault,
   wasm_rewrap_dek,
@@ -444,6 +446,55 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       let serverSessionId: string | null = null;
       let creationPublicKey: any = null;
       if (activeSession.token) {
+        let stepUpAuthKey = activeSession.authKeyB64;
+        let stepUpTotpCode: string | undefined;
+
+        if (!stepUpAuthKey && activeSession.totpEnabled) {
+          const code = await promptDialog({
+            title: '2FA-Sicherheitsabfrage',
+            message: 'Bitte gib zur Registrierung eines neuen Passkeys deinen aktuellen 6-stelligen 2FA-Code ein:',
+            placeholder: '000000',
+            inputMode: 'numeric',
+            maxLength: 6,
+            autoComplete: 'one-time-code',
+            confirmText: 'Bestätigen',
+            cancelText: 'Abbrechen',
+          });
+          if (!code || !code.trim()) {
+            setStatusMsg(null);
+            return false;
+          }
+          stepUpTotpCode = code.trim();
+        } else if (!stepUpAuthKey && activeSession.kdfSaltB64) {
+          const enteredPw = await promptDialog({
+            title: 'Passwort-Bestätigung',
+            message: 'Bitte gib zur Registrierung eines neuen Passkeys dein Master-Passwort ein:',
+            placeholder: 'Master-Passwort',
+            confirmText: 'Bestätigen',
+            cancelText: 'Abbrechen',
+          });
+          if (!enteredPw) {
+            setStatusMsg(null);
+            return false;
+          }
+          try {
+            const kdfParams = normalizeKdfParams(
+              activeSession.kdfParams || { memory_kib: 19456, iterations: 2, parallelism: 1 }
+            );
+            const derivedJson = wasm_derive_password_keys(
+              enteredPw,
+              activeSession.kdfSaltB64,
+              JSON.stringify(kdfParams)
+            );
+            const derived = JSON.parse(derivedJson);
+            stepUpAuthKey = derived.auth_key_b64;
+          } catch (e: any) {
+            setStatusMsg(null);
+            setErrorMsg('Fehler beim Ableiten des Authentifizierungsschlüssels: ' + String(e));
+            return false;
+          }
+        }
+
         try {
           const startRes = await fetchWithTimeout(apiUrl('/api/auth/passkey/register/start'), {
             method: 'POST',
@@ -451,6 +502,10 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
               'Content-Type': 'application/json',
               Authorization: `Bearer ${activeSession.token}`,
             },
+            body: JSON.stringify({
+              auth_key_b64: stepUpAuthKey || undefined,
+              totp_code: stepUpTotpCode || undefined,
+            }),
           });
           if (startRes.ok) {
             const startData = await startRes.json();
@@ -743,6 +798,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     setStatusMsg('Passkey wird entfernt...');
 
     try {
+      let refreshedToken = session.token;
       if (session.token) {
         const res = await fetchWithTimeout(apiUrl(`/api/auth/passkey/${passkeyId}`), {
           method: 'DELETE',
@@ -755,6 +811,10 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           setErrorMsg(errText || 'Passkey konnte nicht auf dem Server gelöscht werden.');
           setStatusMsg(null);
           return;
+        }
+        const delData = await res.json().catch(() => ({}));
+        if (delData?.token) {
+          refreshedToken = delData.token;
         }
       }
 
@@ -769,6 +829,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       const nextPrimary = updatedRemaining[0];
       const updatedSession: ActiveVaultSession = {
         ...session,
+        token: refreshedToken,
         passkeyCredentialId: nextPrimary ? nextPrimary.credential_id : undefined,
         passkeyLabel: nextPrimary ? nextPrimary.label : undefined,
       };
@@ -820,6 +881,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     setStatusMsg('Passkey wird entfernt...');
 
     try {
+      let refreshedToken = session.token;
       if (session.token) {
         const res = await fetchWithTimeout(apiUrl('/api/auth/passkey'), {
           method: 'DELETE',
@@ -833,6 +895,10 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
           setStatusMsg(null);
           return;
         }
+        const delData = await res.json().catch(() => ({}));
+        if (delData?.token) {
+          refreshedToken = delData.token;
+        }
       }
 
       removeLocalPasskey(session.email, session.passkeyCredentialId);
@@ -840,6 +906,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
       const updatedSession: ActiveVaultSession = {
         ...session,
+        token: refreshedToken,
         passkeyCredentialId: undefined,
         passkeyLabel: undefined,
       };
@@ -1890,7 +1957,12 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         return;
       }
 
-      const updated = { ...regSession, totpEnabled: true };
+      const verifyData = await res.json().catch(() => ({}));
+      const updated = {
+        ...regSession,
+        token: verifyData?.token || regSession.token,
+        totpEnabled: true,
+      };
       setRegSession(updated);
       setRegTotpVerified(true);
       setStatusMsg('2FA erfolgreich aktiviert!');
@@ -2033,7 +2105,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       }
 
       const localCachedForCheck = findLocalCachedVault(cleanEmail, session?.userId);
-      if ((saltData?.totp_enabled || localCachedForCheck?.totpEnabled) && !totpCode.trim()) {
+      if (localCachedForCheck?.totpEnabled && !totpCode.trim()) {
         setLoginRequiresTotp(true);
         setErrorMsg('Bitte gib den 6-stelligen Code aus deiner Authenticator-App ein.');
         setStatusMsg(null);
@@ -2042,101 +2114,163 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
 
       const localCached = findLocalCachedVault(cleanEmail, session?.userId);
 
-      // Versuche zuerst den aktuellen verschlüsselten Schlüssel vom Server, dann den lokalen Cache
-      const candidateEncryptedDeks = [
-        saltData?.encrypted_dek,
-        session?.encryptedDek,
-        localCached?.encryptedDek,
-      ].filter((v): v is string => Boolean(v && v.trim()));
-
-      const candidateSalts = [
-        saltData?.kdf_salt_b64,
-        session?.kdfSaltB64,
-        localCached?.kdfSaltB64,
-      ].filter((v): v is string => Boolean(v && v.trim()));
-
-      if (candidateSalts.length === 0 || candidateEncryptedDeks.length === 0) {
-        setStatusMsg(null);
-        if (saltFetchError) {
-          setErrorMsg(`Verbindung zu ${getServerUrl()} nicht möglich (${saltFetchError}). Bitte prüfe deine Internetverbindung.`);
-        } else {
-          setErrorMsg('Keine Tresor-Schlüssel für dieses Konto auf diesem Gerät gefunden. Bitte prüfe deine Server-Verbindung.');
-        }
-        return;
-      }
-
       let unlocked: { dek_b64: string; auth_key_b64: string } | null = null;
       let usedEncryptedDek = '';
       let usedSalt = '';
-
-      const kdfParams = normalizeKdfParams(
+      let kdfParams = normalizeKdfParams(
         saltData?.kdf_params ||
-        localCached?.kdfParams ||
-        session?.kdfParams || { memory_kib: 19456, iterations: 2, parallelism: 1 }
+          localCached?.kdfParams ||
+          session?.kdfParams || { memory_kib: 19456, iterations: 2, parallelism: 1 }
       );
+      let loginData: any = null;
 
-      let lastUnlockError: any = null;
-      for (const s of candidateSalts) {
-        for (const encDek of candidateEncryptedDeks) {
+      // Issue #51 (H-3): Zero-knowledge login flow — derive AuthKey & KEK from password + salt first,
+      // authenticate against /api/auth/login, receive encrypted_dek ONLY after authentication succeeds,
+      // and then unwrap DEK with KEK.
+      if (!isServerOffline && saltData?.kdf_salt_b64) {
+        const serverSalt = saltData.kdf_salt_b64;
+        const serverKdfParams = normalizeKdfParams(
+          saltData.kdf_params || { memory_kib: 19456, iterations: 2, parallelism: 1 }
+        );
+        let derived: { auth_key_b64: string; kek_b64: string } | null = null;
+        try {
+          const derivedJson = wasm_derive_password_keys(
+            password,
+            serverSalt,
+            JSON.stringify(serverKdfParams)
+          );
+          derived = JSON.parse(derivedJson);
+        } catch (deriveErr: any) {
+          setErrorMsg(`Schlüsselableitung fehlgeschlagen: ${String(deriveErr?.message || deriveErr)}`);
+          setStatusMsg(null);
+          return;
+        }
+
+        if (derived) {
           try {
-            const unlockedJson = wasm_unlock_vault(
-              password,
-              s,
-              JSON.stringify(kdfParams),
-              encDek
-            );
-            unlocked = JSON.parse(unlockedJson);
-            usedEncryptedDek = encDek;
-            usedSalt = s;
-            break;
-          } catch (err: any) {
-            lastUnlockError = err;
+            const loginRes = await fetchWithTimeout(apiUrl('/api/auth/login'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                email: cleanEmail,
+                auth_key_b64: derived.auth_key_b64,
+                totp_code: totpCode || null,
+              }),
+            });
+
+            if (loginRes.ok) {
+              loginData = await loginRes.json();
+              const encDekFromServer =
+                loginData?.encrypted_dek || session?.encryptedDek || localCached?.encryptedDek || '';
+              if (!encDekFromServer) {
+                setErrorMsg('Keine Tresor-Schlüssel vom Server erhalten.');
+                setStatusMsg(null);
+                return;
+              }
+              try {
+                const dekB64 = wasm_decrypt_dek_with_kek(derived.kek_b64, encDekFromServer);
+                unlocked = {
+                  dek_b64: dekB64,
+                  auth_key_b64: derived.auth_key_b64,
+                };
+                usedEncryptedDek = encDekFromServer;
+                usedSalt = loginData?.kdf_salt_b64 || serverSalt;
+                kdfParams = normalizeKdfParams(loginData?.kdf_params || serverKdfParams);
+              } catch {
+                setErrorMsg('Das eingegebene Passwort stimmt leider nicht.');
+                setStatusMsg(null);
+                return;
+              }
+            } else {
+              const t = await loginRes.text();
+              if (t === '2FA_REQUIRED') {
+                setLoginRequiresTotp(true);
+                setErrorMsg('Bitte gib noch den 6-stelligen Zahlencode aus deiner Handy-App ein.');
+                setStatusMsg(null);
+                return;
+              }
+              // Fallback für rein lokale Tresore, die noch nicht auf dem Server registriert sind
+              // (Server liefert bei unbekannter E-Mail einen deterministischen Fake-Salt und 401 bei Login)
+              const hasLocalVaultWithDifferentSalt =
+                loginRes.status === 401 &&
+                Boolean(
+                  (localCached?.encryptedDek &&
+                    localCached?.kdfSaltB64 &&
+                    localCached.kdfSaltB64 !== serverSalt) ||
+                    (session?.encryptedDek &&
+                      session?.kdfSaltB64 &&
+                      session.kdfSaltB64 !== serverSalt)
+                );
+              if (!hasLocalVaultWithDifferentSalt) {
+                setErrorMsg(t || 'Das eingegebene Passwort stimmt leider nicht.');
+                setStatusMsg(null);
+                return;
+              }
+            }
+          } catch {
+            // Netzwerkfehler während /api/auth/login -> Offline-Fallback versuchen
+            loginData = null;
           }
         }
-        if (unlocked) break;
       }
 
+      // Offline-Fallback (oder lokaler Tresor, der noch nicht mit dem Server verknüpft ist)
       if (!unlocked) {
-        const errStr = String(lastUnlockError?.message || lastUnlockError || '');
-        if (errStr && !errStr.includes('Decryption failed') && !errStr.includes('invalid key')) {
-          setErrorMsg(`Entschlüsselung fehlgeschlagen: ${errStr}`);
-        } else {
-          setErrorMsg('Das eingegebene Passwort stimmt leider nicht.');
+        const candidateEncryptedDeks = [
+          session?.encryptedDek,
+          localCached?.encryptedDek,
+        ].filter((v): v is string => Boolean(v && v.trim()));
+
+        const candidateSalts = [
+          session?.kdfSaltB64,
+          localCached?.kdfSaltB64,
+          saltData?.kdf_salt_b64,
+        ].filter((v): v is string => Boolean(v && v.trim()));
+
+        if (candidateSalts.length === 0 || candidateEncryptedDeks.length === 0) {
+          setStatusMsg(null);
+          if (saltFetchError) {
+            setErrorMsg(
+              `Verbindung zu ${getServerUrl()} nicht möglich (${saltFetchError}). Bitte prüfe deine Internetverbindung.`
+            );
+          } else {
+            setErrorMsg(
+              'Kein Gradus21-Konto für diese E-Mail-Adresse gefunden oder das Passwort ist nicht korrekt.'
+            );
+          }
+          return;
         }
-        setStatusMsg(null);
-        return;
-      }
 
-      let loginData: any = null;
-      if (!isServerOffline && saltData) {
-        try {
-          const loginRes = await fetchWithTimeout(apiUrl('/api/auth/login'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: cleanEmail,
-              auth_key_b64: unlocked.auth_key_b64,
-              totp_code: totpCode || null,
-            }),
-          });
-
-          if (!loginRes.ok) {
-            const t = await loginRes.text();
-            if (t === '2FA_REQUIRED') {
-              setLoginRequiresTotp(true);
-              setErrorMsg('Bitte gib noch den 6-stelligen Zahlencode aus deiner Handy-App ein.');
-              setStatusMsg(null);
-              return;
-            } else {
-              setErrorMsg(t || 'Anmeldung fehlgeschlagen');
-              setStatusMsg(null);
-              return;
+        let lastUnlockError: any = null;
+        for (const s of candidateSalts) {
+          for (const encDek of candidateEncryptedDeks) {
+            try {
+              const unlockedJson = wasm_unlock_vault(
+                password,
+                s,
+                JSON.stringify(kdfParams),
+                encDek
+              );
+              unlocked = JSON.parse(unlockedJson);
+              usedEncryptedDek = encDek;
+              usedSalt = s;
+              break;
+            } catch (err: any) {
+              lastUnlockError = err;
             }
           }
-          loginData = await loginRes.json();
-        } catch {
-          // proceeding offline
-          loginData = null;
+          if (unlocked) break;
+        }
+
+        if (!unlocked) {
+          const errStr = String(lastUnlockError?.message || lastUnlockError || '');
+          if (errStr && !errStr.includes('Decryption failed') && !errStr.includes('invalid key')) {
+            setErrorMsg(`Entschlüsselung fehlgeschlagen: ${errStr}`);
+          } else {
+            setErrorMsg('Das eingegebene Passwort stimmt leider nicht.');
+          }
+          setStatusMsg(null);
+          return;
         }
       }
 
@@ -2258,9 +2392,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             email.trim().toLowerCase(),
             unlocked.dek_b64,
             {
-              kdfSaltB64: usedSalt || saltData.kdf_salt_b64 || localCached?.kdfSaltB64,
-              encryptedDek: usedEncryptedDek || candidateEncryptedDeks[0],
-              kdfParams: normalizeKdfParams(saltData.kdf_params || localCached?.kdfParams),
+              kdfSaltB64: usedSalt || saltData?.kdf_salt_b64 || localCached?.kdfSaltB64,
+              encryptedDek: usedEncryptedDek || loginData?.encrypted_dek || localCached?.encryptedDek || '',
+              kdfParams: normalizeKdfParams(saltData?.kdf_params || localCached?.kdfParams),
             }
           );
           setHasNativeBio(true);
@@ -2325,15 +2459,21 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
     const targetNewPassword = newPasswordInput.trim() || password || 'LehrerPasswort#2026!';
 
     try {
-      let saltData: any = null;
+      await ensureWasmLoaded();
+      const recoveryAuthKeyB64 = wasm_derive_recovery_auth_key(recoveryKeyInput);
+
+      let recoverInitData: { recovery_encrypted_dek?: string; totp_enabled?: boolean } | null = null;
       try {
-        const saltRes = await fetchWithTimeout(apiUrl('/api/auth/salt'), {
+        const initRes = await fetchWithTimeout(apiUrl('/api/auth/recover/init'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email }),
+          body: JSON.stringify({
+            email: email.trim().toLowerCase(),
+            recovery_auth_key_b64: recoveryAuthKeyB64,
+          }),
         });
-        if (saltRes.ok) {
-          saltData = await saltRes.json();
+        if (initRes.ok) {
+          recoverInitData = await initRes.json();
         }
       } catch {
         // Offline-Fallback nutzen
@@ -2343,10 +2483,9 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         saveLastLoginEmail(email);
       }
 
-      await ensureWasmLoaded();
       const cachedMeta = loadLocalRecoveryMeta(email);
       const candidateRecoveryBlobs = [
-        saltData?.recovery_encrypted_dek,
+        recoverInitData?.recovery_encrypted_dek,
         session?.recoveryEncryptedDek,
         cachedMeta?.recoveryEncryptedDek,
       ].filter((v): v is string => Boolean(v && v.trim()));
@@ -2375,8 +2514,6 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         return;
       }
 
-      const recoveryAuthKeyB64 = wasm_derive_recovery_auth_key(recoveryKeyInput);
-
       // Erzeuge / verifiziere den kryptografischen Notfall-Umschlag für diesen Code
       const wrappedRecoveryJson = wasm_wrap_dek_with_recovery(
         recoveredDekB64,
@@ -2396,7 +2533,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       const rewrappedJson = wasm_rewrap_dek(recoveredDekB64, targetNewPassword);
       const rewrapped = JSON.parse(rewrappedJson);
 
-      if ((saltData?.totp_enabled || session?.totpEnabled) && !totpCode.trim()) {
+      if ((recoverInitData?.totp_enabled || session?.totpEnabled) && !totpCode.trim()) {
         setLoginRequiresTotp(true);
         setErrorMsg(
           'Für dieses Konto ist 2FA aktiv. Bitte gib zusätzlich den 6-stelligen Code aus deiner Authenticator-App ein.'
@@ -2499,8 +2636,13 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
         setStatusMsg(null);
         return;
       }
+      const verifyData = await res.json().catch(() => ({}));
       setTotpVerifyInput('');
-      await onUnlockSuccess({ ...session, totpEnabled: true });
+      await onUnlockSuccess({
+        ...session,
+        token: verifyData?.token || session.token,
+        totpEnabled: true,
+      });
       setStatusMsg('Zwei-Faktor-Schutz ist jetzt aktiv!');
     } catch (err: any) {
       setErrorMsg('Verbindungsfehler bei der 2FA-Aktivierung: ' + String(err));
@@ -2583,6 +2725,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       setTotpVerifyInput('');
       const updated: ActiveVaultSession = {
         ...session,
+        token: data.token || session.token,
         totpEnabled: false,
         totpSecretBase32: data.totp_secret_base32,
         totpSetupUri: data.totp_setup_uri,
@@ -2691,6 +2834,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       setTotpVerifyInput('');
       const updated: ActiveVaultSession = {
         ...session,
+        token: data.token || session.token,
         totpEnabled: false,
         totpSecretBase32: data.totp_secret_base32 || session.totpSecretBase32,
         totpSetupUri: data.totp_setup_uri || session.totpSetupUri,
@@ -2749,6 +2893,25 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
       const recAuthKeyB64: string = recBundle.recovery_auth_key_b64;
 
       if (session.token) {
+        let totpCodeCandidate: string | undefined;
+        if (!session.authKeyB64 && session.totpEnabled) {
+          const code = await promptDialog({
+            title: '2FA-Sicherheitsabfrage',
+            message: 'Bitte gib zum Erneuern des Notfall-Schlüssels deinen aktuellen 6-stelligen 2FA-Code ein:',
+            placeholder: '000000',
+            inputMode: 'numeric',
+            maxLength: 6,
+            autoComplete: 'one-time-code',
+            confirmText: 'Bestätigen',
+            cancelText: 'Abbrechen',
+          });
+          if (!code || !code.trim()) {
+            setStatusMsg(null);
+            return;
+          }
+          totpCodeCandidate = code.trim();
+        }
+
         const res = await fetchWithTimeout(apiUrl('/api/auth/recovery/rotate'), {
           method: 'POST',
           headers: {
@@ -2759,6 +2922,7 @@ export const VaultLockAndAuthModal: React.FC<VaultLockAndAuthModalProps> = ({
             recovery_encrypted_dek: recEncryptedDek,
             recovery_auth_key_b64: recAuthKeyB64,
             auth_key_b64: session.authKeyB64 || undefined,
+            totp_code: totpCodeCandidate || undefined,
           }),
         });
 

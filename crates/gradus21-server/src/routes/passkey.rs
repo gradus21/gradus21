@@ -12,12 +12,13 @@ use uuid::Uuid;
 use webauthn_rs::prelude::*;
 
 use crate::middleware::{
-    authenticate_request, check_auth_rate_limit, extract_client_ip, hash_client_key, issue_jwt,
+    authenticate_request, check_auth_rate_limit, extract_client_ip, hash_client_key,
+    issue_jwt_with_version,
 };
-use crate::routes::auth::AuthResponse;
+use crate::routes::auth::{verify_user_step_up_auth, AuthResponse};
 use crate::state::{
     delete_all_passkeys_for_user_from_pg, delete_passkey_from_pg, persist_to_disk,
-    sync_passkey_to_pg, sync_user_to_pg, AppState, UserPasskeyRecord, UserRecord,
+    AppState, UserPasskeyRecord, UserRecord,
 };
 
 #[derive(Deserialize)]
@@ -92,22 +93,56 @@ pub struct RenamePasskeyRequest {
     pub label: String,
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct PasskeyRegisterStartRequest {
+    #[serde(default)]
+    pub auth_key_b64: Option<String>,
+    #[serde(default)]
+    pub totp_code: Option<String>,
+}
+
 pub async fn passkey_register_start(
     State(state): State<AppState>,
     headers: HeaderMap,
+    payload: Option<Json<PasskeyRegisterStartRequest>>,
 ) -> Result<Json<PasskeyRegisterStartResponse>, (StatusCode, String)> {
     let claims = authenticate_request(&state, &headers)?;
     let user_id = Uuid::parse_str(&claims.sub)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
     check_auth_rate_limit(&state, &format!("passkey_reg_start:{}", user_id))?;
 
-    let user = {
-        let users = state.mem_users.read();
-        users
-            .get(&user_id)
-            .cloned()
-            .ok_or((StatusCode::NOT_FOUND, "Benutzerkonto nicht gefunden".into()))?
+    let req = payload.map(|Json(r)| r).unwrap_or_default();
+
+    let (user, totp_step_changed) = {
+        let mut users = state.mem_users.write();
+        let u = users
+            .get_mut(&user_id)
+            .ok_or((StatusCode::NOT_FOUND, "Benutzerkonto nicht gefunden".into()))?;
+        let prev_step = u.last_used_totp_step;
+        if (!u.auth_key_hash.is_empty() || u.totp_enabled)
+            && !verify_user_step_up_auth(
+                &state,
+                u,
+                req.auth_key_b64.as_deref(),
+                req.totp_code.as_deref(),
+            )
+        {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "Zur Registrierung eines neuen Passkeys ist die Bestätigung durch dein Master-Passwort oder einen aktuellen 2FA-Code erforderlich.".into(),
+            ));
+        }
+        let changed = u.last_used_totp_step != prev_step;
+        (u.clone(), changed)
     };
+
+    if totp_step_changed {
+        if let Err(e) = crate::state::sync_user_to_pg(&state, &user).await {
+            tracing::error!("Database error in passkey_register_start: {}", e);
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler".into()));
+        }
+        persist_to_disk(&state);
+    }
 
     let pks = state.mem_passkeys.read();
     let exclude_credentials: Vec<CredentialID> = pks
@@ -133,9 +168,10 @@ pub async fn passkey_register_start(
         .webauthn
         .start_passkey_registration(user_id, &user.email, &user.email, exclude_opt)
         .map_err(|e| {
+            tracing::error!("WebAuthn start_passkey_registration error: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Fehler bei WebAuthn-Registrierung: {}", e),
+                "Fehler bei der Vorbereitung der WebAuthn-Registrierung".into(),
             )
         })?;
 
@@ -196,7 +232,7 @@ pub async fn passkey_register_finish(
             tracing::warn!("WebAuthn registration verification failed: {}", e);
             (
                 StatusCode::BAD_REQUEST,
-                format!("WebAuthn-Verifizierung fehlgeschlagen: {}", e),
+                "WebAuthn-Verifizierung fehlgeschlagen".into(),
             )
         })?;
 
@@ -232,9 +268,12 @@ pub async fn passkey_register_finish(
         .mem_passkeys
         .write()
         .insert(passkey_id, passkey_rec.clone());
-    if let Err(e) = crate::state::sync_passkey_to_pg(&state, &passkey_rec).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+    if let Err(e) = crate::state::sync_passkey_to_pg(&state, &passkey_rec).await {
+        tracing::error!("Database error syncing passkey in passkey_register_finish: {}", e);
+        return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler".into()));
+    }
 
-    // Update primary passkey on user record
+    // Update primary passkey on user record and increment token_version (#52 M-1)
     let updated_user = {
         let mut users = state.mem_users.write();
         let u = users
@@ -243,6 +282,7 @@ pub async fn passkey_register_finish(
         u.passkey_credential_id = Some(cred_id_str.clone());
         u.passkey_label = Some(label.clone());
         u.passkey_encrypted_dek = Some(req.passkey_encrypted_dek.clone());
+        u.token_version = u.token_version.wrapping_add(1);
         if let Some(prf) = &req.passkey_prf_salt_b64 {
             u.passkey_prf_salt = Some(prf.clone());
         }
@@ -271,10 +311,20 @@ pub async fn passkey_register_finish(
         }
         u.clone()
     };
-    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await {
+        tracing::error!("Database error syncing user in passkey_register_finish: {}", e);
+        return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler".into()));
+    }
     persist_to_disk(&state);
 
-    let issued_token = issue_jwt(&state.jwt_secret, user_id, &claims.email, claims.is_admin, true)?;
+    let issued_token = issue_jwt_with_version(
+        &state.jwt_secret,
+        user_id,
+        &updated_user.email,
+        updated_user.is_admin,
+        true,
+        updated_user.token_version,
+    )?;
 
     Ok(Json(serde_json::json!({
         "success": true,
@@ -357,9 +407,10 @@ pub async fn passkey_login_start(
         .webauthn
         .start_passkey_authentication(&passkeys_to_allow)
         .map_err(|e| {
+            tracing::error!("WebAuthn start_passkey_authentication error: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Fehler beim Vorbereiten der Authentifizierung: {}", e),
+                "Fehler beim Vorbereiten der Passkey-Authentifizierung".into(),
             )
         })?;
 
@@ -384,6 +435,12 @@ pub async fn passkey_login_start(
     }))
 }
 
+/// Completes WebAuthn passkey authentication.
+///
+/// Security Design Decision (Issue #57 N-2): WebAuthn Passkeys inherently combine a possession
+/// factor (hardware/synced cryptographic private key) with a user-verification factor (`uv`:
+/// biometric Touch ID / Face ID / Windows Hello or device PIN), satisfying FIDO2 / NIST SP 800-63B
+/// AAL2 multi-factor authentication without requiring an additional TOTP prompt.
 pub async fn passkey_login_finish(
     State(state): State<AppState>,
     Json(req): Json<PasskeyLoginFinishRequest>,
@@ -411,7 +468,7 @@ pub async fn passkey_login_finish(
             tracing::warn!("WebAuthn authentication failed: {}", e);
             (
                 StatusCode::UNAUTHORIZED,
-                format!("Passkey-Authentifizierung fehlgeschlagen: {}", e),
+                "Passkey-Authentifizierung fehlgeschlagen".into(),
             )
         })?;
 
@@ -463,7 +520,10 @@ pub async fn passkey_login_finish(
         .mem_passkeys
         .write()
         .insert(passkey_rec.id, passkey_rec.clone());
-    if let Err(e) = crate::state::sync_passkey_to_pg(&state, &passkey_rec).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+    if let Err(e) = crate::state::sync_passkey_to_pg(&state, &passkey_rec).await {
+        tracing::error!("Database error syncing passkey in passkey_login_finish: {}", e);
+        return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler".into()));
+    }
 
     let user_opt = {
         let users = state.mem_users.read();
@@ -501,10 +561,20 @@ pub async fn passkey_login_finish(
     }
     let mut updated_user = user.clone();
     updated_user.last_login_at = Some(now);
-    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await {
+        tracing::error!("Database error syncing user in passkey_login_finish: {}", e);
+        return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler".into()));
+    }
     persist_to_disk(&state);
 
-    let token = issue_jwt(&state.jwt_secret, user.id, &user.email, user.is_admin, true)?;
+    let token = issue_jwt_with_version(
+        &state.jwt_secret,
+        user.id,
+        &user.email,
+        user.is_admin,
+        true,
+        user.token_version,
+    )?;
 
     Ok(Json(AuthResponse {
         token,
@@ -601,10 +671,11 @@ pub async fn delete_user_passkey_by_id(
 
     delete_passkey_from_pg(&state, passkey_id).await;
 
-    // Update primary passkey on user if it was deleted
+    // Update primary passkey on user if it was deleted, and increment token_version (#52 M-1)
     let user_to_sync = {
         let mut users = state.mem_users.write();
         if let Some(u) = users.get_mut(&user_id) {
+            u.token_version = u.token_version.wrapping_add(1);
             if u.passkey_credential_id.as_deref() == Some(&p.credential_id) {
                 let remaining = state.mem_passkeys.read();
                 let next_opt = remaining.values().find(|r| r.user_id == user_id).cloned();
@@ -620,22 +691,33 @@ pub async fn delete_user_passkey_by_id(
                     u.passkey_encrypted_dek = None;
                     u.passkey_prf_salt = None;
                 }
-                Some(u.clone())
-            } else {
-                None
             }
+            Some(u.clone())
         } else {
             None
         }
     };
+    let mut refreshed_token = None;
     if let Some(u) = user_to_sync {
-        if let Err(e) = crate::state::sync_user_to_pg(&state, &u).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+        if let Err(e) = crate::state::sync_user_to_pg(&state, &u).await {
+            tracing::error!("Database error in delete_user_passkey_by_id: {}", e);
+            return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler".into()));
+        }
+        refreshed_token = Some(issue_jwt_with_version(
+            &state.jwt_secret,
+            u.id,
+            &u.email,
+            u.is_admin,
+            true,
+            u.token_version,
+        )?);
     }
     persist_to_disk(&state);
 
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "Passkey erfolgreich gelöscht",
+        "token": refreshed_token,
     })))
 }
 
@@ -672,7 +754,10 @@ pub async fn rename_user_passkey(
         entry.clone()
     };
 
-    if let Err(e) = crate::state::sync_passkey_to_pg(&state, &updated).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+    if let Err(e) = crate::state::sync_passkey_to_pg(&state, &updated).await {
+        tracing::error!("Database error in rename_user_passkey (passkey): {}", e);
+        return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler".into()));
+    }
 
     // Update primary label on user if this is the primary passkey
     let user_to_sync = {
@@ -689,7 +774,10 @@ pub async fn rename_user_passkey(
         }
     };
     if let Some(u) = user_to_sync {
-        if let Err(e) = crate::state::sync_user_to_pg(&state, &u).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+        if let Err(e) = crate::state::sync_user_to_pg(&state, &u).await {
+            tracing::error!("Database error in rename_user_passkey (user): {}", e);
+            return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler".into()));
+        }
     }
     persist_to_disk(&state);
 
@@ -728,8 +816,6 @@ pub async fn register_passkey(
     let user_id = Uuid::parse_str(&claims.sub)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
 
-    let issued_token = issue_jwt(&state.jwt_secret, user_id, &claims.email, claims.is_admin, true)?;
-
     let passkey_id = Uuid::new_v4();
     let passkey_rec = UserPasskeyRecord {
         id: passkey_id,
@@ -746,7 +832,10 @@ pub async fn register_passkey(
         .mem_passkeys
         .write()
         .insert(passkey_id, passkey_rec.clone());
-    if let Err(e) = crate::state::sync_passkey_to_pg(&state, &passkey_rec).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+    if let Err(e) = crate::state::sync_passkey_to_pg(&state, &passkey_rec).await {
+        tracing::error!("Database error in register_passkey: {}", e);
+        return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler".into()));
+    }
 
     let updated_record = {
         let mut users = state.mem_users.write();
@@ -754,6 +843,7 @@ pub async fn register_passkey(
             user.passkey_credential_id = Some(req.credential_id.clone());
             user.passkey_label = Some(req.label.clone());
             user.passkey_encrypted_dek = Some(req.passkey_encrypted_dek.clone());
+            user.token_version = user.token_version.wrapping_add(1);
             if let Some(prf_salt) = &req.passkey_prf_salt_b64 {
                 user.passkey_prf_salt = Some(prf_salt.clone());
             }
@@ -769,8 +859,19 @@ pub async fn register_passkey(
             return Err((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()));
         }
     };
-    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_record).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_record).await {
+        tracing::error!("Database error in register_passkey (user): {}", e);
+        return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler".into()));
+    }
     persist_to_disk(&state);
+    let issued_token = issue_jwt_with_version(
+        &state.jwt_secret,
+        user_id,
+        &updated_record.email,
+        updated_record.is_admin,
+        true,
+        updated_record.token_version,
+    )?;
     Ok(Json(serde_json::json!({
         "token": issued_token,
         "passkey_credential_id": req.credential_id,
@@ -802,6 +903,7 @@ pub async fn delete_passkey(
         user.passkey_label = None;
         user.passkey_encrypted_dek = None;
         user.passkey_prf_salt = None;
+        user.token_version = user.token_version.wrapping_add(1);
         user.clone()
     };
 
@@ -811,12 +913,25 @@ pub async fn delete_passkey(
     }
     delete_all_passkeys_for_user_from_pg(&state, user_id).await;
 
-    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_record).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_record).await {
+        tracing::error!("Database error in delete_passkey: {}", e);
+        return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Interner Datenbankfehler".into()));
+    }
     persist_to_disk(&state);
+
+    let new_token = issue_jwt_with_version(
+        &state.jwt_secret,
+        updated_record.id,
+        &updated_record.email,
+        updated_record.is_admin,
+        true,
+        updated_record.token_version,
+    )?;
 
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "Passkey erfolgreich gelöscht",
+        "token": new_token,
     })))
 }
 

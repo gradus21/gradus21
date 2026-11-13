@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use std::{
     collections::HashMap,
-    fs,
     path::PathBuf,
     sync::Arc,
     time::Instant,
@@ -55,12 +54,12 @@ impl Default for LegalConfig {
     fn default() -> Self {
         Self {
             name: std::env::var("LEGAL_IMPRESSUM_NAME")
-                .unwrap_or_else(|_| "Julian Kallidat".into()),
+                .unwrap_or_else(|_| "Muster-Schulträger / Betreiber".into()),
             company: std::env::var("LEGAL_IMPRESSUM_COMPANY").ok().filter(|s| !s.trim().is_empty()),
             address: std::env::var("LEGAL_IMPRESSUM_ADDRESS")
-                .unwrap_or_else(|_| "Hardtstr. 6, 76467 Bietigheim, Deutschland".into()),
+                .unwrap_or_else(|_| "Musterstraße 1, 12345 Musterstadt, Deutschland".into()),
             email: std::env::var("LEGAL_IMPRESSUM_EMAIL")
-                .unwrap_or_else(|_| "kontakt@gradus21.de".into()),
+                .unwrap_or_else(|_| "kontakt@example.org".into()),
             phone: std::env::var("LEGAL_IMPRESSUM_PHONE").ok().filter(|s| !s.trim().is_empty()),
             representative: std::env::var("LEGAL_IMPRESSUM_REPRESENTATIVE").ok().filter(|s| !s.trim().is_empty()),
             register: std::env::var("LEGAL_IMPRESSUM_REGISTER").ok().filter(|s| !s.trim().is_empty()),
@@ -158,16 +157,20 @@ pub fn resolve_app_env(
 
 pub fn is_insecure_jwt(s: &str) -> bool {
     let trimmed = s.trim();
+    let lower = trimmed.to_ascii_lowercase();
     trimmed.len() < 32
         || trimmed == "gradus21_jwt_signing_secret_2026_zero_knowledge"
         || trimmed == "super_secret_jwt_signing_key_change_in_prod_32b"
+        || lower.starts_with("change_me")
 }
 
 pub fn is_insecure_server_key(s: &str) -> bool {
     let trimmed = s.trim();
+    let lower = trimmed.to_ascii_lowercase();
     trimmed.len() < 32
         || trimmed == "0123456789abcdef0123456789abcdef"
         || trimmed == "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        || lower.starts_with("change_me")
 }
 
 impl AppState {
@@ -240,6 +243,10 @@ pub struct UserRecord {
     pub email_verification_attempts: i32,
     #[serde(default)]
     pub email_verification_cooldown_until: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub token_version: i32,
+    #[serde(default)]
+    pub last_used_totp_step: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -283,6 +290,8 @@ pub fn user_record_from_pg_row(row: &sqlx::postgres::PgRow) -> UserRecord {
         email_verification_expires_at: row.try_get("email_verification_expires_at").ok().flatten(),
         email_verification_attempts: row.try_get("email_verification_attempts").unwrap_or(0),
         email_verification_cooldown_until: row.try_get("email_verification_cooldown_until").ok().flatten(),
+        token_version: row.try_get("token_version").unwrap_or(0),
+        last_used_totp_step: row.try_get("last_used_totp_step").ok().flatten(),
     }
 }
 
@@ -403,6 +412,8 @@ pub async fn ensure_pg_schema_and_load(
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_expires_at TIMESTAMPTZ",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_attempts INT NOT NULL DEFAULT 0",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_cooldown_until TIMESTAMPTZ",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_used_totp_step BIGINT",
         r#"DO $$
         BEGIN
             IF EXISTS (
@@ -429,7 +440,7 @@ pub async fn ensure_pg_schema_and_load(
     }
 
     if let Ok(rows) = sqlx::query(
-        "SELECT id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek, recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted, totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek, passkey_prf_salt, ui_preferences, is_admin, is_active, created_at, last_login_at, email_verified, email_verification_code, email_verification_expires_at, email_verification_attempts, email_verification_cooldown_until FROM users",
+        "SELECT id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek, recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted, totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek, passkey_prf_salt, ui_preferences, is_admin, is_active, created_at, last_login_at, email_verified, email_verification_code, email_verification_expires_at, email_verification_attempts, email_verification_cooldown_until, token_version, last_used_totp_step FROM users",
     )
     .fetch_all(pool)
     .await
@@ -564,8 +575,9 @@ pub async fn sync_user_to_pg(state: &AppState, user: &UserRecord) -> Result<(), 
             totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek,
             passkey_prf_salt, ui_preferences, is_admin, is_active, last_login_at,
             email_verified, email_verification_code, email_verification_expires_at,
-            email_verification_attempts, email_verification_cooldown_until, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NOW())
+            email_verification_attempts, email_verification_cooldown_until,
+            token_version, last_used_totp_step, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, NOW())
         ON CONFLICT (id) DO UPDATE SET
             email = EXCLUDED.email,
             auth_key_hash = EXCLUDED.auth_key_hash,
@@ -589,6 +601,8 @@ pub async fn sync_user_to_pg(state: &AppState, user: &UserRecord) -> Result<(), 
             email_verification_expires_at = EXCLUDED.email_verification_expires_at,
             email_verification_attempts = EXCLUDED.email_verification_attempts,
             email_verification_cooldown_until = EXCLUDED.email_verification_cooldown_until,
+            token_version = EXCLUDED.token_version,
+            last_used_totp_step = EXCLUDED.last_used_totp_step,
             updated_at = NOW()"#,
     )
     .bind(user.id)
@@ -614,6 +628,8 @@ pub async fn sync_user_to_pg(state: &AppState, user: &UserRecord) -> Result<(), 
     .bind(user.email_verification_expires_at)
     .bind(user.email_verification_attempts)
     .bind(user.email_verification_cooldown_until)
+    .bind(user.token_version)
+    .bind(user.last_used_totp_step)
     .execute(pool)
     .await
     {
@@ -994,7 +1010,7 @@ pub async fn find_user_by_email(state: &AppState, email: &str) -> Option<UserRec
 
     if let Some(pool) = &state.db {
         if let Ok(Some(row)) = sqlx::query(
-            "SELECT id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek, recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted, totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek, passkey_prf_salt, ui_preferences, is_admin, is_active, created_at, last_login_at, email_verified, email_verification_code, email_verification_expires_at, email_verification_attempts, email_verification_cooldown_until FROM users WHERE email = $1",
+            "SELECT id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek, recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted, totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek, passkey_prf_salt, ui_preferences, is_admin, is_active, created_at, last_login_at, email_verified, email_verification_code, email_verification_expires_at, email_verification_attempts, email_verification_cooldown_until, token_version, last_used_totp_step FROM users WHERE email = $1",
         )
         .bind(email)
         .fetch_optional(pool)
@@ -1022,8 +1038,9 @@ pub async fn insert_user_to_pg(state: &AppState, user: &UserRecord) -> Result<()
             totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek,
             passkey_prf_salt, ui_preferences, is_admin, is_active, last_login_at,
             email_verified, email_verification_code, email_verification_expires_at,
-            email_verification_attempts, email_verification_cooldown_until, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NOW())"#
+            email_verification_attempts, email_verification_cooldown_until,
+            token_version, last_used_totp_step, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, NOW())"#
     )
     .bind(user.id).bind(&user.email).bind(&user.auth_key_hash).bind(&user.kdf_salt)
     .bind(kdf_params_json).bind(&user.encrypted_dek).bind(&user.recovery_encrypted_dek)
@@ -1034,6 +1051,7 @@ pub async fn insert_user_to_pg(state: &AppState, user: &UserRecord) -> Result<()
     .bind(user.email_verified).bind(&user.email_verification_code)
     .bind(user.email_verification_expires_at).bind(user.email_verification_attempts)
     .bind(user.email_verification_cooldown_until)
+    .bind(user.token_version).bind(user.last_used_totp_step)
     .execute(pool).await
     {
         tracing::error!("Failed to insert user {} to PostgreSQL: {}", user.id, e);

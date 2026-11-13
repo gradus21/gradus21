@@ -45,22 +45,37 @@ pub fn verify_totp_enrollment_code(secret_base32: &str, code: &str) -> bool {
 /// Verifies a 6-digit TOTP code and enforces RFC 6238 §5.2 single-use replay protection per user.
 ///
 /// Architectural Invariant (I-1): Every login and step-up authentication endpoint MUST call
-/// `verify_totp_code_once` so that a captured TOTP code can never be replayed.
+/// `verify_totp_code_once` (or `verify_totp_code_once_with_persisted_step`) so that a captured
+/// TOTP code can never be replayed, including across server restarts.
 pub fn verify_totp_code_once(user_id: Uuid, secret_base32: &str, code: &str) -> bool {
-    let Some(matched_step) = match_totp_step(secret_base32, code) else {
-        return false;
-    };
+    verify_totp_code_once_with_persisted_step(user_id, secret_base32, code, None).is_some()
+}
+
+/// Verifies a 6-digit TOTP code against both the in-memory replay map and the persisted
+/// `last_used_totp_step` from `UserRecord`, returning the consumed step if valid.
+pub fn verify_totp_code_once_with_persisted_step(
+    user_id: Uuid,
+    secret_base32: &str,
+    code: &str,
+    persisted_last_step: Option<i64>,
+) -> Option<i64> {
+    let matched_step = match_totp_step(secret_base32, code)?;
     let mut map = used_steps_map().lock();
     if map.len() >= 2048 {
         map.retain(|_, &mut step| step.saturating_add(4) >= matched_step);
     }
     if let Some(&last_step) = map.get(&user_id) {
         if matched_step <= last_step {
-            return false;
+            return None;
+        }
+    }
+    if let Some(persisted) = persisted_last_step {
+        if (matched_step as i64) <= persisted {
+            return None;
         }
     }
     map.insert(user_id, matched_step);
-    true
+    Some(matched_step as i64)
 }
 
 /// Clears stored TOTP replay state for a user (when 2FA is reconfigured or disabled).

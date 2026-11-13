@@ -195,13 +195,24 @@ pub fn unlock_vault_with_password(
     encrypted_dek: &str,
 ) -> Result<UnlockedVault, CryptoError> {
     let derived = derive_password_keys(password, salt_b64, params)?;
-    let mut dek_bytes = aes_gcm_decrypt_raw(&derived.kek_b64, encrypted_dek, AAD_DEK_WRAP)?;
-    let dek_b64 = B64.encode(&dek_bytes);
-    dek_bytes.zeroize();
+    let dek_b64 = decrypt_dek_with_kek(&derived.kek_b64, encrypted_dek)?;
     Ok(UnlockedVault {
         dek_b64,
         auth_key_b64: derived.auth_key_b64.clone(),
     })
+}
+
+/// Decrypts the wrapped Master DEK (`encrypted_dek`) using an already-derived `kek_b64`.
+/// Used when the client first derives `(auth_key_b64, kek_b64)` from `/api/auth/salt`,
+/// authenticates via `/api/auth/login`, and then unwraps the `encrypted_dek` returned upon login.
+pub fn decrypt_dek_with_kek(
+    kek_b64: &str,
+    encrypted_dek: &str,
+) -> Result<String, CryptoError> {
+    let mut dek_bytes = aes_gcm_decrypt_raw(kek_b64, encrypted_dek, AAD_DEK_WRAP)?;
+    let dek_b64 = B64.encode(&dek_bytes);
+    dek_bytes.zeroize();
+    Ok(dek_b64)
 }
 
 /// Unlocks the Master DEK using the Emergency Recovery Key.
