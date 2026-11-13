@@ -59,7 +59,7 @@ pub async fn list_envelopes(
                 updated_at: row.get("updated_at"),
             }).collect()
         } else {
-            let store = state.mem_envelopes.read().unwrap();
+            let store = state.mem_envelopes.read();
             store
                 .values()
                 .filter(|e| e.owner_user_id == owner_id)
@@ -67,7 +67,7 @@ pub async fn list_envelopes(
                 .collect()
         }
     } else {
-        let store = state.mem_envelopes.read().unwrap();
+        let store = state.mem_envelopes.read();
         store
             .values()
             .filter(|e| e.owner_user_id == owner_id)
@@ -132,7 +132,7 @@ async fn apply_envelope_upserts(
     }
 
     let staged: Vec<(String, String, Option<i32>, EncryptedEnvelopeRecord)> = {
-        let store = state.mem_envelopes.read().unwrap();
+        let store = state.mem_envelopes.read();
 
         // Pre-validation pass: verify all expected_versions before mutating any record
         for item in &items {
@@ -195,7 +195,7 @@ async fn apply_envelope_upserts(
 
     match crate::state::sync_envelopes_batch_to_pg_checked(state, &pg_staged).await {
         Ok(Some(conflict_id)) => {
-            let store = state.mem_envelopes.read().unwrap();
+            let store = state.mem_envelopes.read();
             let primary_key = tenant_env_key(&owner_id, &conflict_id);
             let existing = store.get(&primary_key);
             let exp_ver = staged
@@ -221,8 +221,28 @@ async fn apply_envelope_upserts(
         }
     }
 
+
     let updated = {
-        let mut store = state.mem_envelopes.write().unwrap();
+        let mut store = state.mem_envelopes.write();
+        
+        // Final verification for disk-mode OCC (if PG is not active, this provides atomicity)
+        if state.db.is_none() {
+            for (primary_key, legacy_key, exp_ver, _) in &staged {
+                let existing = store.get(primary_key).or_else(|| store.get(legacy_key));
+                if let Some(existing) = existing {
+                    if *exp_ver != Some(existing.version) {
+                        return Err((
+                            axum::http::StatusCode::CONFLICT,
+                            serde_json::json!({
+                                "error": "conflict",
+                                "message": "Versionskonflikt in Dateimodus (Lost Update verhindert)",
+                            }).to_string()
+                        ));
+                    }
+                }
+            }
+        }
+
         let mut out = Vec::with_capacity(staged.len());
         for (primary_key, legacy_key, _, rec) in staged {
             if legacy_key != primary_key {
@@ -233,6 +253,7 @@ async fn apply_envelope_upserts(
         }
         out
     };
+
     persist_to_disk(state);
     Ok(updated)
 }
@@ -307,7 +328,7 @@ pub async fn delete_envelope(
     };
 
     let removed = {
-        let mut store = state.mem_envelopes.write().unwrap();
+        let mut store = state.mem_envelopes.write();
         store.remove(&primary_key).or_else(|| store.remove(&legacy_key))
     };
 
@@ -381,7 +402,7 @@ pub async fn get_envelopes_summary(
         }
     }
 
-    let store = state.mem_envelopes.read().unwrap();
+    let store = state.mem_envelopes.read();
     let user_envs: Vec<_> = store.values().filter(|e| e.owner_user_id == owner_id).collect();
 
     let envelope_count = user_envs.len();
@@ -398,6 +419,7 @@ pub async fn get_envelopes_summary(
     }))
 }
 
+
 pub async fn delete_all_user_envelopes(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -406,30 +428,21 @@ pub async fn delete_all_user_envelopes(
     let owner_id = Uuid::parse_str(&claims.sub)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
 
-    let user_deleted = if !claims.is_admin {
-        crate::state::delete_user_account_everywhere(&state, owner_id).await;
-        true
-    } else {
-        {
-            let mut store = state.mem_envelopes.write().unwrap();
-            store.retain(|_, env| env.owner_user_id != owner_id);
-        }
-        delete_all_envelopes_from_pg(&state, owner_id).await;
-        false
-    };
+    if let Err(e) = crate::state::delete_all_envelopes_from_pg(&state, owner_id).await {
+        return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e)));
+    }
 
+    {
+        let mut store = state.mem_envelopes.write();
+        store.retain(|_, env| env.owner_user_id != owner_id);
+    }
+    
     persist_to_disk(&state);
 
-    let message = if user_deleted {
-        "Alle Cloud-Daten und dein Benutzerkonto wurden vollständig vom Server gelöscht. Gradus21 arbeitet nun rein lokal.".to_string()
-    } else {
-        "Alle verschlüsselten Cloud-Datensätze wurden gelöscht. Dein Administratorkonto bleibt zur Verwaltung aktiv.".to_string()
-    };
-
     Ok(Json(DeleteCloudDataResponse {
-        user_deleted,
+        user_deleted: false,
         is_admin: claims.is_admin,
-        message,
+        message: "Alle verschlüsselten Cloud-Datensätze wurden gelöscht. Dein Konto bleibt aktiv.".to_string(),
     }))
 }
 
@@ -443,7 +456,7 @@ pub async fn update_preferences(
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
 
     let updated_user_opt = {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         if let Some(user) = users.get_mut(&owner_id) {
             user.ui_preferences = prefs.clone();
             Some(user.clone())
@@ -452,7 +465,7 @@ pub async fn update_preferences(
         }
     };
     if let Some(saved_user) = updated_user_opt {
-        sync_user_to_pg(&state, &saved_user).await;
+        if let Err(e) = crate::state::sync_user_to_pg(&state, &saved_user).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
     }
     persist_to_disk(&state);
     Ok(Json(prefs))

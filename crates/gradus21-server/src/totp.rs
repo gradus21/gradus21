@@ -3,9 +3,10 @@ use rand::RngCore;
 use sha1::Sha1;
 use std::{
     collections::HashMap,
-    sync::{Mutex, OnceLock},
+    sync::OnceLock,
     time::{SystemTime, UNIX_EPOCH},
 };
+use parking_lot::Mutex;
 use uuid::Uuid;
 
 type HmacSha1 = Hmac<Sha1>;
@@ -49,7 +50,7 @@ pub fn verify_totp_code_once(user_id: Uuid, secret_base32: &str, code: &str) -> 
     let Some(matched_step) = match_totp_step(secret_base32, code) else {
         return false;
     };
-    let mut map = used_steps_map().lock().unwrap();
+    let mut map = used_steps_map().lock();
     if map.len() >= 2048 {
         map.retain(|_, &mut step| step.saturating_add(4) >= matched_step);
     }
@@ -64,13 +65,13 @@ pub fn verify_totp_code_once(user_id: Uuid, secret_base32: &str, code: &str) -> 
 
 /// Clears stored TOTP replay state for a user (when 2FA is reconfigured or disabled).
 pub fn clear_totp_replay_state(user_id: Uuid) {
-    let mut map = used_steps_map().lock().unwrap();
+    let mut map = used_steps_map().lock();
     map.remove(&user_id);
 }
 
 /// Clears all stored TOTP replay states (e.g. after full system backup restore).
 pub fn clear_all_totp_replay_state() {
-    let mut map = used_steps_map().lock().unwrap();
+    let mut map = used_steps_map().lock();
     map.clear();
 }
 

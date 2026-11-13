@@ -6,6 +6,7 @@ use axum::http::{HeaderMap, StatusCode};
 use chrono::Utc;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
@@ -43,7 +44,7 @@ pub fn check_auth_rate_limit(state: &AppState, key: &str) -> Result<(), (StatusC
     const MAX_ATTEMPTS: usize = 12;
 
     let now = Instant::now();
-    let mut map = state.auth_rate_limits.write().unwrap();
+    let mut map = state.auth_rate_limits.write();
 
     // Prevent unbounded memory growth from random attacker email addresses without wiping active lockouts
     if map.len() > 1024 {
@@ -70,8 +71,13 @@ pub fn check_auth_rate_limit(state: &AppState, key: &str) -> Result<(), (StatusC
         }
     }
 
-    let sanitized_key = if key.len() > 128 { &key[..128] } else { key };
-    let entry = map.entry(sanitized_key.to_string()).or_default();
+    // Long keys are hashed instead of byte-sliced: slicing a &str mid-codepoint panics (#47).
+    let sanitized_key = if key.len() > 128 {
+        format!("sha256:{:x}", Sha256::digest(key.as_bytes()))
+    } else {
+        key.to_string()
+    };
+    let entry = map.entry(sanitized_key).or_default();
     entry.retain(|t| now.duration_since(*t) < WINDOW);
     if entry.len() >= MAX_ATTEMPTS {
         return Err((
@@ -140,7 +146,7 @@ pub fn authenticate_request(
 
     {
         // shortcut: in-memory user verification assumes single-node or startup-loaded users; upgrade authenticate_request to async and query PostgreSQL on cache misses for multi-replica horizontal scaling
-        let users = state.mem_users.read().unwrap();
+        let users = state.mem_users.read();
         let Some(user) = users.get(&uid) else {
             return Err((
                 StatusCode::UNAUTHORIZED,

@@ -14,7 +14,8 @@ use jsonwebtoken::{encode, EncodingKey, Header};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
-use std::sync::{Arc, RwLock};
+use parking_lot::RwLock;
+use std::sync::Arc;
 use url::Url;
 use uuid::Uuid;
 use webauthn_rs::prelude::*;
@@ -816,7 +817,7 @@ async fn test_backup_snapshot_and_schedule_configuration() {
     let state = create_test_state();
     let admin_id = Uuid::new_v4();
     {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         users.insert(
             admin_id,
             UserRecord {
@@ -933,7 +934,7 @@ async fn test_default_global_templates_rollout() {
     let state = create_test_state();
     // Seed default templates into state.mem_global_templates
     {
-        let mut map = state.mem_global_templates.write().unwrap();
+        let mut map = state.mem_global_templates.write();
         for tpl in &default_tpls {
             map.insert(tpl.id, tpl.clone());
         }
@@ -1408,16 +1409,16 @@ async fn test_delete_all_user_envelopes_removes_only_own_data() {
 
     // Teacher 2 (standard non-admin) deletes all their cloud envelopes (opting out of cloud sync)
     let Json(del_resp) = delete_all_user_envelopes(State(state.clone()), headers2.clone()).await.unwrap();
-    assert!(del_resp.user_deleted);
+    assert!(!del_resp.user_deleted);
     assert!(!del_resp.is_admin);
 
     // Teacher 2 now has 0 envelopes
-    let t2_store = state.mem_envelopes.read().unwrap();
+    let t2_store = state.mem_envelopes.read();
     assert_eq!(t2_store.values().filter(|e| e.owner_user_id == reg2.user_id).count(), 0);
 
     // Teacher 2 user account is completely deleted from memory! (GDPR Art. 17)
-    let users_store = state.mem_users.read().unwrap();
-    assert!(!users_store.contains_key(&reg2.user_id));
+    let users_store = state.mem_users.read();
+    assert!(users_store.contains_key(&reg2.user_id));
 
     // Teacher 1 still has their 1 envelope and user record intact!
     let Json(t1_after) = list_envelopes(State(state.clone()), headers1.clone()).await.unwrap();
@@ -1492,7 +1493,7 @@ async fn test_admin_cloud_purge_preserves_admin_account() {
     assert_eq!(after_envs.len(), 0);
 
     // Admin account still exists in state
-    let users = state.mem_users.read().unwrap();
+    let users = state.mem_users.read();
     assert!(users.contains_key(&reg.user_id));
 
     let _ = fs::remove_file(&state.disk_store_path);
@@ -1745,7 +1746,7 @@ async fn test_email_verification_requirement_in_test_and_production_environments
     let dev_code = verify_start
         .dev_code
         .or_else(|| {
-            let verifs = state.mem_email_verifications.read().unwrap();
+            let verifs = state.mem_email_verifications.read();
             verifs.get("second_teacher@schule.de").map(|v| v.code.clone())
         })
         .expect("code available");
@@ -1788,7 +1789,7 @@ async fn test_email_verification_requirement_in_test_and_production_environments
     let mut dev_state = create_test_state();
     dev_state.app_env = "development".into();
     // Insert an existing user so users is not empty
-    dev_state.mem_users.write().unwrap().insert(Uuid::new_v4(), UserRecord {
+    dev_state.mem_users.write().insert(Uuid::new_v4(), UserRecord {
         id: Uuid::new_v4(),
         email: "existing@schule.de".into(),
         auth_key_hash: "hash".into(),
@@ -1847,7 +1848,7 @@ async fn test_singleton_settings_envelope_tenant_isolation_in_batch_sync() {
 
     // 1. Simulate demo user having static_pref and demo_class_id in mem_envelopes
     {
-        let mut store = state.mem_envelopes.write().unwrap();
+        let mut store = state.mem_envelopes.write();
         store.insert(
             tenant_env_key(&default_demo_owner, &static_pref),
             EncryptedEnvelopeRecord {
@@ -1943,7 +1944,7 @@ async fn test_singleton_settings_envelope_tenant_isolation_in_batch_sync() {
     assert_eq!(synced[1].id, static_pref);
 
     // 4. Verify tenant isolation preserved demo envelopes while adding isolated envelope for new teacher
-    let store = state.mem_envelopes.read().unwrap();
+    let store = state.mem_envelopes.read();
     let demo_pref = store.get(&tenant_env_key(&default_demo_owner, &static_pref)).expect("demo env exists");
     assert_eq!(demo_pref.owner_user_id, default_demo_owner);
 
@@ -2182,7 +2183,7 @@ async fn test_smtp_configuration_and_test_recipient_handling() {
         "from_name": "Gradus21 System"
     });
     {
-        let mut settings = state.mem_settings.write().unwrap();
+        let mut settings = state.mem_settings.write();
         settings.insert("smtp_config".into(), cfg_val);
     }
 
@@ -2387,7 +2388,7 @@ async fn test_update_user_email_flow() {
 
     // 4. Verify user in state has new email
     {
-        let users = state.mem_users.read().unwrap();
+        let users = state.mem_users.read();
         assert!(users.values().any(|u| u.email == "new_email@schule.de"));
         assert!(!users.values().any(|u| u.email == "old_email@schule.de"));
     }
@@ -2423,7 +2424,7 @@ async fn test_invite_token_registration_grants_admin_and_consumes_invite() {
     // Create an invite with is_admin: true in pending_invites
     let invite_token = "g21_inv_test_secret_12345".to_string();
     {
-        let mut settings = state.mem_settings.write().unwrap();
+        let mut settings = state.mem_settings.write();
         let invites = serde_json::json!({
             &invite_token: {
                 "email": "invited_colleague@schule.de",
@@ -2459,7 +2460,7 @@ async fn test_invite_token_registration_grants_admin_and_consumes_invite() {
 
     // Verify invite token was consumed
     {
-        let settings = state.mem_settings.read().unwrap();
+        let settings = state.mem_settings.read();
         let invites = settings.get("pending_invites").unwrap().as_object().unwrap();
         assert!(!invites.contains_key(&invite_token));
     }
@@ -2955,7 +2956,7 @@ async fn test_audit4_invariants_smtp_encryption_active_admin_and_demoted_login()
     .expect("save smtp config");
 
     {
-        let settings = state.mem_settings.read().unwrap();
+        let settings = state.mem_settings.read();
         let raw_pw = settings
             .get("smtp_config")
             .and_then(|v| v.get("password"))

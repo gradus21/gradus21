@@ -102,14 +102,14 @@ pub async fn passkey_register_start(
     check_auth_rate_limit(&state, &format!("passkey_reg_start:{}", user_id))?;
 
     let user = {
-        let users = state.mem_users.read().unwrap();
+        let users = state.mem_users.read();
         users
             .get(&user_id)
             .cloned()
             .ok_or((StatusCode::NOT_FOUND, "Benutzerkonto nicht gefunden".into()))?
     };
 
-    let pks = state.mem_passkeys.read().unwrap();
+    let pks = state.mem_passkeys.read();
     let exclude_credentials: Vec<CredentialID> = pks
         .values()
         .filter(|p| p.user_id == user_id)
@@ -141,7 +141,7 @@ pub async fn passkey_register_start(
 
     let session_id = format!("g21_reg_{}", Uuid::new_v4().simple());
     {
-        let mut map = state.reg_challenges.write().unwrap();
+        let mut map = state.reg_challenges.write();
         let now = Instant::now();
         map.retain(|_, (created, _, _)| now.duration_since(*created) < Duration::from_secs(120));
         if map.len() >= 2048 {
@@ -169,7 +169,7 @@ pub async fn passkey_register_finish(
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
 
     let challenge_entry = {
-        let mut map = state.reg_challenges.write().unwrap();
+        let mut map = state.reg_challenges.write();
         let now = Instant::now();
         map.retain(|_, (created, _, _)| now.duration_since(*created) < Duration::from_secs(120));
         map.remove(&req.session_id)
@@ -231,13 +231,12 @@ pub async fn passkey_register_finish(
     state
         .mem_passkeys
         .write()
-        .unwrap()
         .insert(passkey_id, passkey_rec.clone());
-    sync_passkey_to_pg(&state, &passkey_rec).await;
+    if let Err(e) = crate::state::sync_passkey_to_pg(&state, &passkey_rec).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
 
     // Update primary passkey on user record
     let updated_user = {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         let u = users
             .get_mut(&user_id)
             .ok_or((StatusCode::NOT_FOUND, "Benutzer nicht gefunden".into()))?;
@@ -272,7 +271,7 @@ pub async fn passkey_register_finish(
         }
         u.clone()
     };
-    sync_user_to_pg(&state, &updated_user).await;
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
     persist_to_disk(&state);
 
     let issued_token = issue_jwt(&state.jwt_secret, user_id, &claims.email, claims.is_admin, true)?;
@@ -296,7 +295,7 @@ pub async fn passkey_login_start(
     let user_opt = if has_requested_email {
         let clean = req.email.as_deref().unwrap().trim().to_lowercase();
         check_auth_rate_limit(&state, &format!("passkey_start:{}", clean))?;
-        let users = state.mem_users.read().unwrap();
+        let users = state.mem_users.read();
         users.values().find(|u| u.email.to_lowercase() == clean).cloned()
     } else {
         let client_ip = extract_client_ip(&headers);
@@ -312,7 +311,7 @@ pub async fn passkey_login_start(
     }
 
     let (passkeys_to_allow, prf_salt_opt) = if let Some(u) = &user_opt {
-        let pks = state.mem_passkeys.read().unwrap();
+        let pks = state.mem_passkeys.read();
         let user_pks: Vec<_> = pks.values().filter(|p| p.user_id == u.id).cloned().collect();
 
         let pk_objs: Vec<Passkey> = user_pks
@@ -344,7 +343,7 @@ pub async fn passkey_login_start(
     } else {
         // Usernameless / discoverable resident credentials flow:
         // Pass empty slice to prevent leaking registered credential IDs of all users.
-        let pks = state.mem_passkeys.read().unwrap();
+        let pks = state.mem_passkeys.read();
         if pks.is_empty() {
             return Err((
                 StatusCode::BAD_REQUEST,
@@ -366,7 +365,7 @@ pub async fn passkey_login_start(
 
     let session_id = format!("g21_auth_{}", Uuid::new_v4().simple());
     {
-        let mut map = state.auth_challenges.write().unwrap();
+        let mut map = state.auth_challenges.write();
         let now = Instant::now();
         map.retain(|_, (created, _, _)| now.duration_since(*created) < Duration::from_secs(120));
         if map.len() >= 2048 {
@@ -392,7 +391,7 @@ pub async fn passkey_login_finish(
     check_auth_rate_limit(&state, &format!("passkey_auth:{}", req.session_id))?;
 
     let challenge_entry = {
-        let mut map = state.auth_challenges.write().unwrap();
+        let mut map = state.auth_challenges.write();
         let now = Instant::now();
         map.retain(|_, (created, _, _)| now.duration_since(*created) < Duration::from_secs(120));
         map.remove(&req.session_id)
@@ -418,7 +417,7 @@ pub async fn passkey_login_finish(
 
     let cred_id_bytes = auth_result.cred_id().as_slice();
     let matched_passkey = {
-        let pks = state.mem_passkeys.read().unwrap();
+        let pks = state.mem_passkeys.read();
         pks.values()
             .find(|p| {
                 if let Some(val) = &p.passkey_data {
@@ -463,12 +462,11 @@ pub async fn passkey_login_finish(
     state
         .mem_passkeys
         .write()
-        .unwrap()
         .insert(passkey_rec.id, passkey_rec.clone());
-    sync_passkey_to_pg(&state, &passkey_rec).await;
+    if let Err(e) = crate::state::sync_passkey_to_pg(&state, &passkey_rec).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
 
     let user_opt = {
-        let users = state.mem_users.read().unwrap();
+        let users = state.mem_users.read();
         users.get(&passkey_rec.user_id).cloned()
     };
     let Some(user) = user_opt else {
@@ -496,14 +494,14 @@ pub async fn passkey_login_finish(
 
     let now = Utc::now();
     {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         if let Some(u) = users.get_mut(&user.id) {
             u.last_login_at = Some(now);
         }
     }
     let mut updated_user = user.clone();
     updated_user.last_login_at = Some(now);
-    sync_user_to_pg(&state, &updated_user).await;
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
     persist_to_disk(&state);
 
     let token = issue_jwt(&state.jwt_secret, user.id, &user.email, user.is_admin, true)?;
@@ -536,7 +534,7 @@ pub async fn list_user_passkeys(
     let user_id = Uuid::parse_str(&claims.sub)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
 
-    let pks = state.mem_passkeys.read().unwrap();
+    let pks = state.mem_passkeys.read();
     let mut user_pks: Vec<_> = pks.values().filter(|p| p.user_id == user_id).cloned().collect();
     user_pks.sort_by_key(|a| std::cmp::Reverse(a.created_at));
 
@@ -567,14 +565,14 @@ pub async fn delete_user_passkey_by_id(
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
 
     let removed = {
-        let users = state.mem_users.read().unwrap();
+        let users = state.mem_users.read();
         let is_passkey_only = users
             .get(&user_id)
             .map(|u| u.auth_key_hash.is_empty())
             .unwrap_or(false);
         drop(users);
 
-        let mut pks = state.mem_passkeys.write().unwrap();
+        let mut pks = state.mem_passkeys.write();
         if let Some(entry) = pks.get(&passkey_id) {
             if entry.user_id != user_id {
                 return Err((
@@ -605,10 +603,10 @@ pub async fn delete_user_passkey_by_id(
 
     // Update primary passkey on user if it was deleted
     let user_to_sync = {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         if let Some(u) = users.get_mut(&user_id) {
             if u.passkey_credential_id.as_deref() == Some(&p.credential_id) {
-                let remaining = state.mem_passkeys.read().unwrap();
+                let remaining = state.mem_passkeys.read();
                 let next_opt = remaining.values().find(|r| r.user_id == user_id).cloned();
                 drop(remaining);
                 if let Some(next) = next_opt {
@@ -631,7 +629,7 @@ pub async fn delete_user_passkey_by_id(
         }
     };
     if let Some(u) = user_to_sync {
-        sync_user_to_pg(&state, &u).await;
+        if let Err(e) = crate::state::sync_user_to_pg(&state, &u).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
     }
     persist_to_disk(&state);
 
@@ -660,7 +658,7 @@ pub async fn rename_user_passkey(
     }
 
     let updated = {
-        let mut pks = state.mem_passkeys.write().unwrap();
+        let mut pks = state.mem_passkeys.write();
         let entry = pks
             .get_mut(&passkey_id)
             .ok_or((StatusCode::NOT_FOUND, "Passkey nicht gefunden".into()))?;
@@ -674,11 +672,11 @@ pub async fn rename_user_passkey(
         entry.clone()
     };
 
-    sync_passkey_to_pg(&state, &updated).await;
+    if let Err(e) = crate::state::sync_passkey_to_pg(&state, &updated).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
 
     // Update primary label on user if this is the primary passkey
     let user_to_sync = {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         if let Some(u) = users.get_mut(&user_id) {
             if u.passkey_credential_id.as_deref() == Some(&updated.credential_id) {
                 u.passkey_label = Some(updated.passkey_label.clone());
@@ -691,7 +689,7 @@ pub async fn rename_user_passkey(
         }
     };
     if let Some(u) = user_to_sync {
-        sync_user_to_pg(&state, &u).await;
+        if let Err(e) = crate::state::sync_user_to_pg(&state, &u).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
     }
     persist_to_disk(&state);
 
@@ -747,12 +745,11 @@ pub async fn register_passkey(
     state
         .mem_passkeys
         .write()
-        .unwrap()
         .insert(passkey_id, passkey_rec.clone());
-    sync_passkey_to_pg(&state, &passkey_rec).await;
+    if let Err(e) = crate::state::sync_passkey_to_pg(&state, &passkey_rec).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
 
     let updated_record = {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         let update_existing = |user: &mut UserRecord| {
             user.passkey_credential_id = Some(req.credential_id.clone());
             user.passkey_label = Some(req.label.clone());
@@ -772,7 +769,7 @@ pub async fn register_passkey(
             return Err((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()));
         }
     };
-    sync_user_to_pg(&state, &updated_record).await;
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_record).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
     persist_to_disk(&state);
     Ok(Json(serde_json::json!({
         "token": issued_token,
@@ -791,7 +788,7 @@ pub async fn delete_passkey(
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
 
     let updated_record = {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         let user = users
             .get_mut(&user_id)
             .ok_or((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()))?;
@@ -809,12 +806,12 @@ pub async fn delete_passkey(
     };
 
     {
-        let mut pks = state.mem_passkeys.write().unwrap();
+        let mut pks = state.mem_passkeys.write();
         pks.retain(|_, p| p.user_id != user_id);
     }
     delete_all_passkeys_for_user_from_pg(&state, user_id).await;
 
-    sync_user_to_pg(&state, &updated_record).await;
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_record).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
     persist_to_disk(&state);
 
     Ok(Json(serde_json::json!({

@@ -1,3 +1,4 @@
+use parking_lot::RwLock;
 pub mod admin;
 pub mod middleware;
 pub mod routes;
@@ -17,7 +18,7 @@ use std::{
     fs,
     net::SocketAddr,
     path::PathBuf,
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 use axum::http::HeaderValue;
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
@@ -233,23 +234,27 @@ async fn main() {
                 }
             }
         }
-        for fallback in &[
-            "http://localhost:5173",
-            "http://localhost:3080",
-            "http://127.0.0.1:5173",
-            "http://127.0.0.1:3080",
-            "http://localhost",
-            "https://localhost",
-            "tauri://localhost",
-            "https://tauri.localhost",
-            "http://tauri.localhost",
-        ] {
-            if let Ok(hv) = fallback.parse::<HeaderValue>() {
-                if !origins.contains(&hv) {
-                    origins.push(hv);
+
+        if !is_prod {
+            for fallback in &[
+                "http://localhost:5173",
+                "http://localhost:3080",
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:3080",
+                "http://localhost",
+                "https://localhost",
+                "tauri://localhost",
+                "https://tauri.localhost",
+                "http://tauri.localhost",
+            ] {
+                if let Ok(hv) = fallback.parse::<HeaderValue>() {
+                    if !origins.contains(&hv) {
+                        origins.push(hv);
+                    }
                 }
             }
         }
+
         CorsLayer::new()
             .allow_origin(origins)
             .allow_methods(AllowMethods::mirror_request())

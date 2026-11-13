@@ -121,6 +121,13 @@ pub struct AuthResponse {
     pub ui_preferences: serde_json::Value,
 }
 
+pub fn validate_email(email: &str) -> Result<String, (StatusCode, String)> {
+    let email = email.trim().to_lowercase();
+    if !email.contains("@") || email.len() < 5 || email.len() > 254 {
+        return Err((StatusCode::BAD_REQUEST, "Ungültige E-Mail-Adresse".into()));
+    }
+    Ok(email)
+}
 #[derive(Deserialize)]
 pub struct SaltQueryRequest {
     pub email: String,
@@ -177,8 +184,8 @@ pub struct VerifyTotpRequest {
 }
 
 pub async fn health_check(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let user_count = state.mem_users.read().unwrap().len();
-    let env_count = state.mem_envelopes.read().unwrap().len();
+    let user_count = state.mem_users.read().len();
+    let env_count = state.mem_envelopes.read().len();
     let is_first_user = user_count == 0;
     let is_test_or_prod = state.is_test_or_production_env();
     let email_verification_required = is_test_or_prod && !is_first_user;
@@ -212,12 +219,12 @@ pub async fn get_user_salt(
     State(state): State<AppState>,
     Json(req): Json<SaltQueryRequest>,
 ) -> Result<Json<SaltQueryResponse>, (StatusCode, String)> {
-    let email = req.email.trim().to_lowercase();
+    let email = validate_email(&req.email)?;
     check_auth_rate_limit(&state, &format!("salt:{}", email))?;
 
     if let Some(u) = find_user_by_email(&state, &email).await {
         let (has_passkey, passkey_label, passkey_prf_salt_b64) = {
-            let pks = state.mem_passkeys.read().unwrap();
+            let pks = state.mem_passkeys.read();
             let user_pks: Vec<_> = pks.values().filter(|p| p.user_id == u.id).collect();
             if !user_pks.is_empty() {
                 let primary = user_pks
@@ -258,7 +265,7 @@ pub async fn register_user(
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, String)> {
-    let email = req.email.trim().to_lowercase();
+    let email = validate_email(&req.email)?;
     check_auth_rate_limit(&state, &format!("register:{}", email))?;
 
     let auth_key_hash = if req.auth_key_b64.trim().is_empty() {
@@ -275,7 +282,7 @@ pub async fn register_user(
         None => String::new(),
     };
 
-    let user_id = req.user_id.unwrap_or_else(Uuid::new_v4);
+    let (user_id, client_provided_id) = if let Some(id) = req.user_id { (id, true) } else { (Uuid::new_v4(), false) };
     let totp_secret_b32 = req
         .totp_secret_base32
         .as_deref()
@@ -296,7 +303,7 @@ pub async fn register_user(
     let ui_prefs = serde_json::json!({ "theme": "teal", "mode": "light" });
 
     let is_first_user = {
-        let users = state.mem_users.read().unwrap();
+        let users = state.mem_users.read();
         users.is_empty()
     };
 
@@ -306,7 +313,7 @@ pub async fn register_user(
     if let Some(ref inv) = req.invite_token {
         let trimmed_inv = inv.trim();
         if !trimmed_inv.is_empty() {
-            let settings = state.mem_settings.read().unwrap();
+            let settings = state.mem_settings.read();
             if let Some(invites) = settings.get("pending_invites").and_then(|v| v.as_object()) {
                 if let Some(invite_data) = invites.get(trimmed_inv) {
                     let inv_email = invite_data.get("email").and_then(|e| e.as_str()).unwrap_or("");
@@ -323,16 +330,10 @@ pub async fn register_user(
     let is_active = true;
     let now = Utc::now();
 
-    let user_exists = {
-        let users = state.mem_users.read().unwrap();
-        users.values().any(|u| u.email == email)
-    };
-    if user_exists {
-        return Err((StatusCode::CONFLICT, "Diese E-Mail ist bereits registriert".into()));
-    }
+
 
     let was_verified = {
-        let verifs = state.mem_email_verifications.read().unwrap();
+        let verifs = state.mem_email_verifications.read();
         verifs
             .get(&email)
             .map(|v| v.code.is_empty() && v.expires_at >= now)
@@ -341,52 +342,62 @@ pub async fn register_user(
 
     if !is_first_user && state.is_test_or_production_env() && !was_verified {
         return Err((
-            StatusCode::FORBIDDEN,
+            axum::http::StatusCode::FORBIDDEN,
             "E-Mail-Verifikation erforderlich: In Test- und Produktivsystemen muss die E-Mail-Adresse vor der Kontoerstellung verifiziert werden.".into(),
         ));
     }
 
+    let record = UserRecord {
+        id: user_id,
+        email: email.clone(),
+        auth_key_hash,
+        kdf_salt: req.kdf_salt_b64.clone(),
+        kdf_params: req.kdf_params.clone(),
+        encrypted_dek: req.encrypted_dek.clone(),
+        recovery_encrypted_dek: req.recovery_encrypted_dek.clone(),
+        recovery_auth_key_hash,
+        totp_secret_server_encrypted: Some(totp_encrypted),
+        totp_enabled,
+        passkey_credential_id: None,
+        passkey_label: None,
+        passkey_encrypted_dek: None,
+        passkey_prf_salt: None,
+        ui_preferences: ui_prefs.clone(),
+        is_admin,
+        is_active,
+        created_at: Some(now),
+        last_login_at: Some(now),
+        email_verified: was_verified,
+        email_verification_code: None,
+        email_verification_expires_at: None,
+        email_verification_attempts: 0,
+        email_verification_cooldown_until: None,
+    };
+
+    if let Err(e) = crate::state::insert_user_to_pg(&state, &record).await {
+        return Err((axum::http::StatusCode::CONFLICT, "Diese E-Mail oder Benutzer-ID wird bereits verwendet".into()));
+    }
+
     let new_user = {
-        let mut users = state.mem_users.write().unwrap();
-        let record = UserRecord {
-            id: user_id,
-            email: email.clone(),
-            auth_key_hash,
-            kdf_salt: req.kdf_salt_b64.clone(),
-            kdf_params: req.kdf_params.clone(),
-            encrypted_dek: req.encrypted_dek.clone(),
-            recovery_encrypted_dek: req.recovery_encrypted_dek.clone(),
-            recovery_auth_key_hash,
-            totp_secret_server_encrypted: Some(totp_encrypted),
-            totp_enabled,
-            passkey_credential_id: None,
-            passkey_label: None,
-            passkey_encrypted_dek: None,
-            passkey_prf_salt: None,
-            ui_preferences: ui_prefs.clone(),
-            is_admin,
-            is_active,
-            created_at: Some(now),
-            last_login_at: Some(now),
-            email_verified: was_verified,
-            email_verification_code: None,
-            email_verification_expires_at: None,
-            email_verification_attempts: 0,
-            email_verification_cooldown_until: None,
-        };
+        let mut users = state.mem_users.write();
+        if users.values().any(|u| u.email == email) {
+            return Err((StatusCode::CONFLICT, "Diese E-Mail ist bereits registriert".into()));
+        }
+        if client_provided_id && users.contains_key(&user_id) {
+            return Err((StatusCode::CONFLICT, "Diese Benutzer-ID wird bereits verwendet".into()));
+        }
         users.insert(user_id, record.clone());
         record
     };
-    sync_user_to_pg(&state, &new_user).await;
 
     if was_verified {
-        let mut verifs = state.mem_email_verifications.write().unwrap();
+        let mut verifs = state.mem_email_verifications.write();
         verifs.remove(&email);
     }
 
     if let Some(inv_key) = invite_to_remove {
         let updated_invites = {
-            let mut settings = state.mem_settings.write().unwrap();
+            let mut settings = state.mem_settings.write();
             let mut invites = settings.get("pending_invites").cloned().unwrap_or_else(|| serde_json::json!({}));
             if let Some(map) = invites.as_object_mut() {
                 map.remove(&inv_key);
@@ -424,7 +435,7 @@ pub async fn login_user(
     State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, String)> {
-    let email = req.email.trim().to_lowercase();
+    let email = validate_email(&req.email)?;
     check_auth_rate_limit(&state, &format!("login:{}", email))?;
 
     let user_opt = find_user_by_email(&state, &email).await;
@@ -477,14 +488,14 @@ pub async fn login_user(
     let is_admin = user.is_admin;
     let now = Utc::now();
     {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         if let Some(u) = users.get_mut(&user.id) {
             u.last_login_at = Some(now);
         }
     }
     if let Some(mut updated_user) = find_user_by_email(&state, &email).await {
         updated_user.last_login_at = Some(now);
-        sync_user_to_pg(&state, &updated_user).await;
+        if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
     }
     persist_to_disk(&state);
 
@@ -513,7 +524,7 @@ pub async fn recover_password(
     State(state): State<AppState>,
     Json(req): Json<RecoverPasswordRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, String)> {
-    let email = req.email.trim().to_lowercase();
+    let email = validate_email(&req.email)?;
     check_auth_rate_limit(&state, &format!("recover:{}", email))?;
 
     let Some(existing_user) = find_user_by_email(&state, &email).await else {
@@ -573,7 +584,7 @@ pub async fn recover_password(
     };
 
     let updated_user = {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         let user = users
             .get_mut(&existing_user.id)
             .ok_or((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()))?;
@@ -596,9 +607,8 @@ pub async fn recover_password(
     state
         .reg_challenges
         .write()
-        .unwrap()
         .remove(&existing_user.id.to_string());
-    sync_user_to_pg(&state, &updated_user).await;
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
     persist_to_disk(&state);
 
     let token = issue_jwt(&state.jwt_secret, updated_user.id, &updated_user.email, updated_user.is_admin, true)?;
@@ -674,7 +684,7 @@ pub async fn rotate_recovery_key(
     let rec_hash = hash_client_key(&req.recovery_auth_key_b64)?;
 
     let updated_record = {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         let user = users
             .get_mut(&user_id)
             .ok_or((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()))?;
@@ -697,7 +707,7 @@ pub async fn rotate_recovery_key(
         user.clone()
     };
 
-    sync_user_to_pg(&state, &updated_record).await;
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_record).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
     persist_to_disk(&state);
 
     Ok(Json(serde_json::json!({
@@ -716,7 +726,7 @@ pub async fn get_2fa_setup_info(
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
 
     let (totp_enabled, email, secret_b32, updated_user_opt) = {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         let user_entry = if let Some(u) = users.get_mut(&user_id) {
             Some(u)
         } else {
@@ -766,7 +776,7 @@ pub async fn get_2fa_setup_info(
     };
 
     if let Some(saved_user) = updated_user_opt {
-        sync_user_to_pg(&state, &saved_user).await;
+        if let Err(e) = crate::state::sync_user_to_pg(&state, &saved_user).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
         persist_to_disk(&state);
     }
 
@@ -789,7 +799,7 @@ pub async fn verify_and_enable_2fa(
     check_auth_rate_limit(&state, &format!("2fa_verify:{}", user_id))?;
 
     let updated_user_opt = {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         let user_opt = if let Some(u) = users.get_mut(&user_id) {
             Some(u)
         } else {
@@ -819,7 +829,7 @@ pub async fn verify_and_enable_2fa(
         }
     };
     if let Some(saved_user) = updated_user_opt {
-        sync_user_to_pg(&state, &saved_user).await;
+        if let Err(e) = crate::state::sync_user_to_pg(&state, &saved_user).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
     }
     persist_to_disk(&state);
     Ok(Json(serde_json::json!({ "totp_enabled": true })))
@@ -848,7 +858,7 @@ pub async fn reconfigure_2fa(
     let new_secret_b32 = totp::generate_totp_secret_base32();
 
     let (email, updated_user) = {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         let user_opt = if let Some(u) = users.get_mut(&user_id) {
             Some(u)
         } else {
@@ -887,7 +897,7 @@ pub async fn reconfigure_2fa(
         }
     };
 
-    sync_user_to_pg(&state, &updated_user).await;
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
     persist_to_disk(&state);
 
     let uri = totp::build_otpauth_uri(&email, &new_secret_b32);
@@ -921,7 +931,7 @@ pub async fn disable_2fa(
     let new_secret_b32 = totp::generate_totp_secret_base32();
 
     let (email, updated_user) = {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         let user_opt = if let Some(u) = users.get_mut(&user_id) {
             Some(u)
         } else {
@@ -960,7 +970,7 @@ pub async fn disable_2fa(
         }
     };
 
-    sync_user_to_pg(&state, &updated_user).await;
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
     persist_to_disk(&state);
 
     let uri = totp::build_otpauth_uri(&email, &new_secret_b32);
@@ -1005,7 +1015,7 @@ pub async fn update_user_email(
 
     // 1. Prevent privilege escalation to admin accounts (Finding 1) & require mandatory step-up auth (Invariant I-2)
     {
-        let users = state.mem_users.read().unwrap();
+        let users = state.mem_users.read();
         if let Some(user) = users.get(&user_id) {
             if !user.is_admin && state.admin_emails.contains(&new_email) {
                 return Err((
@@ -1031,7 +1041,7 @@ pub async fn update_user_email(
 
     // 2. Check if new_email is already used by another account
     {
-        let users = state.mem_users.read().unwrap();
+        let users = state.mem_users.read();
         if users.values().any(|u| u.email == new_email && u.id != user_id) {
             return Err((StatusCode::CONFLICT, "Diese E-Mail-Adresse wird bereits verwendet.".into()));
         }
@@ -1039,7 +1049,7 @@ pub async fn update_user_email(
 
     // 3. In test/production environment, require verified ownership of the new email address
     let was_verified = {
-        let verifs = state.mem_email_verifications.read().unwrap();
+        let verifs = state.mem_email_verifications.read();
         verifs
             .get(&new_email)
             .map(|v| v.code.is_empty() && v.expires_at >= Utc::now())
@@ -1055,12 +1065,12 @@ pub async fn update_user_email(
 
     // Clean up consumed verification entry
     if was_verified {
-        let mut verifs = state.mem_email_verifications.write().unwrap();
+        let mut verifs = state.mem_email_verifications.write();
         verifs.remove(&new_email);
     }
 
     let updated_user = {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         let user = users.get_mut(&user_id)
             .ok_or_else(|| (StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()))?;
         user.email = new_email.clone();
@@ -1068,7 +1078,7 @@ pub async fn update_user_email(
         user.clone()
     };
 
-    sync_user_to_pg(&state, &updated_user).await;
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &updated_user).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
     persist_to_disk(&state);
 
     let new_token = issue_jwt(&state.jwt_secret, updated_user.id, &updated_user.email, updated_user.is_admin, true)?;
@@ -1112,7 +1122,7 @@ pub async fn verify_email_start(
     State(state): State<AppState>,
     Json(req): Json<VerifyEmailStartRequest>,
 ) -> Result<Json<VerifyEmailStartResponse>, (StatusCode, String)> {
-    let email = req.email.trim().to_lowercase();
+    let email = validate_email(&req.email)?;
     if !email.contains('@') || email.len() < 5 {
         return Err((StatusCode::BAD_REQUEST, "Ungültige E-Mail-Adresse".into()));
     }
@@ -1124,7 +1134,7 @@ pub async fn verify_email_start(
 
     // Check cooldown
     {
-        let verifs = state.mem_email_verifications.read().unwrap();
+        let verifs = state.mem_email_verifications.read();
         if let Some(entry) = verifs.get(&email) {
             if entry.cooldown_until > now {
                 let wait_secs = (entry.cooldown_until - now).num_seconds().max(1) as u64;
@@ -1149,7 +1159,7 @@ pub async fn verify_email_start(
     };
 
     {
-        let mut verifs = state.mem_email_verifications.write().unwrap();
+        let mut verifs = state.mem_email_verifications.write();
         // Prune expired entries to prevent unbounded RAM growth under automated scans
         verifs.retain(|_, v| v.expires_at >= now);
         if !verifs.contains_key(&email) && verifs.len() >= 2048 {
@@ -1163,7 +1173,7 @@ pub async fn verify_email_start(
 
     // Also update user record if user exists
     {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         if let Some(user) = users.values_mut().find(|u| u.email == email) {
             user.email_verification_code = Some(code.clone());
             user.email_verification_expires_at = Some(expires_at);
@@ -1222,7 +1232,7 @@ pub async fn verify_email_confirm(
     State(state): State<AppState>,
     Json(req): Json<VerifyEmailConfirmRequest>,
 ) -> Result<Json<VerifyEmailConfirmResponse>, (StatusCode, String)> {
-    let email = req.email.trim().to_lowercase();
+    let email = validate_email(&req.email)?;
     let submitted_code = req.code.trim();
 
     if submitted_code.len() != 6 || !submitted_code.chars().all(|c| c.is_ascii_digit()) {
@@ -1236,7 +1246,7 @@ pub async fn verify_email_confirm(
 
     let now = Utc::now();
     let (is_valid, remaining) = {
-        let mut verifs = state.mem_email_verifications.write().unwrap();
+        let mut verifs = state.mem_email_verifications.write();
         let entry = verifs.get_mut(&email).ok_or((
             StatusCode::BAD_REQUEST,
             "Kein aktiver Bestätigungscode für diese E-Mail gefunden. Bitte fordere einen neuen Code an.".into(),
@@ -1279,7 +1289,7 @@ pub async fn verify_email_confirm(
 
     // Update user record if existing
     let user_to_sync = {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         if let Some(user) = users.values_mut().find(|u| u.email == email) {
             user.email_verified = true;
             user.email_verification_code = None;
@@ -1291,7 +1301,7 @@ pub async fn verify_email_confirm(
     };
 
     if let Some(u) = user_to_sync {
-        sync_user_to_pg(&state, &u).await;
+        if let Err(e) = crate::state::sync_user_to_pg(&state, &u).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
         persist_to_disk(&state);
     }
 
@@ -1341,8 +1351,7 @@ pub async fn desktop_relay_init(
 
     let mut sessions = state
         .desktop_relay_sessions
-        .write()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Lock error: {}", e)))?;
+        .write();
 
     // Prune expired entries older than 300 seconds
     sessions.retain(|_, entry| entry.created_at.elapsed().as_secs() < 300);
@@ -1385,8 +1394,7 @@ pub async fn desktop_relay_complete(
 
     let mut sessions = state
         .desktop_relay_sessions
-        .write()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Lock error: {}", e)))?;
+        .write();
 
     // Prune expired entries
     sessions.retain(|_, entry| entry.created_at.elapsed().as_secs() < 300);
@@ -1414,8 +1422,7 @@ pub async fn desktop_relay_poll(
 
     let mut sessions = state
         .desktop_relay_sessions
-        .write()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Lock error: {}", e)))?;
+        .write();
 
     match sessions.get(token) {
         None => Ok(Json(DesktopRelayPollResponse {
@@ -1447,3 +1454,56 @@ pub async fn desktop_relay_poll(
 }
 
 
+
+
+#[derive(Debug, Deserialize, Default)]
+pub struct DeleteUserRequest {
+    #[serde(default)]
+    pub auth_key_b64: Option<String>,
+    #[serde(default)]
+    pub totp_code: Option<String>,
+}
+
+pub async fn delete_user_account(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    payload: Option<Json<DeleteUserRequest>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let claims = authenticate_request(&state, &headers)?;
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Ungültige User-ID".into()))?;
+    check_auth_rate_limit(&state, &format!("delete_user:{}", user_id))?;
+
+    let req = payload.map(|Json(r)| r).unwrap_or_default();
+
+    if claims.is_admin {
+        return Err((StatusCode::FORBIDDEN, "Admin-Konten können nicht über diesen Endpunkt gelöscht werden.".into()));
+    }
+
+    let user_to_delete = {
+        let users = state.mem_users.read();
+        users.get(&user_id).cloned().ok_or((StatusCode::NOT_FOUND, "Benutzer:in nicht gefunden".into()))?
+    };
+
+    if !verify_user_step_up_auth(&state, &user_to_delete, req.auth_key_b64.as_deref(), req.totp_code.as_deref()) {
+        if user_to_delete.auth_key_hash.is_empty() && !user_to_delete.totp_enabled {
+            let iat = claims.exp as i64 - 86400 * 7;
+            if Utc::now().timestamp() - iat > 900 {
+                return Err((StatusCode::UNAUTHORIZED, "Zur Konto-Löschung ist eine erneute Anmeldung erforderlich (Token zu alt).".into()));
+            }
+        } else {
+            return Err((StatusCode::UNAUTHORIZED, "Zur Konto-Löschung ist dein Master-Passwort oder ein 2FA-Code erforderlich.".into()));
+        }
+    }
+
+    if let Err(e) = crate::state::delete_user_account_everywhere(&state, user_id).await {
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler beim Löschen: {}", e)));
+    }
+    
+    persist_to_disk(&state);
+    
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Benutzerkonto und alle zugehörigen Cloud-Daten wurden unwiderruflich gelöscht."
+    })))
+}

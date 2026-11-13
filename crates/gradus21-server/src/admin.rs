@@ -81,8 +81,8 @@ pub async fn list_users(
     headers: HeaderMap,
 ) -> Result<Json<Vec<AdminUserSummary>>, (StatusCode, String)> {
     require_admin(&state, &headers)?;
-    let users = state.mem_users.read().unwrap();
-    let passkeys = state.mem_passkeys.read().unwrap();
+    let users = state.mem_users.read();
+    let passkeys = state.mem_passkeys.read();
     let mut list: Vec<AdminUserSummary> = users
         .values()
         .map(|u| {
@@ -120,7 +120,7 @@ pub async fn update_user_status(
     let claims = require_admin(&state, &headers)?;
 
     let (summary, user_clone) = {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         let (current_is_admin, current_is_active) = users
             .get(&target_id)
             .map(|u| (u.is_admin, u.is_active))
@@ -171,7 +171,7 @@ pub async fn update_user_status(
             user.is_active = new_active;
         }
 
-        let p_count = state.mem_passkeys.read().unwrap().values().filter(|p| p.user_id == user.id).count();
+        let p_count = state.mem_passkeys.read().values().filter(|p| p.user_id == user.id).count();
         let effective_count = if p_count > 0 {
             p_count
         } else if user.passkey_credential_id.is_some() {
@@ -195,7 +195,7 @@ pub async fn update_user_status(
         (summary, user_clone)
     };
 
-    crate::sync_user_to_pg(&state, &user_clone).await;
+    if let Err(e) = crate::state::sync_user_to_pg(&state, &user_clone).await { return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Datenbankfehler: {}", e))); }
     persist_to_disk(&state);
 
     Ok(Json(summary))
@@ -216,7 +216,7 @@ pub async fn delete_user(
     }
 
     {
-        let users = state.mem_users.read().unwrap();
+        let users = state.mem_users.read();
         if let Some(u) = users.get(&target_id) {
             if u.is_admin && u.is_active {
                 let active_admin_count = users.values().filter(|a| a.is_admin && a.is_active).count();
@@ -253,7 +253,7 @@ pub async fn invite_user(
 
     // Check if user already exists
     {
-        let users = state.mem_users.read().unwrap();
+        let users = state.mem_users.read();
         if users.values().any(|u| u.email.to_lowercase() == clean_email) {
             return Err((
                 StatusCode::CONFLICT,
@@ -266,7 +266,7 @@ pub async fn invite_user(
 
     // Store invite in system_settings under `invites`
     let invites = {
-        let mut settings = state.mem_settings.write().unwrap();
+        let mut settings = state.mem_settings.write();
         let mut invites = settings
             .get("pending_invites")
             .cloned()
@@ -419,11 +419,11 @@ pub fn perform_backup_snapshot(state: &AppState) -> Result<BackupEntry, String> 
     let created_at = Utc::now();
     // Architectural Invariant (I-4): Serialize read guards by reference without cloning all HashMaps
     let content = {
-        let users = state.mem_users.read().unwrap();
-        let passkeys = state.mem_passkeys.read().unwrap();
-        let envelopes = state.mem_envelopes.read().unwrap();
-        let settings = state.mem_settings.read().unwrap();
-        let templates = state.mem_global_templates.read().unwrap();
+        let users = state.mem_users.read();
+        let passkeys = state.mem_passkeys.read();
+        let envelopes = state.mem_envelopes.read();
+        let settings = state.mem_settings.read();
+        let templates = state.mem_global_templates.read();
 
         let snapshot = serde_json::json!({
             "version": 2,
@@ -509,7 +509,7 @@ pub async fn start_backup_scheduler(state: AppState) {
         interval.tick().await;
 
         let cfg_opt = {
-            let settings = state.mem_settings.read().unwrap();
+            let settings = state.mem_settings.read();
             settings
                 .get("backup_schedule")
                 .and_then(|v| serde_json::from_value::<BackupScheduleConfig>(v.clone()).ok())
@@ -538,7 +538,7 @@ pub async fn start_backup_scheduler(state: AppState) {
                         cfg.last_run = Some(Utc::now());
                         if let Ok(val) = serde_json::to_value(&cfg) {
                             {
-                                let mut settings = state.mem_settings.write().unwrap();
+                                let mut settings = state.mem_settings.write();
                                 settings.insert("backup_schedule".into(), val.clone());
                             }
                             save_setting_to_pg(&state, "backup_schedule", &val).await;
@@ -855,28 +855,28 @@ pub async fn restore_backup(
 
     // 2. Wipe and replace memory only AFTER database transaction commits successfully
     {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         *users = restored_users.clone();
     }
     {
-        let mut passkeys = state.mem_passkeys.write().unwrap();
+        let mut passkeys = state.mem_passkeys.write();
         *passkeys = valid_passkeys.clone();
     }
     {
-        let mut envelopes = state.mem_envelopes.write().unwrap();
+        let mut envelopes = state.mem_envelopes.write();
         *envelopes = restored_envelopes.clone();
     }
     if let Some(settings) = parsed_settings {
-        let mut mem_set = state.mem_settings.write().unwrap();
+        let mut mem_set = state.mem_settings.write();
         *mem_set = settings;
     }
     if let Some(templates) = parsed_templates {
-        let mut mem_tpl = state.mem_global_templates.write().unwrap();
+        let mut mem_tpl = state.mem_global_templates.write();
         *mem_tpl = templates;
     }
-    state.reg_challenges.write().unwrap().clear();
-    state.auth_challenges.write().unwrap().clear();
-    state.mem_email_verifications.write().unwrap().clear();
+    state.reg_challenges.write().clear();
+    state.auth_challenges.write().clear();
+    state.mem_email_verifications.write().clear();
     crate::totp::clear_all_totp_replay_state();
 
     persist_to_disk(&state);
@@ -894,7 +894,7 @@ pub async fn get_backup_config(
     headers: HeaderMap,
 ) -> Result<Json<BackupScheduleConfig>, (StatusCode, String)> {
     require_admin(&state, &headers)?;
-    let settings = state.mem_settings.read().unwrap();
+    let settings = state.mem_settings.read();
     let cfg: BackupScheduleConfig = settings
         .get("backup_schedule")
         .and_then(|v| serde_json::from_value(v.clone()).ok())
@@ -915,7 +915,7 @@ pub async fn update_backup_config(
     require_admin(&state, &headers)?;
     let val = serde_json::to_value(&payload).unwrap();
     {
-        let mut settings = state.mem_settings.write().unwrap();
+        let mut settings = state.mem_settings.write();
         settings.insert("backup_schedule".into(), val.clone());
     }
     save_setting_to_pg(&state, "backup_schedule", &val).await;
@@ -1268,7 +1268,7 @@ pub async fn list_global_templates(
     if headers.contains_key("authorization") {
         let _ = authenticate_request(&state, &headers)?;
     }
-    let tpls = state.mem_global_templates.read().unwrap();
+    let tpls = state.mem_global_templates.read();
     let mut list: Vec<GlobalTemplateRecord> = tpls.values().cloned().collect();
     list.sort_by(|a, b| a.title.cmp(&b.title));
     Ok(Json(list))
@@ -1292,7 +1292,7 @@ pub async fn create_global_template(
     };
 
     {
-        let mut map = state.mem_global_templates.write().unwrap();
+        let mut map = state.mem_global_templates.write();
         map.insert(record.id, record.clone());
     }
 
@@ -1324,7 +1324,7 @@ pub async fn update_global_template(
     require_admin(&state, &headers)?;
 
     let record = {
-        let mut map = state.mem_global_templates.write().unwrap();
+        let mut map = state.mem_global_templates.write();
         let existing = map.get_mut(&id).ok_or((
             StatusCode::NOT_FOUND,
             "Globale Vorlage nicht gefunden.".into(),
@@ -1364,7 +1364,7 @@ pub async fn delete_global_template(
     require_admin(&state, &headers)?;
 
     {
-        let mut map = state.mem_global_templates.write().unwrap();
+        let mut map = state.mem_global_templates.write();
         map.remove(&id);
     }
 
@@ -1409,7 +1409,7 @@ pub struct SmtpConfig {
 }
 
 pub fn get_smtp_config_internal(state: &AppState) -> Option<SmtpConfig> {
-    let settings = state.mem_settings.read().unwrap();
+    let settings = state.mem_settings.read();
     let mut cfg: SmtpConfig = settings
         .get("smtp_config")
         .and_then(|v| serde_json::from_value(v.clone()).ok())?;
@@ -1486,7 +1486,7 @@ pub async fn update_smtp_config(
 
     let val = serde_json::to_value(&payload).unwrap();
     {
-        let mut settings = state.mem_settings.write().unwrap();
+        let mut settings = state.mem_settings.write();
         settings.insert("smtp_config".into(), val.clone());
     }
     save_setting_to_pg(&state, "smtp_config", &val).await;
@@ -1671,7 +1671,7 @@ fn default_mail_templates() -> Vec<MailTemplateRecord> {
 }
 
 fn get_mail_templates_internal(state: &AppState) -> Vec<MailTemplateRecord> {
-    let settings = state.mem_settings.read().unwrap();
+    let settings = state.mem_settings.read();
     settings
         .get("mail_templates")
         .and_then(|v| serde_json::from_value(v.clone()).ok())
@@ -1702,7 +1702,7 @@ pub async fn update_mail_template(
 
     let val = serde_json::to_value(&list).unwrap();
     {
-        let mut settings = state.mem_settings.write().unwrap();
+        let mut settings = state.mem_settings.write();
         settings.insert("mail_templates".into(), val.clone());
     }
     save_setting_to_pg(&state, "mail_templates", &val).await;
@@ -1718,7 +1718,7 @@ pub async fn save_all_mail_templates(
     require_admin(&state, &headers)?;
     let val = serde_json::to_value(&payload).unwrap();
     {
-        let mut settings = state.mem_settings.write().unwrap();
+        let mut settings = state.mem_settings.write();
         settings.insert("mail_templates".into(), val.clone());
     }
     save_setting_to_pg(&state, "mail_templates", &val).await;

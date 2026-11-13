@@ -45,6 +45,7 @@ pub fn create_app_router(state: AppState, cors: CorsLayer) -> Router {
         .route("/api/auth/email/update", post(update_user_email))
         .route("/api/auth/verify-email/start", post(verify_email_start))
         .route("/api/auth/verify-email/confirm", post(verify_email_confirm))
+        .route("/api/users/me", delete(delete_user_account))
         .route("/api/auth/2fa/setup", get(get_2fa_setup_info))
         .route("/api/auth/2fa/verify", post(verify_and_enable_2fa))
         .route("/api/auth/2fa/reconfigure", post(reconfigure_2fa))

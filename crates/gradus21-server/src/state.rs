@@ -1,3 +1,4 @@
+use parking_lot::RwLock;
 use chrono::{DateTime, Utc};
 use gradus21_core::crypto::KdfParams;
 use serde::{Deserialize, Serialize};
@@ -6,7 +7,7 @@ use std::{
     collections::HashMap,
     fs,
     path::PathBuf,
-    sync::{Arc, RwLock},
+    sync::Arc,
     time::Instant,
 };
 use url::Url;
@@ -551,9 +552,9 @@ pub async fn ensure_pg_schema_and_load(
     }
 }
 
-pub async fn sync_user_to_pg(state: &AppState, user: &UserRecord) {
+pub async fn sync_user_to_pg(state: &AppState, user: &UserRecord) -> Result<(), String> {
     let Some(pool) = &state.db else {
-        return;
+        return Ok(());
     };
     let kdf_params_json = serde_json::to_value(&user.kdf_params).unwrap_or_default();
     if let Err(e) = sqlx::query(
@@ -617,7 +618,9 @@ pub async fn sync_user_to_pg(state: &AppState, user: &UserRecord) {
     .await
     {
         tracing::error!("Failed to sync user {} to PostgreSQL: {}", user.id, e);
+        return Err(e.to_string());
     }
+    Ok(())
 }
 
 /// Architectural Invariant (I-3): Atomically persists a batch of envelopes to PostgreSQL inside
@@ -717,9 +720,9 @@ pub async fn delete_envelope_from_pg(state: &AppState, id: Uuid, owner_id: Uuid)
     Ok(res.rows_affected())
 }
 
-pub async fn delete_all_envelopes_from_pg(state: &AppState, owner_id: Uuid) {
+pub async fn delete_all_envelopes_from_pg(state: &AppState, owner_id: Uuid) -> Result<(), String> {
     let Some(pool) = &state.db else {
-        return;
+        return Ok(());
     };
     if let Err(e) = sqlx::query("DELETE FROM encrypted_envelopes WHERE owner_user_id = $1")
         .bind(owner_id)
@@ -727,7 +730,9 @@ pub async fn delete_all_envelopes_from_pg(state: &AppState, owner_id: Uuid) {
         .await
     {
         tracing::error!("Failed to delete all envelopes for user {} from PostgreSQL: {}", owner_id, e);
+        return Err(e.to_string());
     }
+    Ok(())
 }
 
 pub async fn delete_user_from_pg(state: &AppState, user_id: Uuid) {
@@ -759,32 +764,44 @@ pub async fn delete_all_passkeys_for_user_from_pg(state: &AppState, user_id: Uui
 /// Architectural Invariant (I-4): Single source of truth for completely purging a user account
 /// across PostgreSQL and all in-memory maps (`mem_envelopes`, `mem_passkeys`, `mem_users`,
 /// `reg_challenges`, and `totp` replay state).
-pub async fn delete_user_account_everywhere(state: &AppState, user_id: Uuid) {
+pub async fn delete_user_account_everywhere(state: &AppState, user_id: Uuid) -> Result<(), String> {
+    if let Some(pool) = &state.db {
+        let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+        sqlx::query("DELETE FROM encrypted_envelopes WHERE owner_user_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        sqlx::query("DELETE FROM user_passkeys WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        sqlx::query("DELETE FROM users WHERE id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        tx.commit().await.map_err(|e| e.to_string())?;
+    }
+
     {
-        let mut store = state.mem_envelopes.write().unwrap();
+        let mut store = state.mem_envelopes.write();
         store.retain(|_, env| env.owner_user_id != user_id);
     }
-    delete_all_envelopes_from_pg(state, user_id).await;
-
     {
-        let mut pks = state.mem_passkeys.write().unwrap();
+        let mut pks = state.mem_passkeys.write();
         pks.retain(|_, p| p.user_id != user_id);
     }
-    delete_all_passkeys_for_user_from_pg(state, user_id).await;
-
     {
-        let mut users = state.mem_users.write().unwrap();
+        let mut users = state.mem_users.write();
         users.remove(&user_id);
     }
-    delete_user_from_pg(state, user_id).await;
-
-    state
-        .reg_challenges
-        .write()
-        .unwrap()
-        .remove(&user_id.to_string());
+    state.reg_challenges.write().remove(&user_id.to_string());
     crate::totp::clear_totp_replay_state(user_id);
+    Ok(())
 }
+
 
 pub fn create_webauthn() -> Arc<Webauthn> {
     let rp_id = std::env::var("WEBAUTHN_RP_ID").unwrap_or_else(|_| "localhost".into());
@@ -868,9 +885,9 @@ pub fn create_webauthn() -> Arc<Webauthn> {
     Arc::new(builder.build().expect("Fehler beim Erstellen der Webauthn-Instanz"))
 }
 
-pub async fn sync_passkey_to_pg(state: &AppState, pk: &UserPasskeyRecord) {
+pub async fn sync_passkey_to_pg(state: &AppState, pk: &UserPasskeyRecord) -> Result<(), String> {
     let Some(pool) = &state.db else {
-        return;
+        return Ok(());
     };
     if let Err(e) = sqlx::query(
         r#"INSERT INTO user_passkeys (
@@ -897,7 +914,9 @@ pub async fn sync_passkey_to_pg(state: &AppState, pk: &UserPasskeyRecord) {
     .await
     {
         tracing::error!("Failed to sync passkey {} to PostgreSQL: {}", pk.id, e);
+        return Err(e.to_string());
     }
+    Ok(())
 }
 
 pub async fn delete_passkey_from_pg(state: &AppState, id: Uuid) {
@@ -922,16 +941,18 @@ struct BorrowedDiskStore<'a> {
     global_templates: &'a HashMap<Uuid, admin::GlobalTemplateRecord>,
 }
 
+static PERSIST_MUTEX: std::sync::OnceLock<parking_lot::Mutex<()>> = std::sync::OnceLock::new();
+
 pub fn persist_to_disk(state: &AppState) {
     if state.db.is_some() {
         return;
     }
     let json_res = {
-        let users = state.mem_users.read().unwrap();
-        let passkeys = state.mem_passkeys.read().unwrap();
-        let envelopes = state.mem_envelopes.read().unwrap();
-        let system_settings = state.mem_settings.read().unwrap();
-        let global_templates = state.mem_global_templates.read().unwrap();
+        let users = state.mem_users.read();
+        let passkeys = state.mem_passkeys.read();
+        let envelopes = state.mem_envelopes.read();
+        let system_settings = state.mem_settings.read();
+        let global_templates = state.mem_global_templates.read();
         let store = BorrowedDiskStore {
             users: &users,
             passkeys: &passkeys,
@@ -942,20 +963,19 @@ pub fn persist_to_disk(state: &AppState) {
         serde_json::to_string(&store)
     };
     if let Ok(json) = json_res {
+        let _guard = PERSIST_MUTEX.get_or_init(|| parking_lot::Mutex::new(())).lock();
         let tmp_path = state.disk_store_path.with_extension(format!("tmp.{}", Uuid::new_v4()));
-        if let Err(e) = fs::write(&tmp_path, json) {
+        if let Err(e) = std::fs::write(&tmp_path, json) {
             tracing::error!("Failed to write temporary vault store {:?}: {}", tmp_path, e);
-            let _ = fs::remove_file(&tmp_path);
+            let _ = std::fs::remove_file(&tmp_path);
             return;
         }
-        if let Err(e) = fs::rename(&tmp_path, &state.disk_store_path) {
-            tracing::error!(
-                "Failed to atomically rename {:?} to {:?}: {}",
-                tmp_path,
-                state.disk_store_path,
-                e
-            );
-            let _ = fs::remove_file(&tmp_path);
+        if let Ok(f) = std::fs::File::open(&tmp_path) {
+            let _ = f.sync_all();
+        }
+        if let Err(e) = std::fs::rename(&tmp_path, &state.disk_store_path) {
+            tracing::error!("Failed to atomically rename {:?} to {:?}: {}", tmp_path, state.disk_store_path, e);
+            let _ = std::fs::remove_file(&tmp_path);
         }
     }
 }
@@ -964,7 +984,7 @@ pub async fn find_user_by_email(state: &AppState, email: &str) -> Option<UserRec
     if let Some(u) = state
         .mem_users
         .read()
-        .unwrap()
+        
         .values()
         .find(|u| u.email == email)
         .cloned()
@@ -981,7 +1001,7 @@ pub async fn find_user_by_email(state: &AppState, email: &str) -> Option<UserRec
         .await
         {
             let user = user_record_from_pg_row(&row);
-            state.mem_users.write().unwrap().insert(user.id, user.clone());
+            state.mem_users.write().insert(user.id, user.clone());
             return Some(user);
         }
     }
@@ -989,3 +1009,35 @@ pub async fn find_user_by_email(state: &AppState, email: &str) -> Option<UserRec
 }
 
 
+
+pub async fn insert_user_to_pg(state: &AppState, user: &UserRecord) -> Result<(), String> {
+    let Some(pool) = &state.db else {
+        return Ok(());
+    };
+    let kdf_params_json = serde_json::to_value(&user.kdf_params).unwrap_or_default();
+    if let Err(e) = sqlx::query(
+        r#"INSERT INTO users (
+            id, email, auth_key_hash, kdf_salt, kdf_params, encrypted_dek,
+            recovery_encrypted_dek, recovery_auth_key_hash, totp_secret_server_encrypted,
+            totp_enabled, passkey_credential_id, passkey_label, passkey_encrypted_dek,
+            passkey_prf_salt, ui_preferences, is_admin, is_active, last_login_at,
+            email_verified, email_verification_code, email_verification_expires_at,
+            email_verification_attempts, email_verification_cooldown_until, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NOW())"#
+    )
+    .bind(user.id).bind(&user.email).bind(&user.auth_key_hash).bind(&user.kdf_salt)
+    .bind(kdf_params_json).bind(&user.encrypted_dek).bind(&user.recovery_encrypted_dek)
+    .bind(&user.recovery_auth_key_hash).bind(&user.totp_secret_server_encrypted)
+    .bind(user.totp_enabled).bind(&user.passkey_credential_id).bind(&user.passkey_label)
+    .bind(&user.passkey_encrypted_dek).bind(&user.passkey_prf_salt).bind(&user.ui_preferences)
+    .bind(user.is_admin).bind(user.is_active).bind(user.last_login_at)
+    .bind(user.email_verified).bind(&user.email_verification_code)
+    .bind(user.email_verification_expires_at).bind(user.email_verification_attempts)
+    .bind(user.email_verification_cooldown_until)
+    .execute(pool).await
+    {
+        tracing::error!("Failed to insert user {} to PostgreSQL: {}", user.id, e);
+        return Err(e.to_string());
+    }
+    Ok(())
+}
