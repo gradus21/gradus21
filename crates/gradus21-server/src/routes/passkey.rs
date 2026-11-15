@@ -20,6 +20,8 @@ use crate::state::{
     delete_all_passkeys_for_user_from_pg, delete_passkey_from_pg, persist_to_disk,
     AppState, UserPasskeyRecord,
 };
+#[cfg(test)]
+use crate::state::UserRecord;
 
 #[derive(Deserialize)]
 pub struct PasskeyRegisterRequest {
