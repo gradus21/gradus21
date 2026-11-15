@@ -18,7 +18,7 @@ use crate::middleware::{
 use crate::routes::auth::{verify_user_step_up_auth, AuthResponse};
 use crate::state::{
     delete_all_passkeys_for_user_from_pg, delete_passkey_from_pg, persist_to_disk,
-    AppState, UserPasskeyRecord, UserRecord,
+    AppState, UserPasskeyRecord,
 };
 
 #[derive(Deserialize)]

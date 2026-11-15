@@ -17,6 +17,16 @@ on:
           - all
           - windows
           - linux
+      publish_ms_store:
+        description: 'MSIX im Microsoft Store einreichen (sonst nur bei v*-Release-Tags)'
+        required: false
+        default: false
+        type: boolean
+      ms_store_no_commit:
+        description: 'Microsoft Store Upload nur als Entwurf (--no-commit)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -115,16 +125,34 @@ jobs:
           if-no-files-found: warn
 
       - name: Attach Linux Artifacts to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/dev'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           shopt -s nullglob
           linux_artifacts=(target/release/bundle/deb/*.deb* target/release/bundle/appimage/*.AppImage* target/release/bundle/appimage/*.tar.gz* SHA256SUMS_linux.txt*)
-          if [ ${#linux_artifacts[@]} -gt 0 ]; then
-            gh release upload "${{ github.ref_name }}" "${linux_artifacts[@]}" --clobber || true
+          if [ ${#linux_artifacts[@]} -eq 0 ]; then
+            exit 0
           fi
-          node scripts/update-updater-manifest.mjs "${{ github.ref_name }}" linux || true
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            gh release upload "${{ github.ref_name }}" "${linux_artifacts[@]}" --clobber || true
+            node scripts/update-updater-manifest.mjs "${{ github.ref_name }}" linux || true
+          else
+            echo "Publishing/updating rolling dev-build pre-release with Linux packages..."
+            gh release view dev-build >/dev/null 2>&1 || \
+              gh release create dev-build \
+                --prerelease \
+                --title "Gradus21 Dev Build (Pre-Release)" \
+                --notes "Automatischer Multiplattform-Build aus dem dev-Branch für interne Tests (Linux, Windows, macOS & Android)." \
+                --target dev || true
+            gh release upload dev-build "${linux_artifacts[@]}" --clobber || true
+            CURRENT_NAMES=$(printf "%s\n" "${linux_artifacts[@]##*/}")
+            for existing in $(gh release view dev-build --json assets -q '.assets[].name' 2>/dev/null | grep -E '(\.deb|\.AppImage|SHA256SUMS_linux)' || true); do
+              if ! grep -Fxq "$existing" <<< "$CURRENT_NAMES"; then
+                gh release delete-asset dev-build "$existing" -y || true
+              fi
+            done
+          fi
 
       - name: Deploy Linux Packages to GitHub Pages APT Repository
         if: startsWith(github.ref, 'refs/tags/v')
@@ -195,35 +223,6 @@ jobs:
         shell: powershell
         run: .\src-tauri\msix\package-msix.ps1
 
-      - name: Setup Microsoft Store Developer CLI
-        if: env.MS_STORE_TENANT_ID != '' && env.MS_STORE_CLIENT_ID != '' && env.MS_STORE_CLIENT_SECRET != '' && env.MS_STORE_SELLER_ID != ''
-        env:
-          MS_STORE_TENANT_ID: ${{ secrets.MS_STORE_TENANT_ID }}
-          MS_STORE_CLIENT_ID: ${{ secrets.MS_STORE_CLIENT_ID }}
-          MS_STORE_CLIENT_SECRET: ${{ secrets.MS_STORE_CLIENT_SECRET }}
-          MS_STORE_SELLER_ID: ${{ secrets.MS_STORE_SELLER_ID }}
-        uses: microsoft/microsoft-store-apppublisher@v1.4
-
-      - name: Publish to Microsoft Store
-        if: env.MS_STORE_TENANT_ID != '' && env.MS_STORE_CLIENT_ID != '' && env.MS_STORE_CLIENT_SECRET != '' && env.MS_STORE_SELLER_ID != ''
-        continue-on-error: true
-        env:
-          MS_STORE_TENANT_ID: ${{ secrets.MS_STORE_TENANT_ID }}
-          MS_STORE_CLIENT_ID: ${{ secrets.MS_STORE_CLIENT_ID }}
-          MS_STORE_CLIENT_SECRET: ${{ secrets.MS_STORE_CLIENT_SECRET }}
-          MS_STORE_SELLER_ID: ${{ secrets.MS_STORE_SELLER_ID }}
-        shell: pwsh
-        run: |
-          Write-Host "Configuring Microsoft Store Developer CLI..."
-          msstore reconfigure --tenantId "$env:MS_STORE_TENANT_ID" --sellerId "$env:MS_STORE_SELLER_ID" --clientId "$env:MS_STORE_CLIENT_ID" --clientSecret "$env:MS_STORE_CLIENT_SECRET"
-          $msix = (Get-Item "target/release/bundle/msix/*.msix").FullName
-          Write-Host "Publishing MSIX package $msix to Microsoft Store (Product ID: 9MTB3WRKMNDD)..."
-          try {
-            msstore publish "$msix" -id 9MTB3WRKMNDD -v
-          } catch {
-            Write-Warning "Microsoft Store publish encountered an issue: $_"
-          }
-
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v6
         with:
@@ -237,15 +236,61 @@ jobs:
           if-no-files-found: warn
 
       - name: Attach Windows Artifacts to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/dev'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           shopt -s nullglob
           artifacts=(target/release/bundle/msi/*.msi target/release/bundle/nsis/*.exe target/release/bundle/nsis/*.zip* target/release/bundle/msix/*.msix target/release/bundle/msix/*.cer)
-          if [ ${#artifacts[@]} -gt 0 ]; then
+          if [ ${#artifacts[@]} -eq 0 ]; then
+            exit 0
+          fi
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             echo "Uploading Windows artifacts to release ${{ github.ref_name }}..."
             gh release upload "${{ github.ref_name }}" "${artifacts[@]}" --clobber || true
+            node scripts/update-updater-manifest.mjs "${{ github.ref_name }}" windows || true
+          else
+            echo "Publishing/updating rolling dev-build pre-release with Windows packages..."
+            gh release view dev-build >/dev/null 2>&1 || \
+              gh release create dev-build \
+                --prerelease \
+                --title "Gradus21 Dev Build (Pre-Release)" \
+                --notes "Automatischer Multiplattform-Build aus dem dev-Branch für interne Tests (Linux, Windows, macOS & Android)." \
+                --target dev || true
+            gh release upload dev-build "${artifacts[@]}" --clobber || true
+            CURRENT_NAMES=$(printf "%s\n" "${artifacts[@]##*/}")
+            for existing in $(gh release view dev-build --json assets -q '.assets[].name' 2>/dev/null | grep -E '(\.msi|\.exe|\.msix|\.cer)$' || true); do
+              if ! grep -Fxq "$existing" <<< "$CURRENT_NAMES"; then
+                gh release delete-asset dev-build "$existing" -y || true
+              fi
+            done
           fi
-          node scripts/update-updater-manifest.mjs "${{ github.ref_name }}" windows || true
+
+      - name: Setup Microsoft Store Developer CLI
+        if: (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish_ms_store)) && env.MS_STORE_TENANT_ID != '' && env.MS_STORE_CLIENT_ID != '' && env.MS_STORE_CLIENT_SECRET != '' && env.MS_STORE_SELLER_ID != ''
+        env:
+          MS_STORE_TENANT_ID: ${{ secrets.MS_STORE_TENANT_ID }}
+          MS_STORE_CLIENT_ID: ${{ secrets.MS_STORE_CLIENT_ID }}
+          MS_STORE_CLIENT_SECRET: ${{ secrets.MS_STORE_CLIENT_SECRET }}
+          MS_STORE_SELLER_ID: ${{ secrets.MS_STORE_SELLER_ID }}
+        uses: microsoft/microsoft-store-apppublisher@v1.4
+
+      - name: Publish to Microsoft Store
+        if: (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish_ms_store)) && env.MS_STORE_TENANT_ID != '' && env.MS_STORE_CLIENT_ID != '' && env.MS_STORE_CLIENT_SECRET != '' && env.MS_STORE_SELLER_ID != ''
+        env:
+          MS_STORE_TENANT_ID: ${{ secrets.MS_STORE_TENANT_ID }}
+          MS_STORE_CLIENT_ID: ${{ secrets.MS_STORE_CLIENT_ID }}
+          MS_STORE_CLIENT_SECRET: ${{ secrets.MS_STORE_CLIENT_SECRET }}
+          MS_STORE_SELLER_ID: ${{ secrets.MS_STORE_SELLER_ID }}
+        shell: pwsh
+        run: |
+          Write-Host "Configuring Microsoft Store Developer CLI..."
+          msstore reconfigure --tenantId "$env:MS_STORE_TENANT_ID" --sellerId "$env:MS_STORE_SELLER_ID" --clientId "$env:MS_STORE_CLIENT_ID" --clientSecret "$env:MS_STORE_CLIENT_SECRET"
+          $msix = (Get-Item "target/release/bundle/msix/*.msix").FullName
+          $extraArgs = @()
+          if ("${{ inputs.ms_store_no_commit }}" -eq "true") {
+            $extraArgs += "--no-commit"
+          }
+          Write-Host "Publishing MSIX package $msix to Microsoft Store (Product ID: 9MTB3WRKMNDD)..."
+          msstore publish "$msix" -id 9MTB3WRKMNDD @extraArgs -v

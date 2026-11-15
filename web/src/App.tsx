@@ -125,19 +125,23 @@ export const App: React.FC = () => {
   const [dismissedUpdate, setDismissedUpdate] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     if (isDesktopTauri()) {
       checkForAppUpdate()
         .then((info) => {
-          if (info?.available) {
+          if (!cancelled && typeof window !== 'undefined' && info?.available) {
             setAppUpdate(info);
           }
         })
         .catch((err) => {
           console.warn('[App] Background update check failed:', err);
         });
+      return () => {
+        cancelled = true;
+      };
     } else if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
       const handleSwMessage = (event: MessageEvent) => {
-        if (event.data?.type === 'SW_UPDATED') {
+        if (!cancelled && event.data?.type === 'SW_UPDATED') {
           setAppUpdate({
             available: true,
             version: 'bereit',
@@ -147,9 +151,13 @@ export const App: React.FC = () => {
       };
       navigator.serviceWorker.addEventListener('message', handleSwMessage);
       return () => {
+        cancelled = true;
         navigator.serviceWorker.removeEventListener('message', handleSwMessage);
       };
     }
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Modal Dialogs (Discriminated Union to enforce single-modal exclusivity)

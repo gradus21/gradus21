@@ -141,21 +141,31 @@ export function useVaultWorkspaceSync() {
   const connectedNativePathRef = useRef<string | null>(isTauri() ? getNativeBackupPath() : null);
 
   useEffect(() => {
-    requestStoragePersistence().then((persisted) => setIsPersistentStorage(persisted));
+    let cancelled = false;
+    requestStoragePersistence().then((persisted) => {
+      if (!cancelled && typeof window !== 'undefined') {
+        setIsPersistentStorage(persisted);
+      }
+    });
     if (isTauri()) {
       const savedNativePath = getNativeBackupPath();
       if (savedNativePath) {
         connectedNativePathRef.current = savedNativePath;
         setConnectedBackupDirName(savedNativePath);
-        return;
+        return () => {
+          cancelled = true;
+        };
       }
     }
     getDirectoryHandle().then((handle) => {
-      if (handle) {
+      if (!cancelled && typeof window !== 'undefined' && handle) {
         connectedDirHandleRef.current = handle;
         setConnectedBackupDirName(handle.name);
       }
     });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const [vaultSession, setVaultSession] = useState<ActiveVaultSession | null>(null);

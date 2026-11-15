@@ -75,10 +75,21 @@ export function useLegalConfig(): LegalConfigData {
   const [config, setConfig] = useState<LegalConfigData>(cachedConfig);
 
   useEffect(() => {
-    listeners.add(setConfig);
-    fetchLegalConfig().then(setConfig);
+    let cancelled = false;
+    const listener = (nextConfig: LegalConfigData) => {
+      if (!cancelled && typeof window !== 'undefined') {
+        setConfig(nextConfig);
+      }
+    };
+    listeners.add(listener);
+    fetchLegalConfig().then((nextConfig) => {
+      if (!cancelled && typeof window !== 'undefined') {
+        setConfig(nextConfig);
+      }
+    });
     return () => {
-      listeners.delete(setConfig);
+      cancelled = true;
+      listeners.delete(listener);
     };
   }, []);
 

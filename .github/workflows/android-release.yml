@@ -191,8 +191,8 @@ jobs:
               gh release create dev-build \
                 --prerelease \
                 --title "Gradus21 Dev Build (Pre-Release)" \
-                --notes "Automatischer Build aus dem dev-Branch für interne Tests (Google Play Console & Sideloading)." \
-                --target dev
+                --notes "Automatischer Multiplattform-Build aus dem dev-Branch für interne Tests (Linux, Windows, macOS & Android)." \
+                --target dev || true
             gh release upload dev-build \
               dist-android/gradus21.apk \
               dist-android/gradus21.aab \
