@@ -55,8 +55,9 @@ jobs:
           BASE_VER=$(node -p "require('./src-tauri/tauri.conf.json').version")
           EFFECTIVE_VER="$BASE_VER"
           if [[ "${{ github.ref }}" != refs/tags/v* ]]; then
+            REMOTE_TAGS=$(git ls-remote --tags origin "refs/tags/v*" 2>/dev/null || true)
             IFS='.' read -r V_MAJ V_MIN V_PATCH <<< "${BASE_VER%%-*}"
-            while git rev-parse -q --verify "refs/tags/v${V_MAJ}.${V_MIN}.${V_PATCH}" >/dev/null 2>&1; do
+            while grep -Eq "refs/tags/v${V_MAJ}\.${V_MIN}\.${V_PATCH}(\^\{\})?$" <<< "$REMOTE_TAGS" || git rev-parse -q --verify "refs/tags/v${V_MAJ}.${V_MIN}.${V_PATCH}" >/dev/null 2>&1; do
               V_PATCH=$((V_PATCH + 1))
             done
             EFFECTIVE_VER="${V_MAJ}.${V_MIN}.${V_PATCH}"
@@ -403,8 +404,9 @@ jobs:
           BASE_VER=$(node -p "require('./src-tauri/tauri.conf.json').version")
           EFFECTIVE_VER="$BASE_VER"
           if [[ "${{ github.ref }}" != refs/tags/v* ]]; then
+            REMOTE_TAGS=$(git ls-remote --tags origin "refs/tags/v*" 2>/dev/null || true)
             IFS='.' read -r V_MAJ V_MIN V_PATCH <<< "${BASE_VER%%-*}"
-            while git rev-parse -q --verify "refs/tags/v${V_MAJ}.${V_MIN}.${V_PATCH}" >/dev/null 2>&1; do
+            while grep -Eq "refs/tags/v${V_MAJ}\.${V_MIN}\.${V_PATCH}(\^\{\})?$" <<< "$REMOTE_TAGS" || git rev-parse -q --verify "refs/tags/v${V_MAJ}.${V_MIN}.${V_PATCH}" >/dev/null 2>&1; do
               V_PATCH=$((V_PATCH + 1))
             done
             EFFECTIVE_VER="${V_MAJ}.${V_MIN}.${V_PATCH}"
