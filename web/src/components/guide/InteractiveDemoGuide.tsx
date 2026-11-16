@@ -9,7 +9,6 @@ import {
   HelpCircle,
   Pause,
   Play,
-  RotateCcw,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -71,7 +70,7 @@ function renderRichContent(content: string): React.ReactNode {
   const sections = content.split(/\n\s*\n/);
 
   return (
-    <div className="space-y-2.5 text-xs">
+    <div className="space-y-2 text-[13px] leading-relaxed">
       {sections.map((section, sIdx) => {
         const rawLines = section.split('\n').map((l) => l.trim()).filter(Boolean);
         if (rawLines.length === 0) return null;
@@ -105,21 +104,14 @@ function renderRichContent(content: string): React.ReactNode {
             {chunks.map((chunk, cIdx) => {
               if (chunk.type === 'list') {
                 return (
-                  <ul key={cIdx} className="space-y-1.5 my-2 pl-0.5">
+                  <ul key={cIdx} className="space-y-1.5 my-1.5">
                     {chunk.items.map((item, itemIdx) => (
-                      <li
-                        key={itemIdx}
-                        className="flex items-start gap-2.5 p-2 rounded-lg border text-xs"
-                        style={{
-                          backgroundColor: 'var(--bg-subtle)',
-                          borderColor: 'var(--border-subtle)',
-                        }}
-                      >
+                      <li key={itemIdx} className="flex items-start gap-2">
                         <span
-                          className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0"
+                          className="w-1.5 h-1.5 rounded-full mt-2 shrink-0"
                           style={{ backgroundColor: 'var(--primary-500)' }}
                         />
-                        <div className="flex-1 leading-snug" style={{ color: 'var(--text-secondary)' }}>
+                        <div className="flex-1 text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
                           {renderInlineMarkdown(item)}
                         </div>
                       </li>
@@ -129,7 +121,7 @@ function renderRichContent(content: string): React.ReactNode {
               }
 
               return (
-                <p key={cIdx} className="leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                <p key={cIdx} className="text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
                   {chunk.lines.map((line, lIdx) => (
                     <React.Fragment key={lIdx}>
                       {lIdx > 0 && <br />}
@@ -152,7 +144,7 @@ interface InteractiveDemoGuideProps {
   stepIndex: number;
   onClose: () => void;
   onStepChange: (newStepIndex: number) => void;
-  onChapterChange: (newChapterId: GuideChapterId, stepIndex?: number) => void;
+  onChapterChange?: (newChapterId: GuideChapterId, stepIndex?: number) => void;
   onOpenChapterSelect: () => void;
   onExecuteAction?: (actionType: string, payload?: any) => void;
   setMode: (mode: WorkspaceMode) => void;
@@ -165,7 +157,6 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
   stepIndex,
   onClose,
   onStepChange,
-  onChapterChange,
   onOpenChapterSelect,
   onExecuteAction,
   setMode,
@@ -176,8 +167,8 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
   const [autoPlayProgress, setAutoPlayProgress] = useState<number>(0);
   const [demoLoadedSuccess, setDemoLoadedSuccess] = useState<boolean>(false);
   const [measuredSize, setMeasuredSize] = useState<{ width: number; height: number }>({
-    width: 440,
-    height: 380,
+    width: 400,
+    height: 260,
   });
   const popoverRef = useRef<HTMLDivElement>(null);
 
@@ -339,20 +330,12 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
   const handleNext = useCallback(() => {
     if (isLastStep) {
       onChapterCompleted(chapterId);
-      // If there is a next chapter, offer or go to chapter select
-      const currentChapterIdx = GUIDE_CHAPTERS.findIndex((c) => c.id === chapterId);
-      if (currentChapterIdx >= 0 && currentChapterIdx < GUIDE_CHAPTERS.length - 1) {
-        const nextChapter = GUIDE_CHAPTERS[currentChapterIdx + 1];
-        onChapterChange(nextChapter.id, 0);
-      } else {
-        onClose();
-        onOpenChapterSelect();
-      }
+      onClose();
     } else {
       onStepChange(stepIndex + 1);
     }
     setAutoPlayProgress(0);
-  }, [isLastStep, onChapterCompleted, chapterId, onChapterChange, onClose, onOpenChapterSelect, onStepChange, stepIndex]);
+  }, [isLastStep, onChapterCompleted, chapterId, onClose, onStepChange, stepIndex]);
 
   // Handle Step Backward
   const handlePrev = useCallback(() => {
@@ -423,9 +406,9 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
   const bottomReserve = windowW < 768 ? 76 : 16;
   const gap = 14;
 
-  const cardWidth = Math.min(460, Math.max(280, windowW - 24));
+  const cardWidth = Math.min(400, Math.max(280, windowW - 24));
   const maxAvailableCardHeight = Math.max(220, windowH - topReserve - bottomReserve);
-  const cardHeight = Math.min(measuredSize.height || 380, maxAvailableCardHeight);
+  const cardHeight = Math.min(measuredSize.height || 260, maxAvailableCardHeight);
 
   let popoverStyle: React.CSSProperties = {};
 
@@ -575,15 +558,15 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
 
         {/* CARD HEADER */}
         <div
-          className="shrink-0 px-5 py-3.5 border-b flex items-center justify-between gap-3 text-xs"
+          className="shrink-0 px-4 py-3 border-b flex items-center justify-between gap-2 text-xs"
           style={{
             backgroundColor: 'var(--bg-subtle)',
             borderColor: 'var(--border-subtle)',
           }}
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <span
-              className="font-extrabold uppercase tracking-wider text-[10px] px-2 py-0.5 rounded-full"
+              className="font-bold uppercase tracking-wider text-[10px] px-2 py-0.5 rounded-full truncate"
               style={{
                 backgroundColor: 'var(--primary-soft)',
                 color: 'var(--primary-text)',
@@ -591,16 +574,16 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
             >
               {currentChapter.shortTitle}
             </span>
-            <span style={{ color: 'var(--text-secondary)' }} className="font-semibold text-[11px]">
-              Schritt {stepIndex + 1} von {totalSteps}
+            <span style={{ color: 'var(--text-secondary)' }} className="font-semibold text-[11px] shrink-0">
+              {stepIndex + 1} / {totalSteps}
             </span>
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 shrink-0">
             {/* Auto-Play Toggle */}
             <button
               onClick={() => setIsAutoPlaying((p) => !p)}
-              className={`min-h-[36px] min-w-[36px] sm:min-w-0 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold inline-flex items-center justify-center gap-1.5 transition ${
+              className={`w-8 h-8 rounded-lg border transition inline-flex items-center justify-center shrink-0 ${
                 isAutoPlaying
                   ? 'bg-amber-500/20 text-amber-600 border-amber-500/40'
                   : 'hover:opacity-80'
@@ -615,17 +598,12 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
                   : undefined
               }
               title={isAutoPlaying ? 'Auto-Play pausieren (Leertaste)' : 'Auto-Play starten (Leertaste)'}
+              aria-label={isAutoPlaying ? 'Auto-Play pausieren' : 'Auto-Play starten'}
             >
               {isAutoPlaying ? (
-                <>
-                  <Pause className="w-3.5 h-3.5 shrink-0" />
-                  <span className="hidden sm:inline">Pausieren</span>
-                </>
+                <Pause className="w-3.5 h-3.5 shrink-0" />
               ) : (
-                <>
-                  <Play className="w-3.5 h-3.5 fill-current shrink-0" />
-                  <span className="hidden sm:inline">Auto-Play</span>
-                </>
+                <Play className="w-3.5 h-3.5 fill-current shrink-0" />
               )}
             </button>
 
@@ -635,13 +613,14 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
                 setIsAutoPlaying(false);
                 onOpenChapterSelect();
               }}
-              className="w-9 h-9 rounded-lg border transition hover:opacity-80 text-xs font-semibold inline-flex items-center justify-center shrink-0"
+              className="w-8 h-8 rounded-lg border transition hover:opacity-80 text-xs font-semibold inline-flex items-center justify-center shrink-0"
               style={{
                 backgroundColor: 'var(--bg-surface)',
                 borderColor: 'var(--border-subtle)',
                 color: 'var(--text-secondary)',
               }}
               title="Alle Kapitel ansehen"
+              aria-label="Alle Kapitel ansehen"
             >
               <BookOpen className="w-3.5 h-3.5" />
             </button>
@@ -649,13 +628,14 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
             {/* Close */}
             <button
               onClick={onClose}
-              className="w-9 h-9 rounded-lg border transition hover:opacity-80 text-xs inline-flex items-center justify-center shrink-0"
+              className="w-8 h-8 rounded-lg border transition hover:opacity-80 text-xs inline-flex items-center justify-center shrink-0"
               style={{
                 backgroundColor: 'var(--bg-surface)',
                 borderColor: 'var(--border-subtle)',
                 color: 'var(--text-secondary)',
               }}
               title="Tour beenden (Esc)"
+              aria-label="Tour beenden"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -663,24 +643,10 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
         </div>
 
         {/* CARD CONTENT */}
-        <div className="flex-1 min-h-0 p-5 space-y-3 overflow-y-auto overscroll-contain matrix-scroll">
-          <div className="flex items-start justify-between gap-3">
-            <h3 className="text-base font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
-              {currentStep.title}
-            </h3>
-            {currentStep.badge && (
-              <span
-                className="text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0 border"
-                style={{
-                  backgroundColor: 'var(--primary-soft)',
-                  borderColor: 'var(--border-subtle)',
-                  color: 'var(--primary-text)',
-                }}
-              >
-                {currentStep.badge}
-              </span>
-            )}
-          </div>
+        <div className="flex-1 min-h-0 p-4 sm:p-5 space-y-3 overflow-y-auto overscroll-contain matrix-scroll">
+          <h3 className="text-base font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+            {currentStep.title}
+          </h3>
 
           {/* Rich Markdown & Structured Lists */}
           {renderRichContent(currentStep.content)}
@@ -759,14 +725,14 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
 
         {/* CARD FOOTER & CONTROLS */}
         <div
-          className="shrink-0 px-5 py-3.5 border-t flex items-center justify-between gap-3"
+          className="shrink-0 px-4 py-3 border-t flex items-center justify-between gap-2"
           style={{
             backgroundColor: 'var(--bg-subtle)',
             borderColor: 'var(--border-subtle)',
           }}
         >
           {/* STEP DOTS */}
-          <div className="flex items-center gap-1.5 overflow-x-auto py-1 max-w-[140px] sm:max-w-none shrink-0">
+          <div className="flex items-center gap-1.5 overflow-x-auto py-1 min-w-0">
             {currentChapter.steps.map((_, i) => (
               <button
                 key={i}
@@ -803,12 +769,29 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
               </button>
             )}
 
+            {isLastStep && (
+              <button
+                onClick={() => {
+                  onClose();
+                  onOpenChapterSelect();
+                }}
+                className="px-3 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center justify-center gap-1 transition hover:opacity-80"
+                style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  borderColor: 'var(--border-subtle)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                <span>Themen</span>
+              </button>
+            )}
+
             <button
               onClick={handleNext}
               className="px-4 py-1.5 rounded-xl text-xs font-bold text-white inline-flex items-center justify-center gap-1.5 shadow-sm transition hover:opacity-95"
               style={{ backgroundColor: 'var(--primary-500)' }}
             >
-              <span>{isLastStep ? 'Kapitel abschließen' : 'Weiter'}</span>
+              <span>{isLastStep ? 'Fertig' : 'Weiter'}</span>
               {isLastStep ? (
                 <CheckCircle className="w-3.5 h-3.5 shrink-0" />
               ) : (

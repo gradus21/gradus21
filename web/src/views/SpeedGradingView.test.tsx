@@ -1,5 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { render, screen, fireEvent, act } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { SpeedGradingView } from './SpeedGradingView';
 import { INITIAL_CLASS_DATASETS, DEFAULT_USER_SYNC_SETTINGS } from '../data/demoClasses';
 
@@ -157,5 +159,67 @@ describe('SpeedGradingView Empty State & Resilience', () => {
 
     expect(input0.getAttribute('aria-invalid')).toBe('true');
     expect(input0.getAttribute('title')).toContain('Note 1,0 bis 6,0');
+  });
+});
+
+describe('SpeedGradingView & Linux Dark-Mode <select> Styling', () => {
+  afterEach(() => {
+    document.documentElement.classList.remove('dark');
+  });
+
+  it('renders assessment <select> with theme variables in dark mode and switches assessments', () => {
+    document.documentElement.classList.add('dark');
+
+    const dataset = INITIAL_CLASS_DATASETS[0];
+    const termAssessments = dataset.assessments.filter((a) => a.term_id === 'hj1');
+    const setSelectedAssessmentId = vi.fn();
+
+    render(
+      <SpeedGradingView
+        activeDataset={dataset}
+        activeTerm="hj1"
+        termAssessments={termAssessments}
+        activeAssessment={termAssessments[0]}
+        setSelectedAssessmentId={setSelectedAssessmentId}
+        speedInputMode="percent"
+        setSpeedInputMode={vi.fn()}
+        visibleStudents={dataset.students.filter((s) => !s.is_archived)}
+        summaryByStudentId={new Map()}
+        calculationReport={null}
+        updateGradeEntry={vi.fn()}
+        isCurveEditorVisible={false}
+        userSettings={{ ...DEFAULT_USER_SYNC_SETTINGS, darkMode: true, themeMode: 'dark' }}
+        setShowOnDemandCurveEditor={vi.fn()}
+        globalTemplates={[]}
+        curvePresetKey="ihk"
+        curveCutoffs={{ n1: 92, n2: 81, n3: 67, n4: 50, n5: 30 }}
+        applyCurveCutoffs={vi.fn()}
+        applyGlobalCurveTemplate={vi.fn()}
+        isDifferentiationEnabled={dataset.config.enable_student_levels}
+        toggleStudentLevelsEnabled={vi.fn()}
+        currentLevelOffsets={{ G: 0, M: 0, E: 0 }}
+        setMode={vi.fn()}
+      />
+    );
+
+    const select = screen.getByRole('combobox') as HTMLSelectElement;
+    expect(select.value).toBe(termAssessments[0].id);
+    expect(select.style.backgroundColor).toBe('var(--bg-subtle)');
+    expect(select.style.color).toBe('var(--text-primary)');
+    expect(select.style.borderColor).toBe('var(--border-subtle)');
+
+    if (termAssessments.length > 1) {
+      fireEvent.change(select, { target: { value: termAssessments[1].id } });
+      expect(setSelectedAssessmentId).toHaveBeenCalledWith(termAssessments[1].id);
+    }
+  });
+
+  it('defines cross-platform dark-mode select & option CSS overrides in index.css', () => {
+    const css = fs.readFileSync(path.resolve(__dirname, '../index.css'), 'utf8');
+
+    expect(css).toContain('color-scheme: light;');
+    expect(css).toContain('color-scheme: dark;');
+    expect(css).toMatch(/select\s*\{[\s\S]*?-webkit-appearance:\s*none;[\s\S]*?appearance:\s*none;[\s\S]*?background-color:\s*var\(--bg-subtle\);[\s\S]*?color:\s*var\(--text-primary\);/);
+    expect(css).toMatch(/select option,\s*select optgroup\s*\{[\s\S]*?background-color:\s*var\(--bg-surface\);[\s\S]*?color:\s*var\(--text-primary\);/);
   });
 });

@@ -3,6 +3,7 @@ import { DialogOverlay } from '../DialogOverlay';
 import {
   BookOpen,
   CheckCircle2,
+  Clock,
   Compass,
   FolderPlus,
   Play,
@@ -14,7 +15,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { GuideChapter, GuideChapterId } from '../../types/guide';
+import { GuideChapterId } from '../../types/guide';
 import { GUIDE_CHAPTERS } from './guideChaptersData';
 
 interface GuideChapterSelectModalProps {
@@ -129,7 +130,7 @@ export const GuideChapterSelectModal: React.FC<GuideChapterSelectModalProps> = (
             style={{ backgroundColor: 'var(--primary-500)' }}
           >
             <Play className="w-3.5 h-3.5 fill-current" />
-            <span>Gesamte Tour starten (~3 Min.)</span>
+            <span>Schnellstart-Tour (1 Min.)</span>
           </button>
         </div>
 
@@ -174,25 +175,11 @@ export const GuideChapterSelectModal: React.FC<GuideChapterSelectModalProps> = (
                     <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
                       {chapter.subtitle}
                     </p>
-                    <div className="flex flex-wrap items-center gap-2 mt-2">
-                      <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                        ⏱️ ~{chapter.estimatedMinutes} Min.
+                    <div className="flex items-center gap-1.5 mt-2 text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>
+                      <Clock className="w-3 h-3 shrink-0" />
+                      <span>
+                        ~{chapter.estimatedMinutes} Min. · {chapter.steps.length} Schritte
                       </span>
-                      <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                        {chapter.steps.length} Schritte
-                      </span>
-                      {chapter.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="text-[10px] font-semibold px-2 py-0.5 rounded-md"
-                          style={{
-                            backgroundColor: 'var(--primary-soft)',
-                            color: 'var(--primary-text)',
-                          }}
-                        >
-                          {tag}
-                        </span>
-                      ))}
                     </div>
                   </div>
                 </div>
@@ -246,7 +233,7 @@ export const GuideChapterSelectModal: React.FC<GuideChapterSelectModalProps> = (
             color: 'var(--text-secondary)',
           }}
         >
-          <span>💡 Du kannst die interaktive Demo jederzeit oben in der Kopfleiste aufrufen.</span>
+          <span>Tipp: Den Guide erreichst du jederzeit über die Kopfleiste oder die Einstellungen.</span>
           <button
             onClick={onClose}
             className="px-4 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center justify-center transition hover:opacity-80"

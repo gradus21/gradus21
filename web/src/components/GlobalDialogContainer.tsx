@@ -102,7 +102,7 @@ export const GlobalDialogContainer: React.FC = () => {
             }}
           />
 
-          <div className="flex items-center justify-end gap-2.5 pt-1">
+          <div className="flex flex-wrap items-center justify-end gap-2.5 pt-1">
             <button
               type="button"
               onClick={handleCancel}
@@ -128,7 +128,7 @@ export const GlobalDialogContainer: React.FC = () => {
       )}
 
       {isConfirm && (
-        <div className="flex items-center justify-end gap-2.5 pt-2">
+        <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2">
           <button
             type="button"
             onClick={handleCancel}

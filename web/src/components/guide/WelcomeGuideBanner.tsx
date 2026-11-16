@@ -34,7 +34,7 @@ export const WelcomeGuideBanner: React.FC<WelcomeGuideBannerProps> = ({
         <div>
           <span className="font-bold">Neu bei Gradus21? </span>
           <span style={{ color: 'var(--text-secondary)' }}>
-            Starte mit dem Import deiner eigenen Klasse (.xlsx) oder lade eine Beispielklasse, um alle Funktionen interaktiv kennenzulernen.
+            Starte die kurze Übersichtstour oder lade direkt eine Beispielklasse.
           </span>
         </div>
       </div>
@@ -46,7 +46,7 @@ export const WelcomeGuideBanner: React.FC<WelcomeGuideBannerProps> = ({
           style={{ backgroundColor: 'var(--primary-500)' }}
         >
           <Compass className="w-3.5 h-3.5 shrink-0" />
-          <span>Interaktive Tour starten (3 Min.)</span>
+          <span>Kurztour starten (1 Min.)</span>
         </button>
 
         <button

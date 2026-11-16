@@ -11,6 +11,7 @@
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "release": "bash ../scripts/release.sh",
     "test": "vitest run",
+    "test:local": "bash ../scripts/test-local.sh",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
   },

@@ -10,7 +10,7 @@ import { ClassSetupAndExcelWizard } from './components/ClassSetupAndExcelWizard'
 import { ClassManagementModal } from './components/ClassManagementModal';
 import { SettingsModal, SettingsSection } from './components/SettingsModal';
 import { VaultLockAndAuthModal } from './components/VaultLockAndAuthModal';
-import { isStandaloneClient, isDesktopTauri, getOperatingSystem, isTabletDevice, isSmartphoneDevice } from './utils/platform';
+import { isStandaloneClient, isDesktopTauri, getOperatingSystem, isTabletDevice, isSmartphoneDevice, syncNativeTheme } from './utils/platform';
 
 const LazyAdminModal = !isStandaloneClient()
   ? React.lazy(() => import('./components/admin/AdminModal').then((m) => ({ default: m.AdminModal })))
@@ -369,6 +369,7 @@ export const App: React.FC = () => {
       document.documentElement.classList.remove('dark');
       if (metaTheme) metaTheme.setAttribute('content', '#0d9488');
     }
+    void syncNativeTheme(isDark);
   }, [userSettings.themePreset, userSettings.themeMode, userSettings.darkMode]);
 
   const isCurveEditorVisible =

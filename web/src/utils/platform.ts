@@ -346,5 +346,18 @@ export const openExternalUrl = async (url: string): Promise<void> => {
   }
 };
 
+/**
+ * Synchronizes the native OS window/GTK theme (used on Linux WebKitGTK for native dropdown popups).
+ */
+export const syncNativeTheme = async (dark: boolean): Promise<void> => {
+  if (!isDesktopTauri()) return;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('set_native_theme', { dark });
+  } catch {
+    // Ignore on platforms or test environments without native theme command
+  }
+};
+
 
 

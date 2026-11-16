@@ -159,4 +159,39 @@ describe('InteractiveDemoGuide - Action Execution & Feedback', () => {
     const nextBtn = screen.getByRole('button', { name: /weiter/i });
     expect(nextBtn).toBeDefined();
   });
+
+  it('completes the chapter and closes the guide on the last step instead of chaining chapters', () => {
+    const overviewChapter = GUIDE_CHAPTERS.find((c) => c.id === 'overview_all')!;
+    const lastIndex = overviewChapter.steps.length - 1;
+    const handleClose = vi.fn();
+    const handleChapterChange = vi.fn();
+    const handleChapterCompleted = vi.fn();
+    const handleOpenChapterSelect = vi.fn();
+
+    render(
+      <InteractiveDemoGuide
+        isOpen={true}
+        chapterId="overview_all"
+        stepIndex={lastIndex}
+        onClose={handleClose}
+        onStepChange={vi.fn()}
+        onChapterChange={handleChapterChange}
+        onOpenChapterSelect={handleOpenChapterSelect}
+        setMode={vi.fn()}
+        onChapterCompleted={handleChapterCompleted}
+      />
+    );
+
+    const finishBtn = screen.getByRole('button', { name: /fertig/i });
+    fireEvent.click(finishBtn);
+
+    expect(handleChapterCompleted).toHaveBeenCalledWith('overview_all');
+    expect(handleClose).toHaveBeenCalledTimes(1);
+    expect(handleChapterChange).not.toHaveBeenCalled();
+
+    const themesBtn = screen.getByRole('button', { name: /themen/i });
+    fireEvent.click(themesBtn);
+    expect(handleClose).toHaveBeenCalledTimes(2);
+    expect(handleOpenChapterSelect).toHaveBeenCalledTimes(1);
+  });
 });

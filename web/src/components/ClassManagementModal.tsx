@@ -1545,7 +1545,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
                   <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                     Möchtest du den archivierten Datensatz von <strong>„{studentPendingDelete.name}“</strong> und alle zugehörigen Noten jetzt unwiderruflich aus der Datenbank entfernen?
                   </p>
-                  <div className="flex items-center justify-end gap-2 pt-2">
+                  <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
                     <button
                       onClick={() => setStudentPendingDelete(null)}
                       className="px-3.5 py-2 rounded-xl text-xs font-semibold border"
@@ -1616,7 +1616,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
                 ))}
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
+              <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
                 <button
                   onClick={() => setPendingBulkClean(false)}
                   className="px-3.5 py-2 rounded-xl text-xs font-semibold border"
@@ -1703,7 +1703,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
                   </p>
                 </div>
 
-                <div className="flex items-center justify-end gap-2 pt-2">
+                <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
                   <button
                     type="button"
                     onClick={() => setAssessmentPendingDelete(null)}
@@ -1789,7 +1789,7 @@ export const ClassManagementModal: React.FC<ClassManagementModalProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-end gap-2 pt-2">
+                <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
                   <button
                     type="button"
                     onClick={() => setCategoryPendingDelete(null)}

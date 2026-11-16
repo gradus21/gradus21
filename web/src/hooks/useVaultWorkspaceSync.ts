@@ -44,7 +44,7 @@ import {
   writeVaultToDirectory,
   writeVaultToNativeDirectory,
 } from '../utils/localBackupStorage';
-import { isTauri } from '../utils/platform';
+import { isTauri, syncNativeTheme } from '../utils/platform';
 import { toast } from '../utils/toast';
 import { confirmDialog } from '../utils/dialogPrompt';
 import {
@@ -268,6 +268,7 @@ export function useVaultWorkspaceSync() {
       document.documentElement.classList.remove('dark');
       if (metaTheme) metaTheme.setAttribute('content', '#0d9488');
     }
+    void syncNativeTheme(isDark);
 
     try {
       localStorage.setItem(
@@ -314,6 +315,7 @@ export function useVaultWorkspaceSync() {
         document.documentElement.classList.remove('dark');
         if (meta) meta.setAttribute('content', '#0d9488');
       }
+      void syncNativeTheme(nextDark);
       setUserSettings((prev) => {
         if (getEffectiveThemeMode(prev) !== 'system') return prev;
         if (prev.darkMode === nextDark && prev.themeMode === 'system') return prev;

@@ -4,6 +4,7 @@
 
 :root,
 [data-theme='teal'] {
+  color-scheme: light;
   --bg-canvas: #f8fafa;
   --bg-surface: #ffffff;
   --bg-subtle: #eef5f5;
@@ -90,6 +91,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --bg-canvas: #0b1114;
   --bg-surface: #121b20;
   --bg-subtle: #19262d;
@@ -391,6 +393,38 @@ textarea {
 .touch-target {
   min-width: 44px;
   min-height: 44px;
+}
+
+/* Cross-platform <select> styling (prevents white native WebKitGTK widgets in Dark Mode on Linux) */
+select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-color: var(--bg-subtle);
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+}
+
+.dark select.bg-transparent {
+  background-color: var(--bg-subtle);
+}
+
+select:not(.appearance-none) {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.65rem center;
+  background-size: 0.95rem 0.95rem;
+  padding-right: 2rem !important;
+}
+
+.dark select:not(.appearance-none) {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a3bdc7' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+select option,
+select optgroup {
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
 }
 
 /* Native Tactile Range Sliders for Touch & Desktop */

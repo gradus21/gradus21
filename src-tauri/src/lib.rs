@@ -195,6 +195,21 @@ fn focus_main_window(_app: tauri::AppHandle) {
 }
 
 #[tauri::command]
+fn set_native_theme(_app: tauri::AppHandle, _dark: bool) {
+    #[cfg(desktop)]
+    {
+        if let Some(window) = _app.get_webview_window("main") {
+            let theme = if _dark {
+                tauri::Theme::Dark
+            } else {
+                tauri::Theme::Light
+            };
+            let _ = window.set_theme(Some(theme));
+        }
+    }
+}
+
+#[tauri::command]
 fn trigger_native_haptic(style: Option<String>) {
     #[cfg(target_os = "ios")]
     {
@@ -279,6 +294,7 @@ pub fn run() {
             keyring_delete_secret,
             start_desktop_browser_auth,
             focus_main_window,
+            set_native_theme,
             trigger_native_haptic
         ])
         .run(tauri::generate_context!())

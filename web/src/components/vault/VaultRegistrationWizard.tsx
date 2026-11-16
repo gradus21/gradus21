@@ -223,13 +223,6 @@ export const VaultRegistrationWizard: React.FC<VaultRegistrationWizardProps> = (
           </label>
         </div>
 
-        <div className="p-2.5 rounded-xl border text-[11px] flex items-start gap-2 text-teal-800 dark:text-teal-300 bg-teal-500/10 border-teal-500/20">
-          <Shield className="w-4 h-4 shrink-0 mt-0.5 text-teal-600 dark:text-teal-400" />
-          <span className="leading-snug opacity-90">
-            Zero-Knowledge: Dein Passwort verlässt dein Gerät niemals unverschlüsselt. Im nächsten Schritt sicherst du deinen Notfall-Schlüssel und richtest 2FA ein.
-          </span>
-        </div>
-
         {/* Wichtiger Hinweis zum Speicherort (§ 241 Abs. 2 BGB Belehrung) */}
         <div className="p-3 rounded-xl border text-[11px] leading-snug space-y-1.5 bg-amber-500/10 border-amber-500/25 text-amber-900 dark:text-amber-200">
           <div className="flex items-center gap-1.5 font-bold text-xs text-amber-800 dark:text-amber-300">
@@ -789,17 +782,6 @@ export const VaultRegistrationWizard: React.FC<VaultRegistrationWizardProps> = (
                 </>
               )}
             </div>
-          </div>
-
-          {/* Speicherort & Datensicherheit Belehrung (§ 241 Abs. 2 BGB) */}
-          <div className="p-3.5 rounded-2xl border space-y-1.5 text-[11px] bg-amber-500/10 border-amber-500/25 text-amber-950 dark:text-amber-200">
-            <div className="flex items-center gap-1.5 font-bold text-xs text-amber-800 dark:text-amber-300">
-              <Shield className="w-4 h-4 shrink-0" />
-              <span>Wichtiger Hinweis zum Noten-Speicherort:</span>
-            </div>
-            <p className="leading-relaxed opacity-95">
-              „Gradus21 schützt Ihre Daten durch Zero-Knowledge: Standardmäßig verlassen Ihre Noten niemals dieses Gerät. Bitte sichern Sie Ihren Tresor regelmäßig als .gradus21-Datei oder aktivieren Sie den verschlüsselten Cloud-Sync.“
-            </p>
           </div>
 
           <button

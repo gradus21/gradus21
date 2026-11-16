@@ -51,6 +51,7 @@ import {
   getDefaultNativeBackupDirectory,
 } from '../utils/localBackupStorage';
 import { useLegalConfig, getDisplayDomain } from '../utils/legalConfig';
+import { AvvConfirmationModal } from './AvvConfirmationModal';
 import { checkForAppUpdate, installAppUpdate, UpdateInfo } from '../utils/updater';
 import { APP_VERSION, APP_COMMIT_SHA, APP_GIT_BRANCH, isDevEnvironment } from '../version';
 import {
@@ -2006,93 +2007,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       </div>
 
       {/* AVV Vorhanden Bestätigungs-Modal */}
-      {showAvvConfirmation && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150">
-          <div
-            className="max-w-md w-full rounded-2xl border p-6 shadow-2xl space-y-4 animate-scale-up"
-            style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
-          >
-            <div className="flex items-start gap-3.5">
-              <div className="w-10 h-10 rounded-xl bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0">
-                <FileCheck className="w-5 h-5" />
-              </div>
-              <div className="space-y-1">
-                <h4 className="font-bold text-sm text-slate-900 dark:text-white">
-                  Liegt für deine Schule bereits ein AVV vor?
-                </h4>
-                <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Gemäß Art. 28 DSGVO und den Schuldatenschutzgesetzen ist für die verschlüsselte Cloud-Synchronisation
-                  von Noten- und Schülerdaten ein <strong>Auftragsverarbeitungsvertrag (AVV)</strong> zwischen deiner Schule
-                  und Gradus21 erforderlich.
-                </p>
-              </div>
-            </div>
-
-            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-              Falls deine Schulleitung oder der Datenschutzbeauftragte (bDSB) noch nicht zugestimmt hat, leiten wir dich
-              gerne direkt zum vorgefertigten Mustervertrag weiter.
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowAvvConfirmation(false)}
-                className="px-3.5 py-2 rounded-xl border text-xs font-semibold hover:opacity-80 transition"
-                style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
-              >
-                Abbrechen
-              </button>
-
-              <a
-                href={legalConfig.avv_url || 'https://gradus21.de/avv.html'}
-                target="_blank"
-                rel="noreferrer"
-                className="px-3.5 py-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 text-xs font-bold hover:bg-indigo-500/20 transition flex items-center justify-center gap-1.5"
-                title={`AVV-Mustervertrag online auf ${getDisplayDomain(legalConfig.avv_url)} öffnen`}
-              >
-                <FileText className="w-3.5 h-3.5" />
-                <span>AVV-Muster ({getDisplayDomain(legalConfig.avv_url)})</span>
-                <ExternalLink className="w-3 h-3 opacity-70" />
-              </a>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setShowAvvConfirmation(false);
-                  if (onOpenSchoolGuide) {
-                    onOpenSchoolGuide();
-                  }
-                }}
-                className="px-3.5 py-2 rounded-xl border border-teal-500/30 bg-teal-500/10 text-teal-700 dark:text-teal-300 text-xs font-bold hover:bg-teal-500/20 transition flex items-center justify-center gap-1.5"
-              >
-                <GraduationCap className="w-3.5 h-3.5" />
-                <span>Schul-Leitfaden</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setShowAvvConfirmation(false);
-                  if (serverUrl) {
-                    setServerUrl(serverUrl);
-                  }
-                  if (onToggleCloudSync) {
-                    onToggleCloudSync(true);
-                  } else {
-                    onUpdateSettings((s) => ({ ...s, cloudSyncEnabled: true }));
-                  }
-                  triggerSaved();
-                }}
-                className="px-3.5 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition hover:opacity-95 flex items-center justify-center gap-1.5"
-                style={{ backgroundColor: 'var(--primary-500)' }}
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Ja, AVV liegt vor / genehmigt</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AvvConfirmationModal
+        isOpen={showAvvConfirmation}
+        avvUrl={legalConfig.avv_url}
+        guideLabel="Schul-Leitfaden"
+        zIndexClass="z-[70]"
+        onCancel={() => setShowAvvConfirmation(false)}
+        onOpenGuide={() => {
+          setShowAvvConfirmation(false);
+          if (onOpenSchoolGuide) {
+            onOpenSchoolGuide();
+          }
+        }}
+        onConfirm={() => {
+          setShowAvvConfirmation(false);
+          if (serverUrl) {
+            setServerUrl(serverUrl);
+          }
+          if (onToggleCloudSync) {
+            onToggleCloudSync(true);
+          } else {
+            onUpdateSettings((s) => ({ ...s, cloudSyncEnabled: true }));
+          }
+          triggerSaved();
+        }}
+      />
 
       {/* Cloud Purge & Server Account Deletion Confirmation Modal */}
       {showPurgeConfirmation && (
@@ -2119,7 +2058,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <strong>Wichtig:</strong> Deine lokalen Daten auf diesem Endgerät bleiben zu 100% erhalten. Gradus21 arbeitet danach rein lokal offline weiter.
             </div>
 
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2">
+            <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-end gap-2 pt-2">
               <button
                 type="button"
                 disabled={isPurgingCloud}
@@ -2190,7 +2129,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               Möchtest du die eigene Gewichtungsvorlage <strong>„{templatePendingDelete.name}“</strong> wirklich aus deinen Einstellungen entfernen?
             </p>
 
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setTemplatePendingDelete(null)}

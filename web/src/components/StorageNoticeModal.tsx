@@ -312,7 +312,7 @@ export const StorageNoticeModal: React.FC<StorageNoticeModalProps> = ({
 
         {/* Footer - Fixed & Always Visible */}
         <div
-          className="p-4 sm:p-6 pt-3 border-t flex flex-col sm:flex-row gap-2.5 shrink-0 bg-inherit pb-safe sm:pb-6"
+          className="p-4 sm:p-6 pt-3 border-t flex flex-col sm:flex-row flex-wrap gap-2.5 shrink-0 bg-inherit pb-safe sm:pb-6"
           style={{ borderColor: 'var(--border-subtle)' }}
         >
           {onExportBackup && (

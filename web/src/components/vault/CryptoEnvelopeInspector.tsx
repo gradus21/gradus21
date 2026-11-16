@@ -14,17 +14,15 @@ import {
   Smartphone,
   ChevronDown,
   ChevronUp,
-  FileCheck,
   CheckCircle2,
   AlertTriangle,
-  GraduationCap,
   ExternalLink,
-  FileText,
   Pencil,
 } from 'lucide-react';
 import { ActiveVaultSession, UserPasskeyItem, LocalPasskeyStoreEntry } from './vaultTypes';
 import { LegalModal, LegalTab } from '../LegalModal';
-import { useLegalConfig, getDisplayDomain } from '../../utils/legalConfig';
+import { AvvConfirmationModal } from '../AvvConfirmationModal';
+import { useLegalConfig } from '../../utils/legalConfig';
 import { confirmDialog, promptDialog } from '../../utils/dialogPrompt';
 import {
   checkNativeBiometricAvailability,
@@ -1097,90 +1095,31 @@ export const CryptoEnvelopeInspector: React.FC<CryptoEnvelopeInspectorProps> = (
   const modals = (
     <>
       {/* AVV Bestätigungs-Modal */}
-      {showAvvConfirmation && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150">
-          <div
-            className="max-w-md w-full rounded-2xl border p-6 shadow-2xl space-y-4"
-            style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
-          >
-            <div className="flex items-start gap-3.5">
-              <div className="w-10 h-10 rounded-xl bg-teal-500/10 text-teal-600 flex items-center justify-center shrink-0">
-                <FileCheck className="w-5 h-5" />
-              </div>
-              <div className="space-y-1">
-                <h4 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
-                  Liegt für deine Schule bereits ein AVV vor?
-                </h4>
-                <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                  Gemäß Art. 28 DSGVO ist für die verschlüsselte Cloud-Synchronisation von Noten- und Schülerdaten ein Auftragsverarbeitungsvertrag (AVV) erforderlich.
-                </p>
-              </div>
-            </div>
-
-            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-              Falls deine Schulleitung noch nicht zugestimmt hat, leiten wir dich gerne direkt zur Mustervorlage weiter.
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowAvvConfirmation(false)}
-                className="px-3.5 py-2 rounded-xl border text-xs font-semibold hover:opacity-80 transition"
-                style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
-              >
-                Abbrechen
-              </button>
-
-              <a
-                href={legalConfig.avv_url || 'https://gradus21.de/avv.html'}
-                target="_blank"
-                rel="noreferrer"
-                className="px-3.5 py-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 text-xs font-bold hover:bg-indigo-500/20 transition flex items-center justify-center gap-1.5"
-                title={`AVV-Mustervertrag online auf ${getDisplayDomain(legalConfig.avv_url)} öffnen`}
-              >
-                <FileText className="w-3.5 h-3.5" />
-                <span>AVV-Muster ({getDisplayDomain(legalConfig.avv_url)})</span>
-                <ExternalLink className="w-3 h-3 opacity-70" />
-              </a>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setShowAvvConfirmation(false);
-                  handleOpenLegal('school_guide');
-                }}
-                className="px-3.5 py-2 rounded-xl border border-teal-500/30 bg-teal-500/10 text-teal-700 dark:text-teal-300 text-xs font-bold hover:bg-teal-500/20 transition flex items-center justify-center gap-1.5"
-              >
-                <GraduationCap className="w-3.5 h-3.5" />
-                <span>Leitfaden</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={async () => {
-                  setShowAvvConfirmation(false);
-                  if (onToggleCloudSync) {
-                    setIsTogglingSync(true);
-                    try {
-                      await onToggleCloudSync(true);
-                      setStatusMsg('E2EE Cloud-Synchronisation wurde aktiviert.');
-                    } catch (err: any) {
-                      setErrorMsg('Fehler beim Aktivieren der Synchronisation: ' + String(err));
-                    } finally {
-                      setIsTogglingSync(false);
-                    }
-                  }
-                }}
-                className="px-3.5 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition hover:opacity-95 flex items-center justify-center gap-1.5"
-                style={{ backgroundColor: 'var(--primary-500)' }}
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Ja, AVV liegt vor / genehmigt</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AvvConfirmationModal
+        isOpen={showAvvConfirmation}
+        avvUrl={legalConfig.avv_url}
+        guideLabel="Leitfaden"
+        zIndexClass="z-[70]"
+        onCancel={() => setShowAvvConfirmation(false)}
+        onOpenGuide={() => {
+          setShowAvvConfirmation(false);
+          handleOpenLegal('school_guide');
+        }}
+        onConfirm={async () => {
+          setShowAvvConfirmation(false);
+          if (onToggleCloudSync) {
+            setIsTogglingSync(true);
+            try {
+              await onToggleCloudSync(true);
+              setStatusMsg('E2EE Cloud-Synchronisation wurde aktiviert.');
+            } catch (err: any) {
+              setErrorMsg('Fehler beim Aktivieren der Synchronisation: ' + String(err));
+            } finally {
+              setIsTogglingSync(false);
+            }
+          }
+        }}
+      />
 
       {/* Legal Modal */}
       <LegalModal
