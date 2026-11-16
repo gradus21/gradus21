@@ -1,6 +1,6 @@
-# Architektur- & Review-Handbuch (`v1.2.4`)
+# Architektur- & Review-Handbuch (`v26.11.2`)
 
-Dieses Dokument richtet sich an Entwicklerinnen, Entwickler, Datenschutzbeauftragte und Fachlehrkräfte, die die Version `1.2.4` von **Gradus21** begutachten, testen und weiterentwickeln.
+Dieses Dokument richtet sich an Entwicklerinnen, Entwickler, Datenschutzbeauftragte und Fachlehrkräfte, die die Version `26.11.2` von **Gradus21** begutachten, testen und weiterentwickeln.
 
 ---
 
@@ -18,12 +18,14 @@ sequenceDiagram
     participant Teacher as Lehrkraft (Browser + Rust WASM)
     participant Server as Axum Server (Zero-Knowledge Store)
 
-    Teacher->>Server: GET /api/auth/salt?email=...
-    Server-->>Teacher: kdf_salt, encrypted_dek, recovery_encrypted_dek
-    Note over Teacher: Argon2id(Passwort, kdf_salt) -> MasterKey<br/>HKDF -> KEK + AuthKey<br/>AES-256-GCM Decrypt(encrypted_dek, KEK) -> DEK
-    Teacher->>Server: POST /api/auth/login (auth_key_hash + optional TOTP)
-    Server-->>Teacher: JWT Session Token (user_id)
-    Teacher->>Server: GET /api/envelopes/sync (Bearer JWT)
+    Teacher->>Server: POST /api/auth/salt (email)
+    Note over Server: Unbekannte E-Mail: deterministischer<br/>HMAC-Fake-Salt (kein DEK-Leak, keine Enumeration)
+    Server-->>Teacher: kdf_salt_b64, kdf_params
+    Note over Teacher: Argon2id(Passwort, kdf_salt) -> MasterKey<br/>HKDF -> KEK + AuthKey
+    Teacher->>Server: POST /api/auth/login (email, auth_key_b64 + optional TOTP)
+    Server-->>Teacher: JWT Session Token (user_id, token_version) + encrypted_dek
+    Note over Teacher: AES-256-GCM Decrypt(encrypted_dek, KEK) -> DEK
+    Teacher->>Server: GET /api/envelopes (Bearer JWT)
     Server-->>Teacher: Nur Envelopes mit owner_user_id == JWT.sub
     Note over Teacher: WASM entschlüsselt Envelopes mit DEK<br/>& berechnet alle Durchschnitte live in WebAssembly
 ```
@@ -129,7 +131,7 @@ Gradus21 setzt das Prinzip der **Datensparsamkeit (Art. 5 Abs. 1 lit. c DSGVO)**
 - **Stille Sitzungserneuerung**:
   - Läuft ein JWT-Sitzungstoken nach Inaktivität ab (HTTP 401), erneuert der Client die Sitzung transparent im Hintergrund über den aus dem Master Key abgeleiteten `AuthKey`, ohne den Lehrenden durch Anmeldedialoge aus dem Arbeitsfluss zu reißen.
 
-### 5.6 Mandantentrennung & Kollisionsfreie Envelope-Persistenz (`v1.2.1`)
+### 5.6 Mandantentrennung & Kollisionsfreie Envelope-Persistenz (`v26.11.2`)
 - **Zusammengesetzter Envelope-Schlüssel (`owner_user_id:envelope_id`)**:
   - Da Standard-Demoklassen und Singleton-Settings (`00000000-0000-4000-8000-000000000002`) benutzerübergreifend dieselbe kanonische UUID besitzen, indiziert das Backend alle Speicherstrukturen (In-Memory, Disk-JSON und PostgreSQL) strikt über `tenant_env_key(&owner_id, &envelope_id)`.
   - In PostgreSQL sichert ein zusammengesetzter Primärschlüssel `PRIMARY KEY (owner_user_id, id)` mit `ON CONFLICT (owner_user_id, id) DO UPDATE` die atomare Mandantentrennung ab.
@@ -139,7 +141,7 @@ Gradus21 setzt das Prinzip der **Datensparsamkeit (Art. 5 Abs. 1 lit. c DSGVO)**
 
 ---
 
-## 6. Checkliste für das Audit & Review (`v1.2.1`)
+## 6. Checkliste für das Audit & Review (`v26.11.2`)
 
 ### A. Fachlich-Pädagogisches Review
 - [x] **Rundungsregeln je Bundesland / Schulordnung**: Exakte Weiterberechnung via IEEE-754 `f64`, Rundung bei der Anzeige auf `0.1 %` bzw. `0.01` Notenwert.
@@ -147,15 +149,18 @@ Gradus21 setzt das Prinzip der **Datensparsamkeit (Art. 5 Abs. 1 lit. c DSGVO)**
 - [x] **Halbjahres-Verrechnung (`Gesamtjahr`)**: Umschaltbare Halbjahres-Filter und gemeinsame Kategorien-Verrechnung.
 
 ### B. Security- & Datenschutz-Review
-- [x] **Mandanten-Isolation & Kollisionsschutz (`v1.2.1`)**: Keying nach `owner_user_id:envelope_id` schließt serverweite ID-Kollisionen bei Demoklassen und Singleton-Settings vollständig aus.
-- [x] **Transparenz & Nutzungsbedingungen (`v1.2.1`)**: Modale Dialoge für Nutzungsbedingungen und lokale Speicherhinweise (IndexedDB/localStorage).
+- [x] **Mandanten-Isolation & Kollisionsschutz (`v26.11.2`)**: Keying nach `owner_user_id:envelope_id` schließt serverweite ID-Kollisionen bei Demoklassen und Singleton-Settings vollständig aus.
+- [x] **Transparenz & Nutzungsbedingungen (`v26.11.2`)**: Modale Dialoge für Nutzungsbedingungen und lokale Speicherhinweise (IndexedDB/localStorage).
+- [x] **Zero-Knowledge Salt- & Recovery-Härtung (`#51` / H-3)**: `POST /api/auth/salt` liefert keine verschlüsselten Schlüssel (`encrypted_dek`) mehr und antwortet für unbekannte Adressen ununterscheidbar mit deterministischem HMAC-Fake-Salt; `POST /api/auth/recover/init` erfordert vor Herausgabe von `recovery_encrypted_dek` den `recovery_auth_key`-Nachweis.
+- [x] **JWT-Revocation, Step-up & TOTP-Replay-Schutz (`#52` / M-1, `#57` / N-1)**: `token_version` widerruft bestehende JWTs bei Passwort-Recovery, 2FA- und Passkey-Änderungen; Passkey-Registrierung und Recovery-Key-Rotation erzwingen Step-up-Authentifizierung; `last_used_totp_step` wird persistent in PostgreSQL gespeichert.
+- [x] **Passkey-Authentifizierung als starker Faktor (`#57` / N-2)**: WebAuthn-Passkeys kombinieren Besitzfaktor (kryptografischer Private Key) und Benutzerverifikation (`uv`: Biometrie/Geräte-PIN) nach FIDO2 / NIST SP 800-63B AAL2 und benötigen beim Passkey-Login keinen zusätzlichen TOTP-Prompt.
 - [x] **PostgreSQL-Persistenz & Atomares Backup**: `DATABASE_URL` PostgreSQL-Anbindung und transaktionales JSON-Write-and-Rename.
 - [x] **Granulare E2EE-Envelopes & OCC**: Klassen-Granularität und Versionsprüfung mit `409 Conflict`-Handling.
 - [x] **Cloud-Sync Opt-In & Server-Purge**: Standardmäßig rein lokaler Betrieb, Server-Datenlöschung via `DELETE /api/envelopes`.
-- [x] **Art. 17 DSGVO Account-Selbstlöschung**: Vollständige Server-Löschung aller Benutzerdaten via `DELETE /api/users/me`.
-- [x] **E-Mail-Verifikationsschutz**: Kryptografischer Constant-Time-Vergleich und Brute-Force Rate Limiting.
+- [x] **Art. 17 DSGVO Account-Selbstlöschung**: Vollständige Server-Löschung aller Benutzerdaten via `DELETE /api/users/me` (mit Step-up-Authentifizierung).
+- [x] **E-Mail-Verifikationsschutz**: Gehashte Code-Speicherung (`SHA-256`), Constant-Time-Vergleich, Verdrängung älterer unbestätigter Einträge und IP-/Konto-Rate-Limiting (`X-Forwarded-For` / `TRUST_PROXY_HEADERS`).
 - [x] **Multi-Device Real-Time Sync & Stille Erneuerung**: Tab-Focus-Sync und transparente 401-Re-Auth ohne Klartext-Passwortspeicherung.
 - [x] **Lokale Schullaufwerk-Spiegelung**: File System Access API & IndexedDB Handle Persistence.
 - [x] **PWA & Offline-Resilienz**: Service Worker Caching und vollständig netzwerkunabhängige Entsperrung.
 - [x] **Passkey PRF Hardware-Verschlüsselung**: W3C WebAuthn Level 3 PRF Extension und lokaler Fallback.
-- [x] **Multi-Tenancy & Rate Limiting**: Strikte Mandantentrennung und Brute-Force-Schutz auf `/api/auth/*`.
+- [x] **Multi-Tenancy & Rate Limiting**: Strikte Mandantentrennung und kombiniertes IP-/Konto-Rate-Limiting auf `/api/auth/*`.

@@ -33,7 +33,7 @@ Viele Lehrkräfte verwalten ihre Klassenlisten, Punktetabellen, Gewichtungen (`5
 
 ---
 
-## ✨ Funktionsumfang in Version `1.2.1`
+## ✨ Funktionsumfang in Version `26.11.2`
 
 ### 1. iPad-, Tablet- & Smartphone-Optimierung
 - **Adaptive Touch-Targets (WCAG & Apple HIG Konformität)**:
@@ -107,7 +107,7 @@ Viele Lehrkräfte verwalten ihre Klassenlisten, Punktetabellen, Gewichtungen (`5
 
 ```text
 gradus21/
-├── Cargo.toml                        # Rust Workspace (v1.2.1)
+├── Cargo.toml                        # Rust Workspace (v26.11.2)
 ├── crates/
 │   ├── gradus21-core/                # Shared Rust Library + WebAssembly Bindings
 │   │   └── src/
@@ -118,28 +118,37 @@ gradus21/
 │   └── gradus21-server/              # Rust Axum REST API & Zero-Knowledge Sync Backend
 │       └── src/
 │           ├── admin.rs              # Administration, Global Templates, Mail-System, Snapshots
-│           └── main.rs               # Auth, TOTP 2FA, Passkey, Recovery, Tenant-Isolated Envelopes
+│           ├── main.rs               # Server-Bootstrap, Config-Validierung, CORS
+│           ├── middleware.rs         # JWT-Auth (token_version), Argon2id-Key-Hash, IP-/Konto-Rate-Limiting
+│           ├── state.rs              # AppState, PostgreSQL-Schema/Sync & Disk-Vault-Persistenz
+│           ├── totp.rs               # TOTP 2FA (RFC 6238) & persistenter Replay-Schutz
+│           ├── tests.rs              # Backend- & Security-Testsuite
+│           └── routes/
+│               ├── mod.rs            # Axum Router & Endpoint-Verdrahtung
+│               ├── auth.rs           # Auth, E2EE-Salt/Login, Recovery, TOTP, E-Mail-Verify, Desktop-Relay
+│               ├── envelopes.rs      # Tenant-isolierte Encrypted Envelopes (OCC) & Preferences
+│               └── passkey.rs        # WebAuthn / FIDO2 Passkey-Registrierung & -Login
+├── src-tauri/                        # Tauri v2 Native Desktop & Mobile App (Windows, macOS, Linux, iOS, Android)
+│   └── src/
+│       ├── main.rs / lib.rs          # Tauri Runtime & Plugin-Setup (HTTP, Biometric, Store, Deep-Link)
+│       ├── browser_auth.rs           # E2EE-verschlüsselter Desktop-Browser-Auth-Relay
+│       ├── keyring_auth.rs           # OS-Keyring-Integration (macOS Keychain, Secret Service, DPAPI)
+│       └── backup_storage.rs         # Lokale Backup-Dateispeicherung
 ├── migrations/
-│   └── 001_initial_schema.sql        # PostgreSQL E2EE Envelope Schema
+│   ├── 001_initial_schema.sql        # PostgreSQL E2EE Basis-Schema (users, grading_templates, encrypted_envelopes)
+│   ├── 002_admin_and_system_settings.sql
+│   ├── 003_user_passkeys.sql
+│   ├── 004_email_verification.sql
+│   ├── 005_encrypted_envelopes_composite_pk.sql
+│   └── 006_security_hardening_token_version_and_totp.sql
 ├── web/                              # React 18 + TypeScript + Tailwind CSS + Vite Frontend
 │   └── src/
 │       ├── App.tsx                   # Hauptanwendung (4 Arbeitsmodi + Live-WASM-Integration)
-│       ├── components/
-│       │   ├── ClassManagementModal.tsx
-│       │   ├── ClassSetupAndExcelWizard.tsx
-│       │   ├── ExportAndPrintHelpers.ts
-│       │   ├── FlowRibbonLogo.tsx
-│       │   ├── SettingsModal.tsx
-│       │   ├── VaultLockAndAuthModal.tsx
-│       │   └── admin/
-│       │       ├── AdminModal.tsx
-│       │       ├── BackupConfigTab.tsx
-│       │       ├── CentralTemplatesTab.tsx
-│       │       ├── MailTemplatesTab.tsx
-│       │       ├── SmtpConfigTab.tsx
-│       │       └── UserManagementTab.tsx
-│       ├── data/
-│       │   └── demoClasses.ts
+│       ├── components/               # Modale Dialoge (DialogOverlay, Auth, Sync, Einstellungen, Export) & admin/
+│       ├── hooks/                    # Workspace-Sync, Berechnungen, Keyboard-Shortcuts, History-Navigation, Guide
+│       ├── views/                    # Gesamt-Matrix, Speed-Grading, Schüler:innen-360°-Akte, Konfigurator
+│       ├── utils/                    # API-Client, WASM-Loader, Desktop-/Linux-Auth, Lokales Backup, Toast/Dialogs
+│       ├── data/                     # Demoklassen & Vorlagen
 │       └── wasm-pkg/                 # Kompilierte Rust->WASM Artefakte (gradus21-core)
 └── docs/
     └── ARCHITECTURE_AND_REVIEW_GUIDE.md
@@ -225,7 +234,7 @@ docker compose up -d
 
 ---
 
-## 📋 Release- & Review-Fokus (`v1.2.1`)
+## 📋 Release- & Review-Fokus (`v26.11.2`)
 
 Eine detaillierte technische Dokumentation aller Architekturentscheidungen, Berechnungsformeln und offenen Prüfpunkte für das Code- und Security-Review befindet sich in:
 👉 **[`docs/ARCHITECTURE_AND_REVIEW_GUIDE.md`](docs/ARCHITECTURE_AND_REVIEW_GUIDE.md)**

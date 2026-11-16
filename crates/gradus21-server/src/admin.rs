@@ -439,7 +439,10 @@ pub fn perform_backup_snapshot(state: &AppState) -> Result<BackupEntry, String> 
             "global_templates": &*templates,
         });
 
-        serde_json::to_string_pretty(&snapshot).map_err(|e| e.to_string())?
+        serde_json::to_string_pretty(&snapshot).map_err(|e| {
+            tracing::error!("Fehler beim Serialisieren des Backup-Snapshots: {}", e);
+            "Backup-Snapshot konnte nicht erstellt werden.".to_string()
+        })?
     };
 
     let backup_dir = get_backup_dir(state);
@@ -458,11 +461,13 @@ pub fn perform_backup_snapshot(state: &AppState) -> Result<BackupEntry, String> 
     let tmp_path = target_path.with_extension(format!("tmp.{}", uuid::Uuid::new_v4()));
     if let Err(e) = fs::write(&tmp_path, content.as_bytes()) {
         let _ = fs::remove_file(&tmp_path);
-        return Err(format!("Dateischreibfehler: {}", e));
+        tracing::error!("Dateischreibfehler beim Backup-Snapshot ({:?}): {}", tmp_path, e);
+        return Err("Backup-Snapshot konnte nicht erstellt werden.".into());
     }
     if let Err(e) = fs::rename(&tmp_path, &target_path) {
         let _ = fs::remove_file(&tmp_path);
-        return Err(format!("Dateiumbenennungsfehler: {}", e));
+        tracing::error!("Dateiumbenennungsfehler beim Backup-Snapshot ({:?}): {}", target_path, e);
+        return Err("Backup-Snapshot konnte nicht erstellt werden.".into());
     }
 
     let size_bytes = content.len() as u64;
@@ -666,8 +671,13 @@ pub async fn restore_backup(
     ))?;
 
     let restored_users: std::collections::HashMap<Uuid, UserRecord> =
-        serde_json::from_value(users_val.clone())
-            .map_err(|e| (StatusCode::BAD_REQUEST, format!("Fehler beim Parsen der Benutzer:innen: {}", e)))?;
+        serde_json::from_value(users_val.clone()).map_err(|e| {
+            tracing::warn!("Fehler beim Parsen der Backup-Benutzerdaten: {}", e);
+            (
+                StatusCode::BAD_REQUEST,
+                "Ungültiges Backup-Format: Benutzerdaten konnten nicht gelesen werden.".into(),
+            )
+        })?;
 
     // Invariant I-6: Never allow restoring a backup that leaves the instance without an active admin.
     if !restored_users.values().any(|u| u.is_admin && u.is_active) {
@@ -678,8 +688,13 @@ pub async fn restore_backup(
     }
 
     let raw_envelopes: std::collections::HashMap<String, EncryptedEnvelopeRecord> =
-        serde_json::from_value(envelopes_val.clone())
-            .map_err(|e| (StatusCode::BAD_REQUEST, format!("Fehler beim Parsen der Envelopes: {}", e)))?;
+        serde_json::from_value(envelopes_val.clone()).map_err(|e| {
+            tracing::warn!("Fehler beim Parsen der Backup-Envelopes: {}", e);
+            (
+                StatusCode::BAD_REQUEST,
+                "Ungültiges Backup-Format: Envelopes konnten nicht gelesen werden.".into(),
+            )
+        })?;
 
     let mut restored_envelopes: std::collections::HashMap<String, EncryptedEnvelopeRecord> = std::collections::HashMap::new();
     for (_, env) in raw_envelopes {
@@ -715,23 +730,31 @@ pub async fn restore_backup(
 
     // 1. Sync to PostgreSQL inside a single atomic transaction first if connected (Invariant I-6)
     if let Some(pool) = &state.db {
+        let map_db_err = |context: &str, err: sqlx::Error| -> (StatusCode, String) {
+            tracing::error!("Database error in restore_backup ({}): {}", context, err);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Interner Datenbankfehler beim Wiederherstellen des Backups.".into(),
+            )
+        };
+
         let mut tx = pool
             .begin()
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB Transaktionsfehler: {}", e)))?;
+            .map_err(|e| map_db_err("begin transaction", e))?;
 
         sqlx::query("DELETE FROM encrypted_envelopes")
             .execute(&mut *tx)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Löschen alter Envelopes: {}", e)))?;
+            .map_err(|e| map_db_err("delete encrypted_envelopes", e))?;
         sqlx::query("DELETE FROM user_passkeys")
             .execute(&mut *tx)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Löschen alter Passkeys: {}", e)))?;
+            .map_err(|e| map_db_err("delete user_passkeys", e))?;
         sqlx::query("DELETE FROM users")
             .execute(&mut *tx)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Löschen alter Benutzer: {}", e)))?;
+            .map_err(|e| map_db_err("delete users", e))?;
 
         for user in restored_users.values() {
             let kdf_params_json = serde_json::to_value(&user.kdf_params).unwrap_or_default();
@@ -773,7 +796,7 @@ pub async fn restore_backup(
             .bind(user.last_used_totp_step)
             .execute(&mut *tx)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Einfügen von Benutzer {}: {}", user.id, e)))?;
+            .map_err(|e| map_db_err(&format!("insert user {}", user.id), e))?;
         }
 
         for pk in valid_passkeys.values() {
@@ -794,7 +817,7 @@ pub async fn restore_backup(
             .bind(pk.last_used_at)
             .execute(&mut *tx)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Einfügen von Passkey {}: {}", pk.id, e)))?;
+            .map_err(|e| map_db_err(&format!("insert passkey {}", pk.id), e))?;
         }
 
         for env in restored_envelopes.values() {
@@ -813,14 +836,14 @@ pub async fn restore_backup(
             .bind(env.updated_at)
             .execute(&mut *tx)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Einfügen von Envelope {}: {}", env.id, e)))?;
+            .map_err(|e| map_db_err(&format!("insert envelope {}", env.id), e))?;
         }
 
         if let Some(ref settings) = parsed_settings {
             sqlx::query("DELETE FROM system_settings")
                 .execute(&mut *tx)
                 .await
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Löschen alter Settings: {}", e)))?;
+                .map_err(|e| map_db_err("delete system_settings", e))?;
             for (k, v) in settings {
                 sqlx::query(
                     r#"INSERT INTO system_settings (key, value, updated_at)
@@ -831,7 +854,7 @@ pub async fn restore_backup(
                 .bind(v)
                 .execute(&mut *tx)
                 .await
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Einfügen von Setting {}: {}", k, e)))?;
+                .map_err(|e| map_db_err(&format!("insert setting {}", k), e))?;
             }
         }
 
@@ -839,7 +862,7 @@ pub async fn restore_backup(
             sqlx::query("DELETE FROM grading_templates WHERE owner_user_id IS NULL")
                 .execute(&mut *tx)
                 .await
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Löschen alter Vorlagen: {}", e)))?;
+                .map_err(|e| map_db_err("delete global grading_templates", e))?;
             for tpl in templates.values() {
                 let payload_str = serde_json::to_string(tpl).unwrap_or_default();
                 sqlx::query(
@@ -853,13 +876,13 @@ pub async fn restore_backup(
                 .bind(tpl.updated_at)
                 .execute(&mut *tx)
                 .await
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Einfügen von Vorlage {}: {}", tpl.id, e)))?;
+                .map_err(|e| map_db_err(&format!("insert template {}", tpl.id), e))?;
             }
         }
 
         tx.commit()
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Fehler beim Commit der Transaktion: {}", e)))?;
+            .map_err(|e| map_db_err("commit transaction", e))?;
     }
 
     // 2. Wipe and replace memory only AFTER database transaction commits successfully
