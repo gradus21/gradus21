@@ -33,7 +33,7 @@ import {
 import {
   CategoryConfig,
   ClassroomSubjectDataset,
-  DRAIS_GMS_LEVEL_THRESHOLDS,
+  GMS_LEVEL_THRESHOLDS,
   GRADING_CURVE_PRESETS,
   GradingScaleId,
   GradeThreshold,
@@ -175,7 +175,7 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
     updateSubjectConfig((ds) => {
       const current = ds.config.level_custom_thresholds
         ? JSON.parse(JSON.stringify(ds.config.level_custom_thresholds))
-        : JSON.parse(JSON.stringify(DRAIS_GMS_LEVEL_THRESHOLDS));
+        : JSON.parse(JSON.stringify(GMS_LEVEL_THRESHOLDS));
 
       const list: GradeThreshold[] = current[level] || [];
       const item = list.find((t: GradeThreshold) => t.display_label === label);
@@ -1620,10 +1620,10 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
               {[
                 {
-                  title: 'Drais-GMS Niveauschlüssel',
+                  title: 'GMS Niveauschlüssel',
                   desc: 'Gemeinschaftsschule mit separatem Notenschlüssel pro Niveau (GMS Raster)',
                   offsets: { G: 0, M: 0, E: 0 },
-                  levelTables: DRAIS_GMS_LEVEL_THRESHOLDS,
+                  levelTables: GMS_LEVEL_THRESHOLDS,
                   enable: true,
                 },
                 {
@@ -1735,16 +1735,16 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
                             ...ds.config,
                             enable_student_levels: true,
                             level_threshold_offsets: { G: 0, M: 0, E: 0 },
-                            level_custom_thresholds: JSON.parse(JSON.stringify(DRAIS_GMS_LEVEL_THRESHOLDS)),
+                            level_custom_thresholds: JSON.parse(JSON.stringify(GMS_LEVEL_THRESHOLDS)),
                           },
                         }))
                       }
                       className="px-2.5 py-1.5 rounded-lg border text-xs font-semibold bg-white dark:bg-slate-900 shadow-sm flex items-center gap-1 hover:border-teal-500 transition"
                       style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
-                      title="Setzt alle Schwellen auf das Drais-GMS Referenz-Raster zurück"
+                      title="Setzt alle Schwellen auf das GMS Referenz-Raster zurück"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
-                      <span>Drais-GMS Vorlage laden</span>
+                      <span>GMS Vorlage laden</span>
                     </button>
                     <button
                       type="button"
@@ -1965,7 +1965,7 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
                       Eigene Niveautabelle zeilenweise anpassen?
                     </span>
                     <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                      Definiere für G, M und E individuelle Prozentgrenzen für alle 21 Notenstufen (wie bei Drais-GMS).
+                      Definiere für G, M und E individuelle Prozentgrenzen für alle 21 Notenstufen (GMS Niveauschlüssel).
                     </p>
                   </div>
                   <button
@@ -1977,7 +1977,7 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
                           ...ds.config,
                           enable_student_levels: true,
                           level_threshold_offsets: { G: 0, M: 0, E: 0 },
-                          level_custom_thresholds: JSON.parse(JSON.stringify(DRAIS_GMS_LEVEL_THRESHOLDS)),
+                          level_custom_thresholds: JSON.parse(JSON.stringify(GMS_LEVEL_THRESHOLDS)),
                         },
                       }))
                     }

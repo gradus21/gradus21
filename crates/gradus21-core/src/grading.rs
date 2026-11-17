@@ -270,7 +270,7 @@ pub fn percent_to_grade(
 ) -> GradeThreshold {
     let clean_percent = if percent.is_finite() { percent } else { 0.0 };
 
-    // 1. Generic Level-Specific Threshold Table Check (e.g. Drais-GMS Multi-Niveau)
+    // 1. Generic Level-Specific Threshold Table Check (e.g. GMS Multi-Niveau)
     if config.enable_student_levels {
         if let Some(lvl) = student_level {
             if let Some(level_map) = &config.level_custom_thresholds {

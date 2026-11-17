@@ -5,7 +5,7 @@ import {
   CategoryConfig,
   ClassroomSubjectDataset,
   CustomWeightingTemplate,
-  DRAIS_GMS_LEVEL_THRESHOLDS,
+  GMS_LEVEL_THRESHOLDS,
   GradeEntry,
   GradingScaleId,
   StudentProfile,
@@ -379,8 +379,8 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
         badge: 'standard',
       },
       {
-        id: 'gms_drais',
-        title: 'Drais-GMS (Gemeinschaftsschule)',
+        id: 'gms_standard',
+        title: 'GMS Niveauschlüssel (Gemeinschaftsschule)',
         desc: '50% LNW · 30% Mündl · 20% Tests + Matrix-Schlüssel (G/M/E)',
         categories: [
           { id: 'cat_lnw', name: 'Große LNW (Klassenarbeiten)', short_code: 'LNW', weight: 0.5, drop_lowest_count: 0 },
@@ -389,7 +389,7 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
         ],
         weights: [0.5, 0.3, 0.2],
         scale_id: 'de_classic_1_to_6' as GradingScaleId,
-        level_custom_thresholds: DRAIS_GMS_LEVEL_THRESHOLDS,
+        level_custom_thresholds: GMS_LEVEL_THRESHOLDS,
         badge: 'standard',
       },
       {

@@ -260,7 +260,7 @@ describe('GradingConfiguratorView UI & Ergonomics', () => {
 
     expect(screen.getByText(/Detaillierte Niveauschwellen-Tabelle aktiv/i)).toBeInTheDocument();
     expect(screen.getByText(/Grundlegendes Niveau \(ab %\)/i)).toBeInTheDocument();
-    expect(screen.getByText(/Drais-GMS Vorlage laden/i)).toBeInTheDocument();
+    expect(screen.getByText(/GMS Vorlage laden/i)).toBeInTheDocument();
 
     // Verify inputs are rendered
     const gInputs = screen.getAllByDisplayValue('48');

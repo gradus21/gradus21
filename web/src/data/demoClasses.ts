@@ -334,7 +334,7 @@ export const DEFAULT_THRESHOLDS_DE_DECIMAL: GradeThreshold[] = (() => {
   return list.sort((a, b) => b.min_percent - a.min_percent);
 })();
 
-export const DRAIS_GMS_LEVEL_THRESHOLDS: Record<'G' | 'M' | 'E', GradeThreshold[]> = {
+export const GMS_LEVEL_THRESHOLDS: Record<'G' | 'M' | 'E', GradeThreshold[]> = {
   E: [
     { min_percent: 98.0, display_label: '1', numeric_value: 1.0, semantic_tier: 1 },
     { min_percent: 95.0, display_label: '1-', numeric_value: 1.25, semantic_tier: 1 },
@@ -406,6 +406,8 @@ export const DRAIS_GMS_LEVEL_THRESHOLDS: Record<'G' | 'M' | 'E', GradeThreshold[
   ],
 };
 
+export const DRAIS_GMS_LEVEL_THRESHOLDS = GMS_LEVEL_THRESHOLDS;
+
 export function getDefaultThresholds(scaleId: GradingScaleId = 'de_classic_1_to_6'): GradeThreshold[] {
   switch (scaleId) {
     case 'de_decimal_1_to_6':
@@ -427,7 +429,7 @@ export function percentToGradeThreshold(
 ): GradeThreshold {
   const cleanPercent = Number.isFinite(percent) ? percent : 0;
 
-  // 1. Generic level-specific threshold tables (e.g. Drais-GMS Multi-Niveau)
+  // 1. Generic level-specific threshold tables (e.g. GMS Multi-Niveau)
   if (config?.enable_student_levels && studentLevel && config.level_custom_thresholds?.[studentLevel]?.length) {
     const lvlThresholds = [...config.level_custom_thresholds[studentLevel]].sort(
       (a, b) => b.min_percent - a.min_percent

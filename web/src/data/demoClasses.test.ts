@@ -6,7 +6,7 @@ import {
   percentToGradeThreshold,
   gradeToPercent,
   formatGradeDisplayLabel,
-  DRAIS_GMS_LEVEL_THRESHOLDS,
+  GMS_LEVEL_THRESHOLDS,
   SubjectGradingConfig,
 } from './demoClasses';
 
@@ -110,14 +110,14 @@ describe('demoClasses - percentToGradeThreshold and gradeToPercent', () => {
     expect(formatGradeDisplayLabel(2, config)).toBe('2,0');
   });
 
-  it('supports generic level-specific matrix thresholds (DRAIS_GMS_LEVEL_THRESHOLDS)', () => {
+  it('supports generic level-specific matrix thresholds (GMS_LEVEL_THRESHOLDS)', () => {
     const config: SubjectGradingConfig = {
       scale_id: 'de_classic_1_to_6',
       weighting_mode: 'category_buckets',
       scale_empty_categories: true,
       enable_student_levels: true,
       level_threshold_offsets: {},
-      level_custom_thresholds: DRAIS_GMS_LEVEL_THRESHOLDS,
+      level_custom_thresholds: GMS_LEVEL_THRESHOLDS,
     };
 
     // When all 3 students achieve 50% on the joint GMS test:

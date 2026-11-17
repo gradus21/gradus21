@@ -962,7 +962,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generic_level_custom_thresholds_gms_drais() {
+    fn test_generic_level_custom_thresholds_gms() {
         let mut level_tables = HashMap::new();
 
         // Level E thresholds (GMS % scale)
