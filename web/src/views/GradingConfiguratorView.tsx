@@ -4,7 +4,10 @@ import {
   ArrowRight,
   BookmarkPlus,
   Check,
+  ChevronDown,
+  ChevronUp,
   Divide,
+  Edit3,
   FlaskConical,
   Globe,
   GraduationCap,
@@ -20,6 +23,7 @@ import {
   Settings2,
   Sliders,
   Sparkles,
+  Table,
   Target,
   Trash2,
   Unlock,
@@ -135,6 +139,95 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
     return initial;
   });
   const [sandboxLevel, setSandboxLevel] = useState<'G' | 'M' | 'E'>('M');
+
+  // Threshold Table Editor State
+  const [showManualFineTable, setShowManualFineTable] = useState(false);
+  const [levelTableFilter, setLevelTableFilter] = useState<'all' | 'G' | 'M' | 'E'>('all');
+
+  const LEVEL_GRADE_ROWS = useMemo(
+    () => [
+      { label: '1', numeric: 1.0, tier: 1 },
+      { label: '1-', numeric: 1.25, tier: 1 },
+      { label: '1/2', numeric: 1.5, tier: 1 },
+      { label: '2+', numeric: 1.75, tier: 2 },
+      { label: '2', numeric: 2.0, tier: 2 },
+      { label: '2-', numeric: 2.25, tier: 2 },
+      { label: '2/3', numeric: 2.5, tier: 2 },
+      { label: '3+', numeric: 2.75, tier: 3 },
+      { label: '3', numeric: 3.0, tier: 3 },
+      { label: '3-', numeric: 3.25, tier: 3 },
+      { label: '3/4', numeric: 3.5, tier: 3 },
+      { label: '4+', numeric: 3.75, tier: 4 },
+      { label: '4', numeric: 4.0, tier: 4 },
+      { label: '4-', numeric: 4.25, tier: 4 },
+      { label: '4/5', numeric: 4.5, tier: 4 },
+      { label: '5+', numeric: 4.75, tier: 5 },
+      { label: '5', numeric: 5.0, tier: 5 },
+      { label: '5-', numeric: 5.25, tier: 5 },
+      { label: '5/6', numeric: 5.5, tier: 5 },
+      { label: '6+', numeric: 5.75, tier: 6 },
+      { label: '6', numeric: 6.0, tier: 6 },
+    ],
+    []
+  );
+
+  const handleUpdateLevelThreshold = (level: 'G' | 'M' | 'E', label: string, newPercent: number) => {
+    updateSubjectConfig((ds) => {
+      const current = ds.config.level_custom_thresholds
+        ? JSON.parse(JSON.stringify(ds.config.level_custom_thresholds))
+        : JSON.parse(JSON.stringify(DRAIS_GMS_LEVEL_THRESHOLDS));
+
+      const list: GradeThreshold[] = current[level] || [];
+      const item = list.find((t: GradeThreshold) => t.display_label === label);
+      if (item) {
+        item.min_percent = Math.max(0, Math.min(100, Math.round(newPercent * 10) / 10));
+      }
+      current[level] = list;
+
+      return {
+        ...ds,
+        config: {
+          ...ds.config,
+          enable_student_levels: true,
+          level_custom_thresholds: current,
+        },
+      };
+    });
+  };
+
+  const handleUpdateStandardThreshold = (label: string, newPercent: number) => {
+    updateSubjectConfig((ds) => {
+      const current = ds.config.custom_thresholds
+        ? [...ds.config.custom_thresholds]
+        : [...activeFineThresholds];
+
+      const idx = current.findIndex((t) => t.display_label === label);
+      if (idx >= 0) {
+        current[idx] = {
+          ...current[idx],
+          min_percent: Math.max(0, Math.min(100, Math.round(newPercent * 10) / 10)),
+        };
+      }
+
+      return {
+        ...ds,
+        config: {
+          ...ds.config,
+          custom_thresholds: current,
+        },
+      };
+    });
+  };
+
+  const handleResetStandardThresholds = () => {
+    updateSubjectConfig((ds) => ({
+      ...ds,
+      config: {
+        ...ds.config,
+        custom_thresholds: null,
+      },
+    }));
+  };
 
   // Total weight normalization
   const totalCatWeight = activeDataset.categories.reduce(
@@ -1373,36 +1466,122 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
               </div>
             </div>
 
-            {/* Fine Thresholds (16 Tiles) */}
-            <div className="space-y-1.5">
-              <div className="text-[11px] font-bold" style={{ color: 'var(--text-secondary)' }}>
-                Resultierende Feinstufen-Schwellen (Standard / M-Niveau inkl. +/- Tendenzen):
+            {/* Fine Thresholds (16 Tiles & Manual Editor) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="text-[11px] font-bold" style={{ color: 'var(--text-secondary)' }}>
+                  Resultierende Feinstufen-Schwellen (Standard / M-Niveau inkl. +/- Tendenzen):
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowManualFineTable((v) => !v)}
+                  className="text-xs font-semibold flex items-center gap-1 text-teal-600 dark:text-teal-400 hover:underline"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span>{showManualFineTable ? 'Tabelle schließen' : 'Schwellenwerte manuell bearbeiten'}</span>
+                  {showManualFineTable ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
               </div>
-              <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5">
-                {activeFineThresholds.map((t) => {
-                  const style = TIER_BADGE_STYLES[t.semantic_tier] || TIER_BADGE_STYLES[3];
-                  return (
-                    <div
-                      key={t.display_label}
-                      className="p-1.5 rounded-xl border text-center transition hover:scale-105"
-                      style={{
-                        backgroundColor: 'var(--bg-subtle)',
-                        borderColor: 'var(--border-subtle)',
-                      }}
-                    >
+
+              {/* Status Banner if custom_thresholds is active */}
+              {activeDataset.config.custom_thresholds && (
+                <div
+                  className="p-2.5 rounded-xl border flex items-center justify-between text-xs"
+                  style={{ backgroundColor: 'var(--primary-soft)', borderColor: 'var(--primary-500)' }}
+                >
+                  <span className="font-semibold text-teal-700 dark:text-teal-300">
+                    ✓ Manuell angepasste Schwellenwert-Tabelle aktiv (überschreibt Standardkurve)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleResetStandardThresholds}
+                    className="px-2.5 py-1 rounded-lg border text-[11px] font-semibold bg-white dark:bg-slate-900 shadow-sm"
+                    style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
+                  >
+                    Auf Standard-Kurve zurücksetzen
+                  </button>
+                </div>
+              )}
+
+              {/* Collapsible Editable Table */}
+              {showManualFineTable ? (
+                <div
+                  className="p-3.5 rounded-2xl border space-y-3"
+                  style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+                >
+                  <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    Passe hier für jede einzelne Note die Mindestprozentgrenze an. Änderungen werden direkt in die Notenkonfiguration übernommen.
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2">
+                    {activeFineThresholds.map((t) => {
+                      const style = TIER_BADGE_STYLES[t.semantic_tier] || TIER_BADGE_STYLES[3];
+                      return (
+                        <div
+                          key={t.display_label}
+                          className="p-2 rounded-xl border flex flex-col items-center gap-1.5"
+                          style={{
+                            backgroundColor: 'var(--bg-surface)',
+                            borderColor: 'var(--border-subtle)',
+                          }}
+                        >
+                          <span
+                            className="text-xs font-extrabold rounded px-2 py-0.5 border"
+                            style={{ backgroundColor: style.bg, color: style.text, borderColor: style.border }}
+                          >
+                            {t.display_label}
+                          </span>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] text-slate-500 font-mono">≥</span>
+                            <input
+                              type="number"
+                              step="0.5"
+                              min="0"
+                              max="100"
+                              value={t.min_percent}
+                              onChange={(e) =>
+                                handleUpdateStandardThreshold(
+                                  t.display_label,
+                                  parseFloat(e.target.value) || 0
+                                )
+                              }
+                              className="w-14 px-1.5 py-0.5 rounded border text-xs font-bold text-center bg-white dark:bg-slate-900"
+                              style={{ borderColor: 'var(--border-subtle)', color: 'var(--primary-500)' }}
+                            />
+                            <span className="text-[10px] text-slate-500">%</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                /* Tile Grid View */
+                <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5">
+                  {activeFineThresholds.map((t) => {
+                    const style = TIER_BADGE_STYLES[t.semantic_tier] || TIER_BADGE_STYLES[3];
+                    return (
                       <div
-                        className="text-xs font-extrabold rounded px-1.5 py-0.5 inline-block border"
-                        style={{ backgroundColor: style.bg, color: style.text, borderColor: style.border }}
+                        key={t.display_label}
+                        className="p-1.5 rounded-xl border text-center transition hover:scale-105"
+                        style={{
+                          backgroundColor: 'var(--bg-subtle)',
+                          borderColor: 'var(--border-subtle)',
+                        }}
                       >
-                        {t.display_label}
+                        <div
+                          className="text-xs font-extrabold rounded px-1.5 py-0.5 inline-block border"
+                          style={{ backgroundColor: style.bg, color: style.text, borderColor: style.border }}
+                        >
+                          {t.display_label}
+                        </div>
+                        <div className="text-[11px] font-mono font-bold mt-1" style={{ color: 'var(--text-primary)' }}>
+                          ≥ {Math.round(t.min_percent)}%
+                        </div>
                       </div>
-                      <div className="text-[11px] font-mono font-bold mt-1" style={{ color: 'var(--text-primary)' }}>
-                        ≥ {Math.round(t.min_percent)}%
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1525,100 +1704,352 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
               })}
             </div>
 
-            {activeDataset.config.level_custom_thresholds && (
-              <div
-                className="p-3.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-                style={{ backgroundColor: 'var(--primary-soft)', borderColor: 'var(--primary-500)' }}
-              >
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
-                  <div>
-                    <span className="font-bold text-slate-900 dark:text-white">
-                      Multi-Niveau-Schlüssel aktiv (Drais-GMS):
-                    </span>{' '}
-                    <span className="text-slate-600 dark:text-slate-300">
-                      Jedes Niveau (G, M, E) wird nach seiner eigenen Schwellentabelle bewertet.
-                    </span>
+            {activeDataset.config.level_custom_thresholds ? (
+              /* =========================================================
+                 DETAILED INTERACTIVE LEVEL THRESHOLD TABLE (G / M / E)
+                 ========================================================= */
+              <div className="space-y-4">
+                {/* Active Status Banner & Controls */}
+                <div
+                  className="p-3.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                  style={{ backgroundColor: 'var(--primary-soft)', borderColor: 'var(--primary-500)' }}
+                >
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+                    <div>
+                      <span className="font-bold text-slate-900 dark:text-white">
+                        Detaillierte Niveauschwellen-Tabelle aktiv:
+                      </span>{' '}
+                      <span className="text-slate-600 dark:text-slate-300">
+                        Jedes Niveau (G, M, E) wird nach seiner eigenen Schwellentabelle bewertet. Du kannst jede Note direkt anpassen.
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateSubjectConfig((ds) => ({
+                          ...ds,
+                          config: {
+                            ...ds.config,
+                            enable_student_levels: true,
+                            level_threshold_offsets: { G: 0, M: 0, E: 0 },
+                            level_custom_thresholds: JSON.parse(JSON.stringify(DRAIS_GMS_LEVEL_THRESHOLDS)),
+                          },
+                        }))
+                      }
+                      className="px-2.5 py-1.5 rounded-lg border text-xs font-semibold bg-white dark:bg-slate-900 shadow-sm flex items-center gap-1 hover:border-teal-500 transition"
+                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                      title="Setzt alle Schwellen auf das Drais-GMS Referenz-Raster zurück"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Drais-GMS Vorlage laden</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateSubjectConfig((ds) => ({
+                          ...ds,
+                          config: {
+                            ...ds.config,
+                            level_custom_thresholds: null,
+                          },
+                        }))
+                      }
+                      className="px-2.5 py-1.5 rounded-lg border text-xs font-semibold bg-white dark:bg-slate-900 shadow-sm hover:border-slate-400 transition"
+                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
+                    >
+                      Zu Schiebereglern wechseln
+                    </button>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    updateSubjectConfig((ds) => ({
-                      ...ds,
-                      config: {
-                        ...ds.config,
-                        level_custom_thresholds: null,
-                      },
-                    }))
-                  }
-                  className="px-3 py-1.5 rounded-lg border text-xs font-semibold bg-white dark:bg-slate-900 shrink-0 shadow-sm"
-                  style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
+
+                {/* Filter Pills: Alle vs Einzelnes Niveau */}
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-xl border" style={{ borderColor: 'var(--border-subtle)' }}>
+                    {[
+                      { id: 'all' as const, label: 'Alle Niveaus (G, M, E)' },
+                      { id: 'G' as const, label: 'G-Niveau' },
+                      { id: 'M' as const, label: 'M-Niveau' },
+                      { id: 'E' as const, label: 'E-Niveau' },
+                    ].map((btn) => (
+                      <button
+                        key={btn.id}
+                        type="button"
+                        onClick={() => setLevelTableFilter(btn.id)}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
+                          levelTableFilter === btn.id
+                            ? 'bg-teal-500 text-white shadow-sm'
+                            : 'opacity-70 hover:opacity-100'
+                        }`}
+                        style={{ color: levelTableFilter === btn.id ? '#ffffff' : 'var(--text-secondary)' }}
+                      >
+                        {btn.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <span className="text-[11px] text-slate-500 font-mono">
+                    21 Notenstufen (inkl. Zwischennoten wie 1/2, 3/4)
+                  </span>
+                </div>
+
+                {/* Interactive Table Container */}
+                <div
+                  className="rounded-2xl border overflow-hidden shadow-sm"
+                  style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
                 >
-                  Auf linearen Offset zurücksetzen
-                </button>
+                  <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
+                    <table className="w-full text-xs text-left border-collapse">
+                      <thead className="sticky top-0 z-10 shadow-sm">
+                        <tr
+                          className="border-b text-[11px]"
+                          style={{
+                            backgroundColor: 'var(--bg-surface)',
+                            borderColor: 'var(--border-subtle)',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          <th className="py-2.5 px-3 font-bold sticky left-0 z-20" style={{ backgroundColor: 'var(--bg-surface)' }}>
+                            Note
+                          </th>
+                          {(levelTableFilter === 'all' || levelTableFilter === 'G') && (
+                            <th className="py-2.5 px-3 font-bold">
+                              <span className="px-1.5 py-0.5 rounded mr-1.5" style={{ backgroundColor: LEVEL_BADGE_STYLES.G.bg, color: LEVEL_BADGE_STYLES.G.text }}>
+                                G
+                              </span>
+                              Grundlegendes Niveau (ab %)
+                            </th>
+                          )}
+                          {(levelTableFilter === 'all' || levelTableFilter === 'M') && (
+                            <th className="py-2.5 px-3 font-bold">
+                              <span className="px-1.5 py-0.5 rounded mr-1.5" style={{ backgroundColor: LEVEL_BADGE_STYLES.M.bg, color: LEVEL_BADGE_STYLES.M.text }}>
+                                M
+                              </span>
+                              Mittleres Niveau (ab %)
+                            </th>
+                          )}
+                          {(levelTableFilter === 'all' || levelTableFilter === 'E') && (
+                            <th className="py-2.5 px-3 font-bold">
+                              <span className="px-1.5 py-0.5 rounded mr-1.5" style={{ backgroundColor: LEVEL_BADGE_STYLES.E.bg, color: LEVEL_BADGE_STYLES.E.text }}>
+                                E
+                              </span>
+                              Erweitertes Niveau (ab %)
+                            </th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {LEVEL_GRADE_ROWS.map((row) => {
+                          const tables = activeDataset.config.level_custom_thresholds!;
+                          const gItem = tables.G?.find((t) => t.display_label === row.label);
+                          const mItem = tables.M?.find((t) => t.display_label === row.label);
+                          const eItem = tables.E?.find((t) => t.display_label === row.label);
+                          const style = TIER_BADGE_STYLES[row.tier] || TIER_BADGE_STYLES[3];
+
+                          return (
+                            <tr
+                              key={row.label}
+                              className="border-b last:border-b-0 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition"
+                              style={{ borderColor: 'var(--border-subtle)' }}
+                            >
+                              <td className="py-2 px-3 font-bold sticky left-0 z-10" style={{ backgroundColor: 'var(--bg-subtle)' }}>
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className="px-2 py-0.5 rounded text-[11px] font-bold border min-w-[36px] text-center"
+                                    style={{ backgroundColor: style.bg, color: style.text, borderColor: style.border }}
+                                  >
+                                    {row.label}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
+                                    ={row.numeric.toFixed(2).replace('.', ',')}
+                                  </span>
+                                </div>
+                              </td>
+
+                              {(levelTableFilter === 'all' || levelTableFilter === 'G') && (
+                                <td className="py-1.5 px-3">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[11px] text-slate-400">ab</span>
+                                    <input
+                                      type="number"
+                                      step="0.5"
+                                      min="0"
+                                      max="100"
+                                      value={gItem?.min_percent ?? 0}
+                                      onChange={(e) =>
+                                        handleUpdateLevelThreshold(
+                                          'G',
+                                          row.label,
+                                          parseFloat(e.target.value) || 0
+                                        )
+                                      }
+                                      className="w-16 px-2 py-1 rounded-lg border font-bold text-center bg-white dark:bg-slate-900 focus:ring-1 focus:ring-teal-500"
+                                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--primary-500)' }}
+                                    />
+                                    <span className="text-[11px] font-semibold text-slate-500">%</span>
+                                  </div>
+                                </td>
+                              )}
+
+                              {(levelTableFilter === 'all' || levelTableFilter === 'M') && (
+                                <td className="py-1.5 px-3">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[11px] text-slate-400">ab</span>
+                                    <input
+                                      type="number"
+                                      step="0.5"
+                                      min="0"
+                                      max="100"
+                                      value={mItem?.min_percent ?? 0}
+                                      onChange={(e) =>
+                                        handleUpdateLevelThreshold(
+                                          'M',
+                                          row.label,
+                                          parseFloat(e.target.value) || 0
+                                        )
+                                      }
+                                      className="w-16 px-2 py-1 rounded-lg border font-bold text-center bg-white dark:bg-slate-900 focus:ring-1 focus:ring-teal-500"
+                                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--primary-500)' }}
+                                    />
+                                    <span className="text-[11px] font-semibold text-slate-500">%</span>
+                                  </div>
+                                </td>
+                              )}
+
+                              {(levelTableFilter === 'all' || levelTableFilter === 'E') && (
+                                <td className="py-1.5 px-3">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[11px] text-slate-400">ab</span>
+                                    <input
+                                      type="number"
+                                      step="0.5"
+                                      min="0"
+                                      max="100"
+                                      value={eItem?.min_percent ?? 0}
+                                      onChange={(e) =>
+                                        handleUpdateLevelThreshold(
+                                          'E',
+                                          row.label,
+                                          parseFloat(e.target.value) || 0
+                                        )
+                                      }
+                                      className="w-16 px-2 py-1 rounded-lg border font-bold text-center bg-white dark:bg-slate-900 focus:ring-1 focus:ring-teal-500"
+                                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--primary-500)' }}
+                                    />
+                                    <span className="text-[11px] font-semibold text-slate-500">%</span>
+                                  </div>
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* =========================================================
+                 LINEAR LEVEL OFFSETS (SLIDERS)
+                 ========================================================= */
+              <div className="space-y-4">
+                {/* Button to switch to Table Mode */}
+                <div
+                  className="p-3.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                  style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+                >
+                  <div>
+                    <span className="font-bold" style={{ color: 'var(--text-primary)' }}>
+                      Eigene Niveautabelle zeilenweise anpassen?
+                    </span>
+                    <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                      Definiere für G, M und E individuelle Prozentgrenzen für alle 21 Notenstufen (wie bei Drais-GMS).
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateSubjectConfig((ds) => ({
+                        ...ds,
+                        config: {
+                          ...ds.config,
+                          enable_student_levels: true,
+                          level_threshold_offsets: { G: 0, M: 0, E: 0 },
+                          level_custom_thresholds: JSON.parse(JSON.stringify(DRAIS_GMS_LEVEL_THRESHOLDS)),
+                        },
+                      }))
+                    }
+                    className="px-3.5 py-2 rounded-xl text-xs font-bold border transition shadow-sm flex items-center gap-1.5 shrink-0 bg-white dark:bg-slate-900 hover:border-teal-500"
+                    style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                  >
+                    <Table className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+                    <span>Detaillierte Niveautabelle aktivieren</span>
+                  </button>
+                </div>
+
+                {/* Individual Level Sliders (G, M, E) */}
+                <div className="p-4 rounded-2xl border space-y-3" style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}>
+                  {[
+                    { lvl: 'G' as const, title: 'G-Niveau (Grundlegend)', hint: 'Negativer Wert senkt die Hürde (z. B. -5% = Note 2 schon ab 70% statt 75%)' },
+                    { lvl: 'M' as const, title: 'M-Niveau (Mittel / Referenz)', hint: '0% = Entspricht exakt dem Basis-Notenschlüssel' },
+                    { lvl: 'E' as const, title: 'E-Niveau (Erweitert)', hint: 'Positiver Wert erhöht den Anspruch (z. B. +3% = Note 2 ab 78% statt 75%)' },
+                  ].map((item) => {
+                    const style = LEVEL_BADGE_STYLES[item.lvl];
+                    const val = isDifferentiationEnabled ? currentLevelOffsets[item.lvl] : 0;
+                    return (
+                      <div key={item.lvl} className="grid grid-cols-1 md:grid-cols-12 items-center gap-2.5 text-xs">
+                        <div className="md:col-span-5">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded-lg font-extrabold text-xs" style={{ backgroundColor: style.bg, color: style.text }}>
+                              {item.lvl}
+                            </span>
+                            <span className="font-bold" style={{ color: 'var(--text-primary)' }}>
+                              {item.title}
+                            </span>
+                          </div>
+                          <div className="text-[10px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                            {item.hint}
+                          </div>
+                        </div>
+                        <div className="md:col-span-4 flex items-center gap-2">
+                          <input
+                            type="range"
+                            min={-15}
+                            max={15}
+                            step={1}
+                            value={val}
+                            disabled={!isDifferentiationEnabled}
+                            onChange={(e) => updateLevelOffset(item.lvl, Number(e.target.value))}
+                            className="w-full accent-teal-600 cursor-pointer disabled:opacity-40"
+                          />
+                        </div>
+                        <div className="md:col-span-3 flex items-center justify-end gap-1.5 font-mono">
+                          <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>
+                            Verschiebung:
+                          </span>
+                          <input
+                            type="number"
+                            min={-20}
+                            max={20}
+                            value={val}
+                            disabled={!isDifferentiationEnabled}
+                            onChange={(e) => updateLevelOffset(item.lvl, Number(e.target.value) || 0)}
+                            className="w-16 px-2 py-1 rounded-lg border font-bold text-center bg-white dark:bg-slate-900 disabled:opacity-40"
+                            style={{
+                              borderColor: 'var(--border-subtle)',
+                              color: 'var(--primary-500)',
+                            }}
+                          />
+                          <span className="font-bold">%</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
-
-            {/* Individual Level Sliders (G, M, E) */}
-            <div className="p-4 rounded-2xl border space-y-3" style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}>
-              {[
-                { lvl: 'G' as const, title: 'G-Niveau (Grundlegend)', hint: 'Negativer Wert senkt die Hürde (z. B. -5% = Note 2 schon ab 70% statt 75%)' },
-                { lvl: 'M' as const, title: 'M-Niveau (Mittel / Referenz)', hint: '0% = Entspricht exakt dem Basis-Notenschlüssel' },
-                { lvl: 'E' as const, title: 'E-Niveau (Erweitert)', hint: 'Positiver Wert erhöht den Anspruch (z. B. +3% = Note 2 ab 78% statt 75%)' },
-              ].map((item) => {
-                const style = LEVEL_BADGE_STYLES[item.lvl];
-                const val = isDifferentiationEnabled ? currentLevelOffsets[item.lvl] : 0;
-                return (
-                  <div key={item.lvl} className="grid grid-cols-1 md:grid-cols-12 items-center gap-2.5 text-xs">
-                    <div className="md:col-span-5">
-                      <div className="flex items-center gap-2">
-                        <span className="px-2 py-0.5 rounded-lg font-extrabold text-xs" style={{ backgroundColor: style.bg, color: style.text }}>
-                          {item.lvl}
-                        </span>
-                        <span className="font-bold" style={{ color: 'var(--text-primary)' }}>
-                          {item.title}
-                        </span>
-                      </div>
-                      <div className="text-[10px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                        {item.hint}
-                      </div>
-                    </div>
-                    <div className="md:col-span-4 flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={-15}
-                        max={15}
-                        step={1}
-                        value={val}
-                        disabled={!isDifferentiationEnabled}
-                        onChange={(e) => updateLevelOffset(item.lvl, Number(e.target.value))}
-                        className="w-full accent-teal-600 cursor-pointer disabled:opacity-40"
-                      />
-                    </div>
-                    <div className="md:col-span-3 flex items-center justify-end gap-1.5 font-mono">
-                      <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>
-                        Verschiebung:
-                      </span>
-                      <input
-                        type="number"
-                        min={-20}
-                        max={20}
-                        value={val}
-                        disabled={!isDifferentiationEnabled}
-                        onChange={(e) => updateLevelOffset(item.lvl, Number(e.target.value) || 0)}
-                        className="w-16 px-2 py-1 rounded-lg border font-bold text-center bg-white dark:bg-slate-900 disabled:opacity-40"
-                        style={{
-                          borderColor: 'var(--border-subtle)',
-                          color: 'var(--primary-500)',
-                        }}
-                      />
-                      <span className="font-bold">%</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
 
             {/* Live Comparison Table */}
             <div className="rounded-2xl border overflow-hidden" style={{ borderColor: 'var(--border-subtle)' }}>
@@ -1632,7 +2063,9 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
               >
                 <span>Live-Maßstab im Überblick: Notenstufen je Niveau</span>
                 <span className="text-[11px] font-mono opacity-80">
-                  {isDifferentiationEnabled
+                  {activeDataset.config.level_custom_thresholds
+                    ? 'Aktiv (Multi-Niveau-Schwellentabelle)'
+                    : isDifferentiationEnabled
                     ? `Aktiv (G: ${currentLevelOffsets.G}%, M: ${currentLevelOffsets.M}%, E: +${currentLevelOffsets.E}%)`
                     : 'Inaktiv (Standard-Maßstab für alle)'}
                 </span>
@@ -1671,18 +2104,28 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
                   </thead>
                   <tbody>
                     {[
-                      { label: 'Note 1 (Sehr gut)', base: curveCutoffs.n1, tier: 1 },
-                      { label: 'Note 2 (Gut)', base: curveCutoffs.n2, tier: 2 },
-                      { label: 'Note 3 (Befriedigend)', base: curveCutoffs.n3, tier: 3 },
-                      { label: 'Note 4 (Ausreichend)', base: curveCutoffs.n4, tier: 4 },
-                      { label: 'Note 5 (Mangelhaft)', base: curveCutoffs.n5, tier: 5 },
+                      { label: 'Note 1 (Sehr gut)', searchLabel: '1', base: curveCutoffs.n1, tier: 1 },
+                      { label: 'Note 2 (Gut)', searchLabel: '2', base: curveCutoffs.n2, tier: 2 },
+                      { label: 'Note 3 (Befriedigend)', searchLabel: '3', base: curveCutoffs.n3, tier: 3 },
+                      { label: 'Note 4 (Ausreichend)', searchLabel: '4', base: curveCutoffs.n4, tier: 4 },
+                      { label: 'Note 5 (Mangelhaft)', searchLabel: '5', base: curveCutoffs.n5, tier: 5 },
                     ].map((row) => {
-                      const gOffset = isDifferentiationEnabled ? currentLevelOffsets.G : 0;
-                      const mOffset = isDifferentiationEnabled ? currentLevelOffsets.M : 0;
-                      const eOffset = isDifferentiationEnabled ? currentLevelOffsets.E : 0;
-                      const gMin = Math.max(1, Math.min(99, row.base + gOffset));
-                      const mMin = Math.max(1, Math.min(99, row.base + mOffset));
-                      const eMin = Math.max(1, Math.min(99, row.base + eOffset));
+                      let gMin: number;
+                      let mMin: number;
+                      let eMin: number;
+                      if (activeDataset.config.level_custom_thresholds) {
+                        const tbl = activeDataset.config.level_custom_thresholds;
+                        gMin = tbl.G?.find((t) => t.display_label === row.searchLabel)?.min_percent ?? row.base;
+                        mMin = tbl.M?.find((t) => t.display_label === row.searchLabel)?.min_percent ?? row.base;
+                        eMin = tbl.E?.find((t) => t.display_label === row.searchLabel)?.min_percent ?? row.base;
+                      } else {
+                        const gOffset = isDifferentiationEnabled ? currentLevelOffsets.G : 0;
+                        const mOffset = isDifferentiationEnabled ? currentLevelOffsets.M : 0;
+                        const eOffset = isDifferentiationEnabled ? currentLevelOffsets.E : 0;
+                        gMin = Math.max(1, Math.min(99, row.base + gOffset));
+                        mMin = Math.max(1, Math.min(99, row.base + mOffset));
+                        eMin = Math.max(1, Math.min(99, row.base + eOffset));
+                      }
                       const style = TIER_BADGE_STYLES[row.tier];
                       return (
                         <tr key={row.label} className="border-b last:border-b-0" style={{ borderColor: 'var(--border-subtle)' }}>

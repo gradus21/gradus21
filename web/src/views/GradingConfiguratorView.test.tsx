@@ -234,4 +234,54 @@ describe('GradingConfiguratorView UI & Ergonomics', () => {
     fireEvent.blur(firstInput);
     expect(updateSubjectConfigMock).toHaveBeenCalled();
   });
+
+  it('renders interactive level threshold table and updates thresholds in Binnendifferenzierung tab', () => {
+    const updateSubjectConfigMock = vi.fn();
+    const propsWithLevelTables = {
+      ...defaultProps,
+      activeDataset: {
+        ...defaultProps.activeDataset,
+        config: {
+          ...defaultProps.activeDataset.config,
+          level_custom_thresholds: {
+            G: [{ min_percent: 48, display_label: '1', numeric_value: 1, semantic_tier: 1 }],
+            M: [{ min_percent: 78, display_label: '1', numeric_value: 1, semantic_tier: 1 }],
+            E: [{ min_percent: 98, display_label: '1', numeric_value: 1, semantic_tier: 1 }],
+          },
+        },
+      },
+      updateSubjectConfig: updateSubjectConfigMock,
+    };
+
+    render(<GradingConfiguratorView {...propsWithLevelTables} />);
+
+    const diffTab = screen.getByText('3. Binnendifferenzierung (G/M/E)');
+    fireEvent.click(diffTab);
+
+    expect(screen.getByText(/Detaillierte Niveauschwellen-Tabelle aktiv/i)).toBeInTheDocument();
+    expect(screen.getByText(/Grundlegendes Niveau \(ab %\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Drais-GMS Vorlage laden/i)).toBeInTheDocument();
+
+    // Verify inputs are rendered
+    const gInputs = screen.getAllByDisplayValue('48');
+    expect(gInputs.length).toBeGreaterThan(0);
+
+    // Edit an input
+    fireEvent.change(gInputs[0], { target: { value: '50' } });
+    expect(updateSubjectConfigMock).toHaveBeenCalled();
+  });
+
+  it('toggles manual fine threshold table in Notenschlüssel tab', () => {
+    render(<GradingConfiguratorView {...defaultProps} />);
+
+    const curveTab = screen.getByText('2. Notenschlüssel & Schwellen');
+    fireEvent.click(curveTab);
+
+    const toggleTableBtn = screen.getByText(/Schwellenwerte manuell bearbeiten/i);
+    expect(toggleTableBtn).toBeInTheDocument();
+
+    fireEvent.click(toggleTableBtn);
+    expect(screen.getByText(/Tabelle schließen/i)).toBeInTheDocument();
+    expect(screen.getByText(/Passe hier für jede einzelne Note die Mindestprozentgrenze an/i)).toBeInTheDocument();
+  });
 });
