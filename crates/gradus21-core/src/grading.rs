@@ -7,6 +7,9 @@ pub enum GradingScaleId {
     /// German standard school grades 1.0 to 6.0 (with +/- tendencies like 2+, 3-)
     #[serde(rename = "de_classic_1_to_6", alias = "de_classic1_to6")]
     DeClassic1To6,
+    /// German continuous decimal grades 1.0 to 6.0 in tenths (e.g. 1.4, 2.8)
+    #[serde(rename = "de_decimal_1_to_6", alias = "de_decimal1_to6")]
+    DeDecimal1To6,
     /// German Oberstufe (MSS / Abitur) 0 to 15 points
     #[serde(rename = "de_oberstufe_0_to_15", alias = "de_oberstufe0_to15")]
     DeOberstufe0To15,
@@ -179,6 +182,40 @@ pub fn default_thresholds_for_scale(scale: GradingScaleId) -> Vec<GradeThreshold
             GradeThreshold { min_percent: 12.0, display_label: "5-".into(), numeric_value: 5.25, semantic_tier: 5 },
             GradeThreshold { min_percent: 0.0,  display_label: "6".into(),  numeric_value: 6.00, semantic_tier: 6 },
         ],
+        GradingScaleId::DeDecimal1To6 => {
+            let mut thresholds = Vec::with_capacity(51);
+            for i in 10..=60 {
+                let grade = (i as f64) / 10.0;
+                let min_pct = if i == 10 {
+                    99.0
+                } else if i == 60 {
+                    0.0
+                } else {
+                    (5.95 - grade) * 20.0
+                };
+                let tier = if grade <= 1.5 {
+                    1
+                } else if grade <= 2.5 {
+                    2
+                } else if grade <= 3.5 {
+                    3
+                } else if grade <= 4.5 {
+                    4
+                } else if grade <= 5.5 {
+                    5
+                } else {
+                    6
+                };
+                thresholds.push(GradeThreshold {
+                    min_percent: (min_pct * 10.0).round() / 10.0,
+                    display_label: format!("{:.1}", grade).replace('.', ","),
+                    numeric_value: grade,
+                    semantic_tier: tier,
+                });
+            }
+            thresholds.sort_by(|a, b| b.min_percent.partial_cmp(&a.min_percent).unwrap_or(std::cmp::Ordering::Equal));
+            thresholds
+        }
         GradingScaleId::DeOberstufe0To15 => vec![
             GradeThreshold { min_percent: 95.0, display_label: "15 Pkt (1+)".into(), numeric_value: 15.0, semantic_tier: 1 },
             GradeThreshold { min_percent: 90.0, display_label: "14 Pkt (1)".into(),  numeric_value: 14.0, semantic_tier: 1 },
@@ -238,6 +275,31 @@ pub fn percent_to_grade(
     };
 
     let adjusted_percent = (clean_percent - offset).clamp(0.0, 100.0);
+
+    if config.scale_id == GradingScaleId::DeDecimal1To6 && config.custom_thresholds.as_ref().map_or(true, |v| v.is_empty()) {
+        let raw_grade = 6.0 - 5.0 * (adjusted_percent / 100.0);
+        let clamped = ((raw_grade * 10.0).round() / 10.0).clamp(1.0, 6.0);
+        let tier = if clamped <= 1.5 {
+            1
+        } else if clamped <= 2.5 {
+            2
+        } else if clamped <= 3.5 {
+            3
+        } else if clamped <= 4.5 {
+            4
+        } else if clamped <= 5.5 {
+            5
+        } else {
+            6
+        };
+        return GradeThreshold {
+            min_percent: adjusted_percent,
+            display_label: format!("{:.1}", clamped).replace('.', ","),
+            numeric_value: clamped,
+            semantic_tier: tier,
+        };
+    }
+
     let mut thresholds = config
         .custom_thresholds
         .clone()
@@ -309,6 +371,11 @@ pub fn resolve_entry_percent_with_config(
                     return Some(matching.min_percent);
                 }
                 // Linear fallback across 1..=6
+                let pct = ((6.0 - clamped_grade) / 5.0) * 100.0;
+                return Some(pct.clamp(0.0, 100.0));
+            }
+            GradingScaleId::DeDecimal1To6 => {
+                let clamped_grade = grade_val.clamp(1.0, 6.0);
                 let pct = ((6.0 - clamped_grade) / 5.0) * 100.0;
                 return Some(pct.clamp(0.0, 100.0));
             }

@@ -484,6 +484,8 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
                 >
                   {activeDataset.config.scale_id === 'de_classic_1_to_6'
                     ? '1–6 Schulnoten'
+                    : activeDataset.config.scale_id === 'de_decimal_1_to_6'
+                    ? '1,0–6,0 Dezimalnoten'
                     : activeDataset.config.scale_id === 'de_oberstufe_0_to_15'
                     ? '0–15 MSS Punkte'
                     : 'US Letter'}
@@ -1643,12 +1645,17 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
               <label className="block text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>
                 1. Notenskala / Bewertungssystem wählen
               </label>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {[
                   {
                     id: 'de_classic_1_to_6' as const,
                     title: 'Schulnoten 1–6 (mit Tendenzen)',
                     desc: 'Standard Sek I (1+, 1, 1-, 2+ ... 6) & Prozent-Umrechnung',
+                  },
+                  {
+                    id: 'de_decimal_1_to_6' as const,
+                    title: 'Kommanoten 1,0–6,0 (Dezimalnoten)',
+                    desc: 'Kontinuierliche Notenskala in Zehntel-Schritten (1,0 bis 6,0)',
                   },
                   {
                     id: 'de_oberstufe_0_to_15' as const,

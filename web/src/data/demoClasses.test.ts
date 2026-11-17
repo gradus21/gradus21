@@ -5,6 +5,8 @@ import {
   INITIAL_CLASS_DATASETS,
   percentToGradeThreshold,
   gradeToPercent,
+  formatGradeDisplayLabel,
+  SubjectGradingConfig,
 } from './demoClasses';
 
 describe('demoClasses - ensureValidUuid', () => {
@@ -77,6 +79,34 @@ describe('demoClasses - percentToGradeThreshold and gradeToPercent', () => {
 
     const p2 = gradeToPercent(2.0);
     expect(p2).toBe(75);
+  });
+
+  it('correctly calculates continuous decimal grades (de_decimal_1_to_6)', () => {
+    const config: SubjectGradingConfig = {
+      scale_id: 'de_decimal_1_to_6',
+      weighting_mode: 'category_buckets',
+      scale_empty_categories: true,
+      enable_student_levels: false,
+      level_threshold_offsets: {},
+    };
+
+    // percent to grade
+    expect(percentToGradeThreshold(100, config)).toMatchObject({ display_label: '1,0', numeric_value: 1.0, semantic_tier: 1 });
+    expect(percentToGradeThreshold(92, config)).toMatchObject({ display_label: '1,4', numeric_value: 1.4, semantic_tier: 1 });
+    expect(percentToGradeThreshold(80, config)).toMatchObject({ display_label: '2,0', numeric_value: 2.0, semantic_tier: 2 });
+    expect(percentToGradeThreshold(64, config)).toMatchObject({ display_label: '2,8', numeric_value: 2.8, semantic_tier: 3 });
+    expect(percentToGradeThreshold(0, config)).toMatchObject({ display_label: '6,0', numeric_value: 6.0, semantic_tier: 6 });
+
+    // grade to percent
+    expect(gradeToPercent(1.0, config)).toBe(100);
+    expect(gradeToPercent(1.4, config)).toBe(92);
+    expect(gradeToPercent(2.8, config)).toBe(64);
+    expect(gradeToPercent(6.0, config)).toBe(0);
+
+    // format display label
+    expect(formatGradeDisplayLabel(1.4, config)).toBe('1,4');
+    expect(formatGradeDisplayLabel(2.8, config)).toBe('2,8');
+    expect(formatGradeDisplayLabel(2, config)).toBe('2,0');
   });
 });
 

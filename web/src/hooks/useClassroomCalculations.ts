@@ -287,6 +287,12 @@ export function useClassroomCalculations({
           else if (hasMinus) directGradeVal = Math.min(6.0, base + 0.25);
           else directGradeVal = base;
         }
+      } else if (ds.config.scale_id === 'de_decimal_1_to_6' && !trimmed.endsWith('%')) {
+        const clean = trimmed.replace(',', '.').trim();
+        const base = parseFloat(clean);
+        if (!isNaN(base)) {
+          directGradeVal = Math.max(1.0, Math.min(6.0, Math.round(base * 10) / 10));
+        }
       }
 
       const num = directGradeVal !== null ? directGradeVal : parseFloat(trimmed.replace('%', '').replace(',', '.'));

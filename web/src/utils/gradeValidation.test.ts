@@ -38,4 +38,15 @@ describe('validateGradeInput (#41)', () => {
     expect(validateGradeInput('0', 'grade_scale', 'de_oberstufe_0_to_15').isValid).toBe(true);
     expect(validateGradeInput('16', 'grade_scale', 'de_oberstufe_0_to_15').isValid).toBe(false);
   });
+
+  it('validates continuous decimal grades 1,0 to 6,0 in grade_scale mode', () => {
+    expect(validateGradeInput('1,0', 'grade_scale', 'de_decimal_1_to_6').isValid).toBe(true);
+    expect(validateGradeInput('1.4', 'grade_scale', 'de_decimal_1_to_6').isValid).toBe(true);
+    expect(validateGradeInput('2,8', 'grade_scale', 'de_decimal_1_to_6').isValid).toBe(true);
+    expect(validateGradeInput('6,0', 'grade_scale', 'de_decimal_1_to_6').isValid).toBe(true);
+    expect(validateGradeInput('0,9', 'grade_scale', 'de_decimal_1_to_6').isValid).toBe(false);
+    expect(validateGradeInput('6,1', 'grade_scale', 'de_decimal_1_to_6').isValid).toBe(false);
+    expect(validateGradeInput('7', 'grade_scale', 'de_decimal_1_to_6').isValid).toBe(false);
+    expect(validateGradeInput('80%', 'grade_scale', 'de_decimal_1_to_6').isValid).toBe(true);
+  });
 });

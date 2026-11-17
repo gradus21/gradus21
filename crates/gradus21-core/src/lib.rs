@@ -825,4 +825,133 @@ mod tests {
         assert_eq!(summary_unscaled.category_results[0].effective_weight_percent, 50.0);
         assert_eq!(summary_unscaled.category_results[1].effective_weight_percent, 50.0);
     }
+
+    #[test]
+    fn test_de_decimal_1_to_6_grading_scale() {
+        // 1. Serialization & deserialization
+        let s1: GradingScaleId = serde_json::from_str(r#""de_decimal_1_to_6""#).expect("de_decimal_1_to_6");
+        assert_eq!(s1, GradingScaleId::DeDecimal1To6);
+        let s2: GradingScaleId = serde_json::from_str(r#""de_decimal1_to6""#).expect("de_decimal1_to6");
+        assert_eq!(s2, GradingScaleId::DeDecimal1To6);
+
+        // 2. Default thresholds table
+        let thresholds = default_thresholds_for_scale(GradingScaleId::DeDecimal1To6);
+        assert_eq!(thresholds.len(), 51);
+        assert_eq!(thresholds[0].display_label, "1,0");
+        assert_eq!(thresholds[0].numeric_value, 1.0);
+        assert_eq!(thresholds.last().unwrap().display_label, "6,0");
+        assert_eq!(thresholds.last().unwrap().numeric_value, 6.0);
+
+        // 3. Percent to grade calculation
+        let config = SubjectGradingConfig {
+            scale_id: GradingScaleId::DeDecimal1To6,
+            weighting_mode: WeightingMode::CategoryBuckets,
+            scale_empty_categories: true,
+            enable_student_levels: false,
+            level_threshold_offsets: HashMap::new(),
+            custom_thresholds: None,
+        };
+
+        let g100 = percent_to_grade(100.0, &config, None);
+        assert_eq!(g100.display_label, "1,0");
+        assert_eq!(g100.numeric_value, 1.0);
+        assert_eq!(g100.semantic_tier, 1);
+
+        let g92 = percent_to_grade(92.0, &config, None);
+        assert_eq!(g92.display_label, "1,4");
+        assert_eq!(g92.numeric_value, 1.4);
+        assert_eq!(g92.semantic_tier, 1);
+
+        let g80 = percent_to_grade(80.0, &config, None);
+        assert_eq!(g80.display_label, "2,0");
+        assert_eq!(g80.numeric_value, 2.0);
+        assert_eq!(g80.semantic_tier, 2);
+
+        let g64 = percent_to_grade(64.0, &config, None);
+        assert_eq!(g64.display_label, "2,8");
+        assert_eq!(g64.numeric_value, 2.8);
+        assert_eq!(g64.semantic_tier, 3);
+
+        let g0 = percent_to_grade(0.0, &config, None);
+        assert_eq!(g0.display_label, "6,0");
+        assert_eq!(g0.numeric_value, 6.0);
+        assert_eq!(g0.semantic_tier, 6);
+
+        // 4. Direct grade inputs averaging: 1.4 + 2.8 in 50/50 -> 2.1
+        let categories = vec![
+            CategoryConfig {
+                id: "c_oral".into(),
+                name: "Mündlich".into(),
+                short_code: "M".into(),
+                weight: 0.5,
+                drop_lowest_count: 0,
+            },
+            CategoryConfig {
+                id: "c_exam".into(),
+                name: "Schriftlich".into(),
+                short_code: "S".into(),
+                weight: 0.5,
+                drop_lowest_count: 0,
+            },
+        ];
+
+        let assessments = vec![
+            AssessmentConfig {
+                id: "a_oral1".into(),
+                category_id: "c_oral".into(),
+                title: "Mündliche Note".into(),
+                term_id: "hj1".into(),
+                weight: 1.0,
+                input_mode: AssessmentInputMode::GradeScale,
+                max_points: None,
+            },
+            AssessmentConfig {
+                id: "a_exam1".into(),
+                category_id: "c_exam".into(),
+                title: "Klassenarbeit 1".into(),
+                term_id: "hj1".into(),
+                weight: 1.0,
+                input_mode: AssessmentInputMode::GradeScale,
+                max_points: None,
+            },
+        ];
+
+        let students = vec![
+            StudentProfile {
+                id: "s1".into(),
+                name: "Max Mustermann".into(),
+                level: None,
+                is_not_graded: false,
+                is_archived: false,
+            },
+        ];
+
+        let grades = vec![
+            GradeEntry {
+                student_id: "s1".into(),
+                assessment_id: "a_oral1".into(),
+                status: GradeStatus::Graded,
+                percent_value: None,
+                raw_points: None,
+                direct_grade_value: Some(1.4),
+                comment: None,
+            },
+            GradeEntry {
+                student_id: "s1".into(),
+                assessment_id: "a_exam1".into(),
+                status: GradeStatus::Graded,
+                percent_value: None,
+                raw_points: None,
+                direct_grade_value: Some(2.8),
+                comment: None,
+            },
+        ];
+
+        let report = calculate_class_report(&config, &categories, &assessments, &students, &grades, None);
+        let summary = &report.student_summaries[0];
+        assert_eq!(summary.overall_percent, Some(78.0));
+        assert_eq!(summary.overall_grade_numeric, Some(2.1));
+        assert_eq!(summary.overall_display_grade, "2,1");
+        assert_eq!(summary.semantic_tier, 2);
+    }
 }

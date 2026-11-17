@@ -701,6 +701,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
                   >
                     <option value="de_classic_1_to_6">Schulnoten 1–6 (mit Tendenzen 1+, 2-)</option>
+                    <option value="de_decimal_1_to_6">Kommanoten 1,0–6,0 (Dezimalnoten)</option>
                     <option value="de_oberstufe_0_to_15">Oberstufe 0–15 Punkte (MSS / Abitur)</option>
                     <option value="us_letter_gpa">US Letter Grades (A+ bis F / GPA)</option>
                   </select>

@@ -389,6 +389,18 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
         badge: 'standard',
       },
       {
+        id: 'decimal_50_50',
+        title: 'Kommanoten 1,0–6,0 (50 / 50)',
+        desc: '50% Schriftlich · 50% Mündlich (Dezimalnoten)',
+        categories: [
+          { id: 'cat_ka', name: 'Schriftlich (Klassenarbeiten)', short_code: 'KA', weight: 0.5, drop_lowest_count: 0 },
+          { id: 'cat_somi', name: 'Mündlich & Mitarbeit', short_code: 'Mündl', weight: 0.5, drop_lowest_count: 0 },
+        ],
+        weights: [0.5, 0.5],
+        scale_id: 'de_decimal_1_to_6' as GradingScaleId,
+        badge: 'standard',
+      },
+      {
         id: 'oberstufe',
         title: 'Oberstufe (0–15 MSS-Punkte)',
         desc: '50% Klausuren · 50% Praxis / GFS',

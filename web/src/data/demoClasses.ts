@@ -1,4 +1,4 @@
-export type GradingScaleId = 'de_classic_1_to_6' | 'de_oberstufe_0_to_15' | 'us_letter_gpa';
+export type GradingScaleId = 'de_classic_1_to_6' | 'de_decimal_1_to_6' | 'de_oberstufe_0_to_15' | 'us_letter_gpa';
 export type WeightingMode = 'category_buckets' | 'direct_weights' | 'total_points';
 export type AssessmentInputMode = 'percent' | 'points' | 'grade_scale';
 export type GradeStatus = 'graded' | 'excused' | 'missing';
@@ -316,8 +316,27 @@ export const DEFAULT_THRESHOLDS_US_LETTER: GradeThreshold[] = [
   { min_percent: 0.0, display_label: 'F', numeric_value: 0.0, semantic_tier: 6 },
 ];
 
+export const DEFAULT_THRESHOLDS_DE_DECIMAL: GradeThreshold[] = (() => {
+  const list: GradeThreshold[] = [];
+  for (let i = 10; i <= 60; i++) {
+    const grade = i / 10;
+    const minPct = i === 10 ? 99.0 : i === 60 ? 0.0 : (5.95 - grade) * 20.0;
+    const tier =
+      grade <= 1.5 ? 1 : grade <= 2.5 ? 2 : grade <= 3.5 ? 3 : grade <= 4.5 ? 4 : grade <= 5.5 ? 5 : 6;
+    list.push({
+      min_percent: Math.round(minPct * 10) / 10,
+      display_label: grade.toFixed(1).replace('.', ','),
+      numeric_value: grade,
+      semantic_tier: tier,
+    });
+  }
+  return list.sort((a, b) => b.min_percent - a.min_percent);
+})();
+
 export function getDefaultThresholds(scaleId: GradingScaleId = 'de_classic_1_to_6'): GradeThreshold[] {
   switch (scaleId) {
+    case 'de_decimal_1_to_6':
+      return DEFAULT_THRESHOLDS_DE_DECIMAL;
     case 'de_oberstufe_0_to_15':
       return DEFAULT_THRESHOLDS_DE_OBERSTUFE;
     case 'us_letter_gpa':
@@ -339,6 +358,22 @@ export function percentToGradeThreshold(
       ? config.level_threshold_offsets?.[studentLevel] ?? 0
       : 0;
   const adjusted = Math.max(0, Math.min(100, cleanPercent - offset));
+
+  if (
+    config?.scale_id === 'de_decimal_1_to_6' &&
+    (!config.custom_thresholds || config.custom_thresholds.length === 0)
+  ) {
+    const rawGrade = 6.0 - 5.0 * (adjusted / 100);
+    const clamped = Math.max(1.0, Math.min(6.0, Math.round(rawGrade * 10) / 10));
+    const tier =
+      clamped <= 1.5 ? 1 : clamped <= 2.5 ? 2 : clamped <= 3.5 ? 3 : clamped <= 4.5 ? 4 : clamped <= 5.5 ? 5 : 6;
+    return {
+      min_percent: adjusted,
+      display_label: clamped.toFixed(1).replace('.', ','),
+      numeric_value: clamped,
+      semantic_tier: tier,
+    };
+  }
 
   const thresholds =
     config?.custom_thresholds && config.custom_thresholds.length > 0
@@ -365,7 +400,10 @@ export function gradeToPercent(
       ? config.custom_thresholds
       : getDefaultThresholds(scale);
 
-  if (scale === 'de_oberstufe_0_to_15') {
+  if (scale === 'de_decimal_1_to_6') {
+    const clamped = Math.max(1.0, Math.min(6.0, grade));
+    return Math.max(0, Math.min(100, ((6.0 - clamped) / 5.0) * 100));
+  } else if (scale === 'de_oberstufe_0_to_15') {
     const clamped = Math.max(0, Math.min(15, grade));
     const match = thresholds.find((t) => Math.abs(t.numeric_value - clamped) < 0.25);
     if (match) return match.min_percent;
@@ -389,6 +427,9 @@ export function formatGradeDisplayLabel(
   config?: SubjectGradingConfig
 ): string {
   const scale = config?.scale_id || 'de_classic_1_to_6';
+  if (scale === 'de_decimal_1_to_6') {
+    return Number(grade).toFixed(1).replace('.', ',');
+  }
   const thresholds =
     config?.custom_thresholds && config.custom_thresholds.length > 0
       ? config.custom_thresholds

@@ -1,7 +1,10 @@
 {
   "name": "gradus21-core",
   "type": "module",
-  "version": "26.11.2",
+  "collaborators": [
+    "Julian Kallidat <julian@gradus21.de>"
+  ],
+  "version": "26.11.3",
   "license": "MIT",
   "files": [
     "gradus21_core_bg.wasm",

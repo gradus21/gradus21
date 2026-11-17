@@ -65,6 +65,17 @@ export function validateGradeInput(
     return { isValid: true };
   }
 
+  if (scaleId === 'de_decimal_1_to_6') {
+    if (!/^\d+([.,]\d*)?$/.test(trimmed)) {
+      return { isValid: false, errorHint: 'Erlaubt: Dezimalnote 1,0 bis 6,0' };
+    }
+    const num = parseFloat(trimmed.replace(',', '.'));
+    if (isNaN(num) || num < 1.0 || num > 6.0) {
+      return { isValid: false, errorHint: 'Erlaubt: Dezimalnote 1,0 bis 6,0' };
+    }
+    return { isValid: true };
+  }
+
   if (scaleId === 'de_oberstufe_0_to_15') {
     if (!/^\d+([.,]\d*)?$/.test(trimmed)) {
       return { isValid: false, errorHint: 'Erlaubt: 0 bis 15 Notenpunkte' };
