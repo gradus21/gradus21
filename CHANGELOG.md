@@ -3,6 +3,21 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Calendar Versioning](https://calver.org/) (Ubuntu-Style `YY.MM.PATCH`).
 
+## [26.11.4] - 2026-11-17
+
+### GMS Niveauschlüssel, interaktive Schwellenwert-Editoren & Kommanoten
+- **Gemeinschaftsschulen & Binnendifferenzierung (GMS Niveauschlüssel)**:
+  - Generisches Multi-Niveau-Schwellenwertmodell: Schüler auf G- (Grundlegend), M- (Mittel) und E-Niveau (Erweitert) schreiben dieselbe gemeinsame Klassenarbeit (0–100%) und erhalten automatisch die niveau-spezifische Note nach dem offiziellen GMS-Raster.
+  - Vollständige Validierung und Berechnung von Zwischennoten (`1/2`, `2/3`, `3/4`, `4/5`, `5/6`) bei direkter Noteneingabe sowie bei Schwellenwertauflösung.
+  - Neue Vorlage im Klassen-Assistenten: *„GMS Niveauschlüssel (Gemeinschaftsschule)“*.
+- **Interaktive Schwellenwert-Tabellen (Custom Thresholds)**:
+  - Vollwertige Niveaustufen-Tabelle mit 21 Notenstufen im Reiter *„Binnendifferenzierung“*: Jedes Niveau (G, M, E) kann zeilenweise mit benutzerdefinierten Mindestprozenten editiert werden, sodass jede Schule ihr individuelles Schema anlegen kann.
+  - Manueller Schwellenwert-Editor auch im Reiter *„Notenschlüssel & Schwellen“* für die 16 Feinstufen der Standard-Notenskala inklusive Reset-Möglichkeit.
+- **Kontinuierliche Kommanoten / Zehntelnoten (`1,0` – `6,0`)**:
+  - Neue Bewertungsskala `de_decimal_1_to_6` mit stufenloser linearer Berechnung (`6.0 - 5.0 * (pct / 100.0)`) und Zehntelnoten-Auflösung.
+  - Nativer Support für direkte Kommanoten-Eingaben (z. B. `1,3`, `2,7`) und lokalisierte Komma-Formatierung.
+  - Neue Klassen-Vorlage *„Kommanoten 1,0–6,0 (50 / 50)“* und Aufnahme in den Notensystem-Konfigurator sowie die globalen Einstellungen.
+
 ## [26.11.3] - 2026-11-17
 
 ### YouTube-Videoguides, barrierefreie Dialoge & Sync-Härtung

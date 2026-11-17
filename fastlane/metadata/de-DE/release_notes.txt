@@ -1,7 +1,6 @@
-Neu in Gradus21 Version 26.11.3:
-• YouTube-Videoguides & didaktische Touren: 6 praxisnahe Video-Kapitel direkt in der App für einen mühelosen Einstieg.
-• Barrierefreie Dialoge & intuitive Navigation: Moderne, tastatur- und touchfreundliche Bestätigungsdialoge statt störender Browser-Popups sowie Zurück-Gesten-Unterstützung.
-• Pädagogische Notenvalidierung: Sofortiges Inline-Feedback, Undo-Funktion und sichtbare Rechenkern-Statusanzeige.
-• Robuste Synchronisation: Schnellere und fehlertolerantere Tresor- und Cloud-Synchronisation auch bei unbeständigen Schul-WLAN-Verbindungen.
-• Optimierte Mobildarstellung & PWA: Neues App-Icon, verbesserte iPad-Gesten und Benachrichtigung bei App-Updates.
-• Sicherheits- und Stabilitätsverbesserungen im Noten-Tresor.
+Neu in Gradus21 Version 26.11.4:
+• GMS Niveauschlüssel (Gemeinschaftsschulen): Multi-Niveau-Bewertung für G-, M- und E-Niveau bei gemeinsamen Klassenarbeiten (0–100%) inklusive nativer Zwischennoten (1/2, 2/3, 3/4, 4/5, 5/6).
+• Interaktive Schwellenwert-Editoren: Eigene Schwellenwert-Tabellen direkt in der App zeilenweise anpassen – sowohl pro Niveau (G/M/E) als auch für Standardnoten.
+• Kommanoten / Zehntelnoten (1,0–6,0): Neues Bewertungsschema mit stufenloser linearer Berechnung und direkter Dezimalnoteneingabe.
+• Neue praktische Vorlagen im Klassen-Assistenten für GMS und Kommanoten.
+• Kontinuierliche Stabilitäts- und Performanceverbesserungen im Rechenkern.
