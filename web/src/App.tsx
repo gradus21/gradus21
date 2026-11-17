@@ -308,6 +308,26 @@ export const App: React.FC = () => {
   useBackDismiss(isGuideOpen, () => setIsGuideOpen(false));
   useBackDismiss(isChapterSelectOpen, () => setIsChapterSelectOpen(false));
 
+  // Auto-open or expand UI targets when interactive guide steps focus on them
+  useEffect(() => {
+    const handleGuideTarget = (e: Event) => {
+      const targetId = (e as CustomEvent)?.detail?.targetId;
+      if (targetId === 'wizard-dialog-card') {
+        setActiveModal({ type: 'classWizard' });
+      } else {
+        setActiveModal((prev) => (prev?.type === 'classWizard' ? null : prev));
+      }
+      if (targetId === 'student360-simulator-card') {
+        setShowOnDemandSimulator(true);
+      }
+      if (targetId === 'speed-grading-curve-box') {
+        setShowOnDemandCurveEditor(true);
+      }
+    };
+    window.addEventListener('gradus21:guide-target', handleGuideTarget);
+    return () => window.removeEventListener('gradus21:guide-target', handleGuideTarget);
+  }, []);
+
   // Domain Calculations & Handlers
   const {
     curvePresetKey,

@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Clock,
   Compass,
+  ExternalLink,
   FolderPlus,
   Play,
   RotateCcw,
@@ -12,11 +13,14 @@ import {
   Sliders,
   Sparkles,
   UserCheck,
+  Video,
   X,
+  Youtube,
   Zap,
 } from 'lucide-react';
 import { GuideChapterId } from '../../types/guide';
-import { GUIDE_CHAPTERS } from './guideChaptersData';
+import { GUIDE_CHAPTERS, YOUTUBE_PLAYLIST_URL } from './guideChaptersData';
+import { openExternalUrl } from '../../utils/platform';
 
 interface GuideChapterSelectModalProps {
   isOpen: boolean;
@@ -134,6 +138,47 @@ export const GuideChapterSelectModal: React.FC<GuideChapterSelectModalProps> = (
           </button>
         </div>
 
+        {/* YOUTUBE VIDEO BANNER */}
+        <div
+          className="mx-6 mt-4 p-3.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+          style={{
+            backgroundColor: 'var(--bg-subtle)',
+            borderColor: 'var(--border-subtle)',
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+              <Youtube className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-bold flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
+                <span>Lieber als Video ansehen?</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400">
+                  Neu
+                </span>
+              </div>
+              <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                Alle 6 Kapitel gibt es auch als kompakte Video-Tutorials mit deutscher Stimme auf YouTube.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => openExternalUrl(YOUTUBE_PLAYLIST_URL)}
+            className="px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition hover:opacity-90 shrink-0 self-start sm:self-auto"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            <Youtube className="w-3.5 h-3.5 text-rose-600" />
+            <span>YouTube-Playlist (6 Videos)</span>
+            <ExternalLink className="w-3 h-3 opacity-60" />
+          </button>
+        </div>
+
         {/* CHAPTERS LIST */}
         <div className="p-6 overflow-y-auto space-y-3.5 flex-1">
           {GUIDE_CHAPTERS.map((chapter, idx) => {
@@ -175,16 +220,40 @@ export const GuideChapterSelectModal: React.FC<GuideChapterSelectModalProps> = (
                     <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
                       {chapter.subtitle}
                     </p>
-                    <div className="flex items-center gap-1.5 mt-2 text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>
-                      <Clock className="w-3 h-3 shrink-0" />
-                      <span>
-                        ~{chapter.estimatedMinutes} Min. · {chapter.steps.length} Schritte
+                    <div className="flex flex-wrap items-center gap-2 mt-2 text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-3 h-3 shrink-0" />
+                        <span>~{chapter.estimatedMinutes} Min. · {chapter.steps.length} Schritte</span>
                       </span>
+                      {chapter.videoDurationLabel && (
+                        <span className="inline-flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold">
+                          <Youtube className="w-3 h-3" />
+                          <span>Video: {chapter.videoDurationLabel}</span>
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                <div className="flex flex-wrap items-center gap-2 self-end sm:self-center shrink-0">
+                  {chapter.youtubeUrl && (
+                    <button
+                      type="button"
+                      onClick={() => openExternalUrl(chapter.youtubeUrl!)}
+                      className="px-3 py-2 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition hover:opacity-85"
+                      style={{
+                        backgroundColor: 'var(--bg-subtle)',
+                        borderColor: 'var(--border-subtle)',
+                        color: 'var(--text-primary)',
+                      }}
+                      title={`Video zu Kapitel ${idx + 1} auf YouTube ansehen (${chapter.videoDurationLabel})`}
+                    >
+                      <Youtube className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                      <span>Video ansehen</span>
+                      <ExternalLink className="w-3 h-3 opacity-60" />
+                    </button>
+                  )}
+
                   <button
                     onClick={() => {
                       onClose();

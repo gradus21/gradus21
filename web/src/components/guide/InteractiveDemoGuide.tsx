@@ -138,6 +138,132 @@ function renderRichContent(content: string): React.ReactNode {
   );
 }
 
+export interface GuidePopoverLayoutInput {
+  targetRect: TargetRect | null;
+  placement?: 'top' | 'bottom' | 'left' | 'right' | 'center';
+  padding: number;
+  windowW: number;
+  windowH: number;
+  measuredHeight?: number;
+}
+
+/**
+ * Computes collision-free fixed positioning for the interactive guide popover
+ * outside the highlighted spotlight box whenever any side has sufficient room.
+ */
+export function computeGuidePopoverStyle({
+  targetRect,
+  placement: preferredPlacement,
+  padding,
+  windowW,
+  windowH,
+  measuredHeight,
+}: GuidePopoverLayoutInput): React.CSSProperties {
+  const topReserve = 16;
+  const bottomReserve = windowW < 768 ? 76 : 16;
+  const sideReserve = 12;
+  const gap = 14;
+
+  const cardWidth = Math.min(400, Math.max(280, windowW - 24));
+  const maxAvailableCardHeight = Math.max(220, windowH - topReserve - bottomReserve);
+  const cardHeight = Math.min(measuredHeight || 260, maxAvailableCardHeight);
+
+  const isCentered = !targetRect || preferredPlacement === 'center';
+  if (isCentered) {
+    return {
+      position: 'fixed',
+      top: '50%',
+      left: '50%',
+      transform: 'translate(-50%, -50%)',
+      width: `${cardWidth}px`,
+      maxHeight: `${maxAvailableCardHeight}px`,
+      zIndex: 70,
+    };
+  }
+
+  const spotTop = Math.max(0, targetRect.top - padding);
+  const spotBottom = Math.min(windowH, targetRect.top + targetRect.height + padding);
+  const spotLeft = Math.max(0, targetRect.left - padding);
+  const spotRight = Math.min(windowW, targetRect.left + targetRect.width + padding);
+  const spotHeight = spotBottom - spotTop;
+
+  const roomRight = windowW - sideReserve - (spotRight + gap);
+  const roomLeft = spotLeft - gap - sideReserve;
+  const roomBelow = windowH - bottomReserve - (spotBottom + gap);
+  const roomAbove = spotTop - gap - topReserve;
+
+  const orderMap: Record<'top' | 'bottom' | 'left' | 'right', Array<'top' | 'bottom' | 'left' | 'right'>> = {
+    right: ['right', 'left', 'bottom', 'top'],
+    left: ['left', 'right', 'bottom', 'top'],
+    top: ['top', 'bottom', 'right', 'left'],
+    bottom: ['bottom', 'top', 'right', 'left'],
+  };
+  const preferred = preferredPlacement || 'bottom';
+  const candidateOrder = orderMap[preferred];
+
+  const minSideCardWidth = Math.min(cardWidth, 320);
+  let effectiveCardWidth = cardWidth;
+  let top = 0;
+  let left = 0;
+  let placed = false;
+
+  for (const side of candidateOrder) {
+    if (side === 'right' && roomRight >= minSideCardWidth) {
+      effectiveCardWidth = Math.min(cardWidth, roomRight);
+      left = spotRight + gap;
+      top = spotTop + Math.min(32, Math.max(0, (spotHeight - cardHeight) / 2));
+      placed = true;
+      break;
+    }
+    if (side === 'left' && roomLeft >= minSideCardWidth) {
+      effectiveCardWidth = Math.min(cardWidth, roomLeft);
+      left = spotLeft - gap - effectiveCardWidth;
+      top = spotTop + Math.min(32, Math.max(0, (spotHeight - cardHeight) / 2));
+      placed = true;
+      break;
+    }
+    if (side === 'bottom' && roomBelow >= cardHeight) {
+      top = spotBottom + gap;
+      left = targetRect.left + targetRect.width / 2 - effectiveCardWidth / 2;
+      placed = true;
+      break;
+    }
+    if (side === 'top' && roomAbove >= cardHeight) {
+      top = spotTop - gap - cardHeight;
+      left = targetRect.left + targetRect.width / 2 - effectiveCardWidth / 2;
+      placed = true;
+      break;
+    }
+  }
+
+  if (!placed) {
+    if (windowW >= 768) {
+      left = windowW - effectiveCardWidth - 24;
+      top = windowH - cardHeight - bottomReserve - 16;
+    } else {
+      left = (windowW - effectiveCardWidth) / 2;
+      top = windowH - cardHeight - bottomReserve - 8;
+    }
+  }
+
+  const minTop = topReserve;
+  const maxTop = Math.max(minTop, windowH - cardHeight - bottomReserve);
+  top = Math.max(minTop, Math.min(top, maxTop));
+
+  const minLeft = sideReserve;
+  const maxLeft = Math.max(minLeft, windowW - effectiveCardWidth - sideReserve);
+  left = Math.max(minLeft, Math.min(left, maxLeft));
+
+  return {
+    position: 'fixed',
+    top: `${Math.round(top)}px`,
+    left: `${Math.round(left)}px`,
+    width: `${Math.round(effectiveCardWidth)}px`,
+    maxHeight: `${maxAvailableCardHeight}px`,
+    zIndex: 70,
+  };
+}
+
 interface InteractiveDemoGuideProps {
   isOpen: boolean;
   chapterId: GuideChapterId;
@@ -171,6 +297,13 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
     height: 260,
   });
   const popoverRef = useRef<HTMLDivElement>(null);
+  const lastScrolledStepKeyRef = useRef<string>('');
+
+  useEffect(() => {
+    if (!isOpen) {
+      lastScrolledStepKeyRef.current = '';
+    }
+  }, [isOpen]);
 
   const currentChapter: GuideChapter | undefined = GUIDE_CHAPTERS.find(
     (c) => c.id === chapterId
@@ -238,20 +371,26 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
       return;
     }
 
-    let selector = `[data-tour="${currentStep.targetId}"]`;
-    if (currentStep.targetId === 'header-sync-status') {
-      selector = '[data-tour="header-sync-status"], [data-tour="header-storage-indicator"]';
-    } else if (currentStep.targetId === 'configurator-scale-mode') {
-      selector = '[data-tour="configurator-scale-mode"], [data-tour="configurator-tab-base-setup"]';
-    } else if (currentStep.targetId === 'configurator-curve-editor') {
-      selector = '[data-tour="configurator-curve-editor"], [data-tour="configurator-tab-curve"]';
-    } else if (currentStep.targetId === 'configurator-differentiation') {
-      selector = '[data-tour="configurator-differentiation"], [data-tour="configurator-tab-differentiation"]';
-    } else if (currentStep.targetId === 'configurator-categories') {
-      selector = '[data-tour="configurator-categories"], [data-tour="configurator-tab-categories"]';
-    }
+    const primarySelector = `[data-tour="${currentStep.targetId}"]`;
+    let el = document.querySelector(primarySelector) as HTMLElement | null;
 
-    let el = document.querySelector(selector) as HTMLElement | null;
+    if (!el || el.getBoundingClientRect().width === 0) {
+      let fallbackSelector: string | null = null;
+      if (currentStep.targetId === 'header-sync-status') {
+        fallbackSelector = '[data-tour="header-storage-indicator"]';
+      } else if (currentStep.targetId === 'configurator-scale-mode') {
+        fallbackSelector = '[data-tour="configurator-tab-base-setup"]';
+      } else if (currentStep.targetId === 'configurator-curve-editor') {
+        fallbackSelector = '[data-tour="configurator-tab-curve"]';
+      } else if (currentStep.targetId === 'configurator-differentiation') {
+        fallbackSelector = '[data-tour="configurator-tab-differentiation"]';
+      } else if (currentStep.targetId === 'configurator-categories') {
+        fallbackSelector = '[data-tour="configurator-tab-categories"]';
+      }
+      if (fallbackSelector) {
+        el = document.querySelector(fallbackSelector) as HTMLElement | null;
+      }
+    }
 
     // Fallback for class setup/manager buttons when collapsed into class switcher on screens < 1024px
     if (
@@ -281,34 +420,56 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
           height: rect.height,
         });
 
-        // Scroll smoothly ONLY if element is completely out of visible viewport
+        // Scroll smoothly if element is clipped or outside visible viewport
         const viewportH = window.innerHeight || document.documentElement.clientHeight;
         const viewportW = window.innerWidth || document.documentElement.clientWidth;
-        const isCompletelyOutOfView =
-          rect.bottom < 60 ||
-          rect.top > viewportH - 60 ||
-          rect.right < 0 ||
-          rect.left > viewportW;
+        const stepKey = `${chapterId}:${stepIndex}:${currentStep.targetId}`;
+        const isClippedVertically = rect.top < 72 || rect.bottom > viewportH - 24;
+        const isOutHorizontally = rect.right < 0 || rect.left > viewportW;
 
-        if (isCompletelyOutOfView && rect.height < viewportH * 1.5) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        if (
+          (isClippedVertically || isOutHorizontally) &&
+          rect.height < viewportH - 96 &&
+          lastScrolledStepKeyRef.current !== stepKey
+        ) {
+          lastScrolledStepKeyRef.current = stepKey;
+          el.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
         }
         return;
       }
     }
 
     setTargetRect(null);
-  }, [isOpen, currentStep]);
+  }, [isOpen, currentStep, chapterId, stepIndex]);
 
   // Update target on step change or resize/scroll
   useEffect(() => {
     updateTargetPosition();
-    const timer = setTimeout(updateTargetPosition, 80);
-    const timer2 = setTimeout(updateTargetPosition, 250);
 
     const handleResizeOrScroll = () => {
       updateTargetPosition();
     };
+
+    let targetObserver: ResizeObserver | null = null;
+    const attachTargetObserver = () => {
+      if (targetObserver || typeof ResizeObserver === 'undefined' || !currentStep?.targetId) return;
+      const targetEl = document.querySelector(`[data-tour="${currentStep.targetId}"]`) as HTMLElement | null;
+      if (targetEl) {
+        targetObserver = new ResizeObserver(handleResizeOrScroll);
+        targetObserver.observe(targetEl);
+      }
+    };
+
+    attachTargetObserver();
+    const timer = setTimeout(() => {
+      attachTargetObserver();
+      updateTargetPosition();
+    }, 80);
+    const timer2 = setTimeout(() => {
+      attachTargetObserver();
+      updateTargetPosition();
+    }, 250);
+    const timer3 = setTimeout(updateTargetPosition, 450);
 
     window.addEventListener('resize', handleResizeOrScroll);
     window.addEventListener('scroll', handleResizeOrScroll, true);
@@ -316,10 +477,12 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
     return () => {
       clearTimeout(timer);
       clearTimeout(timer2);
+      clearTimeout(timer3);
+      if (targetObserver) targetObserver.disconnect();
       window.removeEventListener('resize', handleResizeOrScroll);
       window.removeEventListener('scroll', handleResizeOrScroll, true);
     };
-  }, [updateTargetPosition, stepIndex, chapterId]);
+  }, [updateTargetPosition, stepIndex, chapterId, currentStep]);
 
   // Reset demo loaded success state on step or chapter change
   useEffect(() => {
@@ -397,89 +560,17 @@ export const InteractiveDemoGuide: React.FC<InteractiveDemoGuideProps> = ({
 
   // Calculate Popover coordinates based on targetRect & placement
   const padding = currentStep.highlightPadding ?? 8;
-  const isCentered = !targetRect || currentStep.placement === 'center';
-
   const windowW = typeof window !== 'undefined' ? window.innerWidth : 1200;
   const windowH = typeof window !== 'undefined' ? window.innerHeight : 800;
 
-  const topReserve = 16;
-  const bottomReserve = windowW < 768 ? 76 : 16;
-  const gap = 14;
-
-  const cardWidth = Math.min(400, Math.max(280, windowW - 24));
-  const maxAvailableCardHeight = Math.max(220, windowH - topReserve - bottomReserve);
-  const cardHeight = Math.min(measuredSize.height || 260, maxAvailableCardHeight);
-
-  let popoverStyle: React.CSSProperties = {};
-
-  if (isCentered) {
-    popoverStyle = {
-      position: 'fixed',
-      top: '50%',
-      left: '50%',
-      transform: 'translate(-50%, -50%)',
-      width: `${cardWidth}px`,
-      maxHeight: `${maxAvailableCardHeight}px`,
-      zIndex: 70,
-    };
-  } else if (targetRect) {
-    // If the target element is very large (spans > 45% of viewport height like full matrix table or views)
-    const isTargetHuge = targetRect.height > windowH * 0.45;
-
-    let top = 0;
-    let left = 0;
-
-    if (isTargetHuge) {
-      // Float docked cleanly in the bottom portion of viewport with ample breathing room
-      top = windowH - cardHeight - bottomReserve - 12;
-      left = targetRect.left + (targetRect.width - cardWidth) / 2;
-    } else {
-      let preferredPlacement = currentStep.placement || 'bottom';
-
-      // Check available space
-      const roomBelow = windowH - (targetRect.top + targetRect.height + gap) - bottomReserve;
-      const roomAbove = targetRect.top - gap - topReserve;
-
-      let placement = preferredPlacement;
-      if (placement === 'bottom' && roomBelow < cardHeight && roomAbove >= cardHeight) {
-        placement = 'top';
-      } else if (placement === 'top' && roomAbove < cardHeight && roomBelow >= cardHeight) {
-        placement = 'bottom';
-      }
-
-      if (placement === 'bottom') {
-        top = targetRect.top + targetRect.height + gap;
-        left = targetRect.left + targetRect.width / 2 - cardWidth / 2;
-      } else if (placement === 'top') {
-        top = targetRect.top - cardHeight - gap;
-        left = targetRect.left + targetRect.width / 2 - cardWidth / 2;
-      } else if (placement === 'left') {
-        top = targetRect.top + targetRect.height / 2 - cardHeight / 2;
-        left = targetRect.left - cardWidth - gap;
-      } else if (placement === 'right') {
-        top = targetRect.top + targetRect.height / 2 - cardHeight / 2;
-        left = targetRect.left + targetRect.width + gap;
-      }
-    }
-
-    // Strict boundary clamping so the card is ALWAYS 100% visible
-    const minTop = topReserve;
-    const maxTop = Math.max(minTop, windowH - cardHeight - bottomReserve);
-    top = Math.max(minTop, Math.min(top, maxTop));
-
-    const minLeft = 12;
-    const maxLeft = Math.max(minLeft, windowW - cardWidth - 12);
-    left = Math.max(minLeft, Math.min(left, maxLeft));
-
-    popoverStyle = {
-      position: 'fixed',
-      top: `${Math.round(top)}px`,
-      left: `${Math.round(left)}px`,
-      width: `${cardWidth}px`,
-      maxHeight: `${maxAvailableCardHeight}px`,
-      zIndex: 70,
-    };
-  }
+  const popoverStyle = computeGuidePopoverStyle({
+    targetRect,
+    placement: currentStep.placement,
+    padding,
+    windowW,
+    windowH,
+    measuredHeight: measuredSize.height,
+  });
 
   const stepProgress = Math.round(((stepIndex + 1) / totalSteps) * 100);
 

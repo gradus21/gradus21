@@ -48,4 +48,8 @@ export interface GuideChapter {
   estimatedMinutes: number;
   tags: string[];
   steps: GuideStep[];
+  youtubeVideoId?: string;
+  youtubeUrl?: string;
+  videoDurationLabel?: string;
+  thumbnailPath?: string;
 }

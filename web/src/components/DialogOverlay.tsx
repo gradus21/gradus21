@@ -62,6 +62,11 @@ export const DialogOverlay: React.FC<DialogOverlayProps> = ({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
+  const isGuideTourTarget =
+    dataTour === 'wizard-dialog-card' &&
+    typeof document !== 'undefined' &&
+    Boolean(document.querySelector('[data-guide-card="true"]'));
+
   // Browser/Android-Zurück schließt das Overlay (#38)
   useBackDismiss(isOpen, onClose);
 
@@ -73,7 +78,10 @@ export const DialogOverlay: React.FC<DialogOverlayProps> = ({
 
     previousFocusRef.current = document.activeElement as HTMLElement | null;
 
-    if (typeof dialog.showModal === 'function') {
+    if (isGuideTourTarget) {
+      dialog.setAttribute('open', '');
+      (dialog as any).open = true;
+    } else if (typeof dialog.showModal === 'function') {
       try {
         dialog.showModal();
       } catch {
@@ -93,14 +101,13 @@ export const DialogOverlay: React.FC<DialogOverlayProps> = ({
         } catch {
           // ignore
         }
-      } else {
-        dialog.removeAttribute('open');
-        (dialog as any).open = false;
       }
+      dialog.removeAttribute('open');
+      (dialog as any).open = false;
       previousFocusRef.current?.focus?.();
       previousFocusRef.current = null;
     };
-  }, [isOpen]);
+  }, [isOpen, isGuideTourTarget]);
 
   // Natives cancel-Event (Escape) → onClose
   useEffect(() => {
@@ -151,8 +158,13 @@ export const DialogOverlay: React.FC<DialogOverlayProps> = ({
       aria-labelledby={titleId}
       className={`
         dialog-overlay
-        p-0 bg-transparent backdrop:bg-black/60 backdrop:backdrop-blur-sm
-        open:flex items-end sm:items-center justify-center
+        p-0 backdrop:bg-black/60 backdrop:backdrop-blur-sm
+        open:flex items-end sm:items-center
+        ${
+          isGuideTourTarget
+            ? 'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm justify-center lg:justify-start lg:!pl-10'
+            : 'bg-transparent justify-center'
+        }
         w-full h-full max-w-full max-h-full
         open:animate-in open:fade-in open:duration-150
       `}

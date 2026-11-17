@@ -1,5 +1,8 @@
 import { GuideChapter } from '../../types/guide';
 
+export const YOUTUBE_CHANNEL_URL = 'https://www.youtube.com/channel/UCyThQd_nogBYNeAVb-WVFWg';
+export const YOUTUBE_PLAYLIST_URL = 'https://www.youtube.com/playlist?list=PLL9Oq2VrwC74';
+
 export const GUIDE_CHAPTERS: GuideChapter[] = [
   {
     id: 'overview_all',
@@ -11,6 +14,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
     iconName: 'Compass',
     estimatedMinutes: 1,
     tags: ['Einführung', 'Klassen-Start', 'Alle Modi', 'Überblick'],
+    youtubeVideoId: 'rmi0ZeV-E-0',
+    youtubeUrl: 'https://youtu.be/rmi0ZeV-E-0',
+    videoDurationLabel: '1:48 Min.',
+    thumbnailPath: '/thumbnails/01_Thumbnail_Schnellstart_und_Ueberblick.webp',
     steps: [
       {
         id: 'ov_welcome',
@@ -68,7 +75,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         content:
           'Arbeit korrigiert? Tippe Ergebnisse im Sekundentakt per Tastatur ein (`Enter` = nächste Zeile, `K` = krank/entschuldigt) – inklusive Live-Notenspiegel.',
         targetId: 'speed-grading-table',
-        placement: 'bottom',
+        placement: 'right',
         targetMode: 'speed_grading',
       },
       {
@@ -114,6 +121,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
     iconName: 'FolderPlus',
     estimatedMinutes: 1,
     tags: ['Klassen', 'Excel-Import', 'Start', 'Demoklasse'],
+    youtubeVideoId: 'obk4dlkU9S0',
+    youtubeUrl: 'https://youtu.be/obk4dlkU9S0',
+    videoDurationLabel: '0:43 Min.',
+    thumbnailPath: '/thumbnails/02_Thumbnail_Erste_Klasse_und_Excel_Import.webp',
     steps: [
       {
         id: 'setup_intro',
@@ -142,7 +153,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         content:
           'Beim Excel-Import erkennt Gradus21 Schülernamen und Prüfungen automatisch. Alternativ fügst du deine Namensliste einfach per Copy & Paste ein.',
         targetId: 'wizard-dialog-card',
-        placement: 'top',
+        placement: 'right',
         action: {
           label: 'Beispielklasse mit Noten laden',
           actionType: 'load_demo_dataset',
@@ -169,6 +180,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
     iconName: 'Sliders',
     estimatedMinutes: 1.5,
     tags: ['Gewichtung', 'Notenschlüssel', 'Didaktik', 'Binnendifferenzierung'],
+    youtubeVideoId: '_x8p8Vio_gQ',
+    youtubeUrl: 'https://youtu.be/_x8p8Vio_gQ',
+    videoDurationLabel: '1:19 Min.',
+    thumbnailPath: '/thumbnails/03_Thumbnail_Eigenes_Bewertungsmodell.webp',
     steps: [
       {
         id: 'cgm_welcome',
@@ -185,7 +200,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         content:
           'Verteile die Gewichtung per Schieberegler (z. B. 50 % Arbeiten, 30 % Mündlich, 20 % Tests), fixiere Töpfe per Schloss-Symbol oder aktiviere Streichnoten.',
         targetId: 'configurator-categories',
-        placement: 'top',
+        placement: 'right',
         targetMode: 'configurator',
       },
       {
@@ -194,16 +209,16 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         content:
           'Passe die Prozentgrenzen für die Noten 1 bis 6 sowie die Bestehensgrenze (Note 4) flexibel an deine Fachschaft an.',
         targetId: 'configurator-curve-editor',
-        placement: 'top',
+        placement: 'right',
         targetMode: 'configurator',
       },
       {
         id: 'cgm_differentiation',
         title: '3. Binnendifferenzierung (G / M / E)',
         content:
-          'Unterrichtest du heterogene Gruppen? Aktiviere eigene Maßstäbe für **G-**, **M-** und **E-Niveau**.',
+          'Hast du heterogene Gruppen? Aktiviere eigene Maßstäbe für **G-**, **M-** und **E-Niveau**.',
         targetId: 'configurator-differentiation',
-        placement: 'top',
+        placement: 'right',
         targetMode: 'configurator',
       },
       {
@@ -212,7 +227,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         content:
           'Wähle zwischen **Noten (1–6)** und **Oberstufen-Punkten (0–15)** sowie zwischen Kategorien-Töpfen oder freien Faktoren.',
         targetId: 'configurator-scale-mode',
-        placement: 'top',
+        placement: 'right',
         targetMode: 'configurator',
       },
       {
@@ -228,7 +243,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         id: 'cgm_templates',
         title: '6. Vorlagen speichern & teilen',
         content:
-          'Speichere dein Bewertungsmodell als Vorlage, um es mit einem Klick für weitere Klassen wiederzuverwenden.',
+          'Speichere dein Notenmodell als Vorlage, um es mit einem Klick für weitere Klassen wiederzuverwenden.',
         targetId: 'configurator-templates',
         placement: 'bottom',
         targetMode: 'configurator',
@@ -245,6 +260,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
     iconName: 'Zap',
     estimatedMinutes: 1,
     tags: ['Noteneingabe', 'Korrektur', 'Notenspiegel', 'Tastatur'],
+    youtubeVideoId: 'HSZ9z7ZZO00',
+    youtubeUrl: 'https://youtu.be/HSZ9z7ZZO00',
+    videoDurationLabel: '0:38 Min.',
+    thumbnailPath: '/thumbnails/04_Thumbnail_Speed_Grading_und_Notenspiegel.webp',
     steps: [
       {
         id: 'sg_entry',
@@ -261,7 +280,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         content:
           'Tippe Prozent, Rohpunkte oder Direktnoten ein. Mit `Enter` springst du in die nächste Zeile, mit `K` vermerkst du Atteste neutral.',
         targetId: 'speed-grading-table',
-        placement: 'bottom',
+        placement: 'right',
         targetMode: 'speed_grading',
       },
       {
@@ -270,7 +289,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         content:
           'Der Notenspiegel zählt live mit. Fällt eine Arbeit unerwartet streng aus, passt du den Maßstab hier direkt an.',
         targetId: 'speed-grading-curve-box',
-        placement: 'top',
+        placement: 'left',
         targetMode: 'speed_grading',
       },
     ],
@@ -285,6 +304,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
     iconName: 'UserCheck',
     estimatedMinutes: 1,
     tags: ['Beratung', 'Elterngespräch', 'Simulator', 'Was-wäre-wenn'],
+    youtubeVideoId: 'PiUIxPq950s',
+    youtubeUrl: 'https://youtu.be/PiUIxPq950s',
+    videoDurationLabel: '0:51 Min.',
+    thumbnailPath: '/thumbnails/05_Thumbnail_Schueler_360_Akte_und_Simulator.webp',
     steps: [
       {
         id: 's360_overview',
@@ -334,6 +357,10 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
     iconName: 'ShieldCheck',
     estimatedMinutes: 1,
     tags: ['Sicherheit', 'E2EE', 'Beamer-Schutz', 'Datenschutz'],
+    youtubeVideoId: 'XOCsiVwxZqU',
+    youtubeUrl: 'https://youtu.be/XOCsiVwxZqU',
+    videoDurationLabel: '0:51 Min.',
+    thumbnailPath: '/thumbnails/06_Thumbnail_Datenschutz_und_Beamer_Schutz.webp',
     steps: [
       {
         id: 'ps_blur',

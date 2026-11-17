@@ -45,6 +45,9 @@ import {
   Check,
   Fingerprint,
   Pencil,
+  Youtube,
+  Play,
+  Video,
 } from 'lucide-react';
 import {
   isFileSystemAccessSupported,
@@ -65,7 +68,9 @@ import {
   isMacOS,
   getStorageLocationInfo,
   isMobileDevice,
+  openExternalUrl,
 } from '../utils/platform';
+import { GUIDE_CHAPTERS, YOUTUBE_CHANNEL_URL, YOUTUBE_PLAYLIST_URL } from './guide/guideChaptersData';
 import { triggerHapticFeedback } from '../utils/haptics';
 import { ActiveVaultSession } from './vault/vaultTypes';
 import { VaultLockAndAuthModal } from './VaultLockAndAuthModal';
@@ -1999,6 +2004,96 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Namen ausblenden (Alt+P), Offline-First & Zero-Knowledge (~1.5 Min.)</div>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              {/* YouTube Video-Tutorials & Offizieller Kanal */}
+              <div
+                className="p-5 rounded-2xl border space-y-4"
+                style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                      <Youtube className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
+                          Offizieller YouTube-Kanal &amp; Video-Guide
+                        </h4>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-400 uppercase tracking-wider">
+                          Full-HD · Deutsch
+                        </span>
+                      </div>
+                      <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                        Alle 6 Kapitel als kompakte Video-Tutorials – direkt auf den Punkt erklärt.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => openExternalUrl(YOUTUBE_PLAYLIST_URL)}
+                      className="px-3.5 py-2 rounded-xl text-xs font-bold text-white shadow-sm flex items-center justify-center gap-1.5 transition hover:opacity-95"
+                      style={{ backgroundColor: '#E11D48' }}
+                    >
+                      <Youtube className="w-3.5 h-3.5" />
+                      <span>Playlist ansehen (6 Videos)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openExternalUrl(YOUTUBE_CHANNEL_URL)}
+                      className="px-3 py-2 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition hover:opacity-85"
+                      style={{
+                        backgroundColor: 'var(--bg-surface)',
+                        borderColor: 'var(--border-subtle)',
+                        color: 'var(--text-primary)',
+                      }}
+                    >
+                      <span>Kanal @Gradus21</span>
+                      <ExternalLink className="w-3 h-3 opacity-60" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-1">
+                  {GUIDE_CHAPTERS.map((ch, idx) => (
+                    <button
+                      key={ch.id}
+                      type="button"
+                      onClick={() => ch.youtubeUrl && openExternalUrl(ch.youtubeUrl)}
+                      className="p-3 rounded-xl border text-left transition hover:shadow-sm hover:border-rose-400/50 flex flex-col justify-between gap-2 group"
+                      style={{
+                        backgroundColor: 'var(--bg-surface)',
+                        borderColor: 'var(--border-subtle)',
+                      }}
+                      title={`${ch.title} auf YouTube abspielen`}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wide opacity-60">
+                            Kapitel {idx + 1}
+                          </span>
+                          <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400">
+                            {ch.videoDurationLabel}
+                          </span>
+                        </div>
+                        <div className="font-bold text-xs group-hover:text-rose-600 transition-colors" style={{ color: 'var(--text-primary)' }}>
+                          {ch.shortTitle}
+                        </div>
+                        <div className="text-[11px] line-clamp-2" style={{ color: 'var(--text-secondary)' }}>
+                          {ch.subtitle}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400 pt-1 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+                        <Play className="w-3 h-3 fill-current" />
+                        <span>Video auf YouTube ansehen</span>
+                        <ExternalLink className="w-2.5 h-2.5 ml-auto opacity-70" />
+                      </div>
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { GuideChapterId } from '../types/guide';
 import { WorkspaceMode } from '../types/workspace';
 
@@ -75,6 +75,18 @@ export function useInteractiveGuide({
       console.error(e);
     }
   };
+
+  useEffect(() => {
+    const handleGuideTarget = (e: Event) => {
+      const targetId = (e as CustomEvent)?.detail?.targetId;
+      if (targetId === 'student360-simulator-card') {
+        setShowOnDemandSimulator(true);
+      }
+    };
+
+    window.addEventListener('gradus21:guide-target', handleGuideTarget);
+    return () => window.removeEventListener('gradus21:guide-target', handleGuideTarget);
+  }, [setShowOnDemandSimulator]);
 
   const handleGuideAction = (actionType: string, payload?: any) => {
     switch (actionType) {
