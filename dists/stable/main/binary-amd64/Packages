@@ -208,3 +208,18 @@ Priority: optional
 Description: Zero-Knowledge Notenverwaltung für Lehrkräfte
  Gradus21 ist eine datenschutzkonforme, Zero-Knowledge verschlüsselte Notenverwaltung für Lehrerinnen und Lehrer.
 
+Package: gradus21
+Version: 26.11.4
+Architecture: amd64
+Maintainer: Julian Kallidat <julian@gradus21.de>
+Installed-Size: 28213
+Depends: libwebkit2gtk-4.1-0, libgtk-3-0
+Filename: pool/main/g/gradus21/Gradus21_26.11.4_amd64.deb
+Size: 10208710
+MD5sum: 395a25864ccebb4f5babb023a5e0bf2a
+SHA1: 7811890d94acd918cde6ff1ad3cdda3b102a769f
+SHA256: b9dece6c9354230b5a8dcee9cea80bbe8a0afb110ad3e214f79ad2b655e57f45
+Priority: optional
+Description: Zero-Knowledge Notenverwaltung für Lehrkräfte
+ Gradus21 ist eine datenschutzkonforme, Zero-Knowledge verschlüsselte Notenverwaltung für Lehrerinnen und Lehrer.
+
