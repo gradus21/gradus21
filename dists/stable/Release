@@ -1,24 +1,24 @@
 Architectures: amd64
 Codename: stable
 Components: main
-Date: Tue, 17 Nov 2026 12:51:38 +0000
+Date: Tue, 17 Nov 2026 12:57:20 +0000
 Description: Gradus21 Official APT Repository for Debian, Ubuntu and Pop!_OS
 Label: Gradus21 Official APT Repository
 Origin: Gradus21
 Suite: stable
 MD5Sum:
- 7722e9b96ca3b707aa4b796610f75db7              241 Release
+ 7f1cb4dae5b6668fae8a2c37b24c0a2b              241 Release
  6b41fc68135a6dec175400d29ee0d202             8518 main/binary-amd64/Packages
- d5a5e8d69130df8cc40f82b06e64db9b             1855 main/binary-amd64/Packages.gz
+ 306c44ab3323ccb592f4808e0af9d222             1855 main/binary-amd64/Packages.gz
 SHA1:
- 93bc8000d4728e52f4d506bdae7d91d1eaf0263b              241 Release
+ b6a9fd606a48941526a431edabfd39f6db0d6c4d              241 Release
  4f79d00fad47c86f8a6d6a0674f245c1d25bd4d8             8518 main/binary-amd64/Packages
- 96062a96573ea44e7e0d512921280b24e4e34dcb             1855 main/binary-amd64/Packages.gz
+ f384a16146f15e4daae89208c9d88f41df1d55e7             1855 main/binary-amd64/Packages.gz
 SHA256:
- 1bd9f580e0cd7b158bd6722b40ca6796323c78eb7dde70f33d8593ad522b160f              241 Release
+ 1e118a6c09f002e30ac51339e04505685ee3af8d3e7d285a86ed07990c80a9f8              241 Release
  a4526e9d5c68bb12013c0b44055d82d49dba89dc605407af5c2e994494119c22             8518 main/binary-amd64/Packages
- 66c72023d880518d6dba3b02723e7ed8b2366fb1c5a21559d815fd5c06a13ba6             1855 main/binary-amd64/Packages.gz
+ 8982617415df3a9967245e98cff27c80d33b87e23631a33ab273622d711542ac             1855 main/binary-amd64/Packages.gz
 SHA512:
- 509171c8182185e2249a6fc499d0417f1ed85988784f083004995ab3fbbea0ab443128c85e0905c7afbb2ed764d4aafd85567a268fcb70bf65b17ee193daf1e2              241 Release
+ 937779c37d361c191dc55456891ba1be3a0adf3140c13a1329859d9508abbc43a1bc2abd04ee2b432e1aefcd69029e2e11f2350bd1656393c02f0180adb37eeb              241 Release
  b990526ec9b6221c26b5283d53e11ea5668b49e8633df421b4256c81d44d8f14e811a718872c8b5cc3b590ff7dbb243e42b0439ee80c032b6e9185f4f961b9c9             8518 main/binary-amd64/Packages
- f106768161bf240978c31d04b798cddda78acb94d33357493ed06af284a9da32b552f16f67fddf7585377f37bb7d052894548c570a8910af3287f5ef9aea7619             1855 main/binary-amd64/Packages.gz
+ 8add2272562858f04428a73f3cb1abaa96e2541fdf7d6b26c34edf45b5b72172097bb91c5a7869b215066884bab17ddd5c0e1b6879fad04a3c5bea7a012419f0             1855 main/binary-amd64/Packages.gz
