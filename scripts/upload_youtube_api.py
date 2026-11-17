@@ -478,6 +478,7 @@ def upload_resumable_video(youtube, video_path: Path, spec: dict, privacy: str) 
                 "privacyStatus": privacy,
                 "selfDeclaredMadeForKids": False,
                 "containsSyntheticMedia": True,
+                "embeddable": True,
             },
         },
         media_body=media,
