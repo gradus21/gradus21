@@ -3,6 +3,34 @@
 All notable changes to **Gradus21** are documented in this file.
 This project adheres to [Calendar Versioning](https://calver.org/) (Ubuntu-Style `YY.MM.PATCH`).
 
+## [26.11.3] - 2026-11-17
+
+### YouTube-Videoguides, barrierefreie Dialoge & Sync-Härtung
+- **Didaktik & Interaktive Hilfe**:
+  - Direkte Integration von YouTube-Videoguides (6 modulare Kapitel) im Hilfe-Bereich inklusive Offline-Vorschau-Thumbnails im modernen WebP-Format.
+  - Didaktische Demo-Touren für neue Kolleginnen und Kollegen mit kollisionsfreier Positionierung und Modal-Fokussierung.
+- **Barrierefreiheit & Benutzerführung (A11y & UX)**:
+  - Vollständiger Ersatz nativer, blockierender Browser-Popups (`alert`, `confirm`, `prompt`) durch ein zugängliches, animiertes Dialog-System (`DialogOverlay`).
+  - Unterstützung für Browser-Verlauf und Zurück-Navigation (ESC-Taste / Mobile-Back-Geste) zum intuitiven Schließen überlagerter Ansichten.
+  - Live-Notenvalidierung mit pädagogischem Inline-Feedback, Undo-Snackbar nach schnellen Änderungen und visueller WASM-Statusanzeige.
+  - Einhaltung von WCAG AA-Kontrastwerten, optimierte Micro-Typografie und verbesserte Touch-Gesten auf iPads im Querformat.
+- **Tresor- & Cloud-Synchronisation**:
+  - Härtung des intelligenten Merges (Smart Merge): Klare lokale Präzedenz, Beseitigung von Endlos-Reconciliation-Dialogen und Schutz vor Duplizierung gleicher Klassen.
+  - Verhinderung von Timeouts und Hängern bei instabilen WLAN-/DNS-Verbindungen durch `fetchWithTimeout`.
+  - Re-Verschlüsselung frischer Datensätze bei Merges zur Vermeidung veralteter Cloud-Umschläge (Audit #12).
+  - Schutz von Starterklassen vor versehentlichem Pruning und erweiterte Notfall-Tresor-Wiederherstellung.
+- **Mobile & Plattform-Optimierungen**:
+  - Native Netzwerk-Weiterleitung über `tauri-plugin-http` zur Umgehung von Android WebView Private Network Access (PNA) Einschränkungen bei LAN-Servern.
+  - PWA-Aktualisierung: Hochauflösende 180x180 Apple-Touch-Icons, maskierbare 512x512 Icons mit Schutzzone und automatisches Service-Worker-Update-Banner.
+  - Anpassung der minimalen Desktop-Fenstergröße für komfortables Windows Snap und macOS Stage Manager.
+- **Sicherheits- & Backend-Härtung**:
+  - Vollständige Behebung der Audit-Befunde (K-1, H-1..H-5, M-4..M-7 sowie #51-#53, #57).
+  - DEK-Leak-Schutz bei Authentifizierungs-Salts, sofortige serverseitige JWT-Widerrufung, striktes IP-basiertes Rate-Limiting und Bereinigung von Passkey-Routen.
+- **Store- & Release-Automatisierung**:
+  - Bereitstellung der Android-Releases für geschlossene Tests (Alpha) und interne Google-Play-Tracks.
+  - Automatische Erkennung von Remote-Git-Tags zur zuverlässigen Version-Train-Ermittlung auf TestFlight.
+  - Gezieltes Deployment von Windows-Paketen in den Microsoft Store gekoppelt an Release-Tags.
+
 ## [26.11.2] - 2026-11-09
 
 ### Härtung von UI-Lebenszyklen, UTF-8-Indizes & Keyring-Validierung

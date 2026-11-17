@@ -1,6 +1,7 @@
-Neu in Gradus21 Version 1.2.17:
-• Mobiles Redesign für Smartphones: Flüssiges Karten-Karussell für Klassen und Fächer sowie optimierte Einhand-Navigation.
-• Verbesserte Biometrie: Reibungslose Face ID- und Touch ID-Entsperrung auf iPhone und iPad.
-• Individuelle Backups: Freie Auswahl des Speicherorts für lokale Tresor-Sicherungen.
-• Haptisches Feedback bei der Noteneingabe.
-• Fehlerbehebungen und Performance-Optimierungen beim Cloud-Sync.
+Neu in Gradus21 Version 26.11.3:
+• YouTube-Videoguides & didaktische Touren: 6 praxisnahe Video-Kapitel direkt in der App für einen mühelosen Einstieg.
+• Barrierefreie Dialoge & intuitive Navigation: Moderne, tastatur- und touchfreundliche Bestätigungsdialoge statt störender Browser-Popups sowie Zurück-Gesten-Unterstützung.
+• Pädagogische Notenvalidierung: Sofortiges Inline-Feedback, Undo-Funktion und sichtbare Rechenkern-Statusanzeige.
+• Robuste Synchronisation: Schnellere und fehlertolerantere Tresor- und Cloud-Synchronisation auch bei unbeständigen Schul-WLAN-Verbindungen.
+• Optimierte Mobildarstellung & PWA: Neues App-Icon, verbesserte iPad-Gesten und Benachrichtigung bei App-Updates.
+• Sicherheits- und Stabilitätsverbesserungen im Noten-Tresor.
