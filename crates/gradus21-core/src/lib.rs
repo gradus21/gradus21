@@ -121,6 +121,7 @@ mod tests {
                 ("E".into(), 4.0),
             ]),
             custom_thresholds: None,
+            level_custom_thresholds: None,
         };
 
         let categories = vec![
@@ -269,6 +270,7 @@ mod tests {
             enable_student_levels: false,
             level_threshold_offsets: HashMap::new(),
             custom_thresholds: None,
+            level_custom_thresholds: None,
         };
 
         let categories = vec![CategoryConfig {
@@ -400,6 +402,7 @@ mod tests {
             enable_student_levels: false,
             level_threshold_offsets: HashMap::new(),
             custom_thresholds: None,
+            level_custom_thresholds: None,
         };
 
         let categories = vec![
@@ -623,6 +626,7 @@ mod tests {
             enable_student_levels: false,
             level_threshold_offsets: HashMap::new(),
             custom_thresholds: None,
+            level_custom_thresholds: None,
         };
 
         let categories = vec![
@@ -757,6 +761,7 @@ mod tests {
             enable_student_levels: false,
             level_threshold_offsets: HashMap::new(),
             custom_thresholds: None,
+            level_custom_thresholds: None,
         };
 
         let categories = vec![
@@ -850,6 +855,7 @@ mod tests {
             enable_student_levels: false,
             level_threshold_offsets: HashMap::new(),
             custom_thresholds: None,
+            level_custom_thresholds: None,
         };
 
         let g100 = percent_to_grade(100.0, &config, None);
@@ -953,5 +959,67 @@ mod tests {
         assert_eq!(summary.overall_grade_numeric, Some(2.1));
         assert_eq!(summary.overall_display_grade, "2,1");
         assert_eq!(summary.semantic_tier, 2);
+    }
+
+    #[test]
+    fn test_generic_level_custom_thresholds_gms_drais() {
+        let mut level_tables = HashMap::new();
+
+        // Level E thresholds (GMS % scale)
+        level_tables.insert("E".to_string(), vec![
+            GradeThreshold { min_percent: 98.0, display_label: "1".into(), numeric_value: 1.0, semantic_tier: 1 },
+            GradeThreshold { min_percent: 81.0, display_label: "2".into(), numeric_value: 2.0, semantic_tier: 2 },
+            GradeThreshold { min_percent: 65.0, display_label: "3".into(), numeric_value: 3.0, semantic_tier: 3 },
+            GradeThreshold { min_percent: 48.0, display_label: "4".into(), numeric_value: 4.0, semantic_tier: 4 },
+            GradeThreshold { min_percent: 22.0, display_label: "5".into(), numeric_value: 5.0, semantic_tier: 5 },
+            GradeThreshold { min_percent: 0.0,  display_label: "6".into(), numeric_value: 6.0, semantic_tier: 6 },
+        ]);
+
+        // Level M thresholds (GMS % scale)
+        level_tables.insert("M".to_string(), vec![
+            GradeThreshold { min_percent: 78.0, display_label: "1".into(),   numeric_value: 1.0,  semantic_tier: 1 },
+            GradeThreshold { min_percent: 66.0, display_label: "2".into(),   numeric_value: 2.0,  semantic_tier: 2 },
+            GradeThreshold { min_percent: 54.0, display_label: "3".into(),   numeric_value: 3.0,  semantic_tier: 3 },
+            GradeThreshold { min_percent: 48.0, display_label: "3/4".into(), numeric_value: 3.5,  semantic_tier: 3 },
+            GradeThreshold { min_percent: 37.0, display_label: "4".into(),   numeric_value: 4.0,  semantic_tier: 4 },
+            GradeThreshold { min_percent: 17.0, display_label: "5".into(),   numeric_value: 5.0,  semantic_tier: 5 },
+            GradeThreshold { min_percent: 0.0,  display_label: "6".into(),   numeric_value: 6.0,  semantic_tier: 6 },
+        ]);
+
+        // Level G thresholds (GMS % scale)
+        level_tables.insert("G".to_string(), vec![
+            GradeThreshold { min_percent: 48.0, display_label: "1".into(), numeric_value: 1.0, semantic_tier: 1 },
+            GradeThreshold { min_percent: 37.0, display_label: "2".into(), numeric_value: 2.0, semantic_tier: 2 },
+            GradeThreshold { min_percent: 29.0, display_label: "3".into(), numeric_value: 3.0, semantic_tier: 3 },
+            GradeThreshold { min_percent: 21.0, display_label: "4".into(), numeric_value: 4.0, semantic_tier: 4 },
+            GradeThreshold { min_percent: 10.0, display_label: "5".into(), numeric_value: 5.0, semantic_tier: 5 },
+            GradeThreshold { min_percent: 0.0,  display_label: "6".into(), numeric_value: 6.0, semantic_tier: 6 },
+        ]);
+
+        let config = SubjectGradingConfig {
+            scale_id: GradingScaleId::DeClassic1To6,
+            weighting_mode: WeightingMode::CategoryBuckets,
+            scale_empty_categories: true,
+            enable_student_levels: true,
+            level_threshold_offsets: HashMap::new(),
+            custom_thresholds: None,
+            level_custom_thresholds: Some(level_tables),
+        };
+
+        // When all 3 students achieve 50% on the joint GMS test:
+        // E-Level student gets Note 4 (since >= 48% and < 65%)
+        let grade_e = percent_to_grade(50.0, &config, Some("E"));
+        assert_eq!(grade_e.display_label, "4");
+        assert_eq!(grade_e.numeric_value, 4.0);
+
+        // M-Level student gets Note 3/4 (since >= 48% and < 54%)
+        let grade_m = percent_to_grade(50.0, &config, Some("M"));
+        assert_eq!(grade_m.display_label, "3/4");
+        assert_eq!(grade_m.numeric_value, 3.5);
+
+        // G-Level student gets Note 1 (since >= 48%)
+        let grade_g = percent_to_grade(50.0, &config, Some("G"));
+        assert_eq!(grade_g.display_label, "1");
+        assert_eq!(grade_g.numeric_value, 1.0);
     }
 }

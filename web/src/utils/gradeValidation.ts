@@ -87,6 +87,11 @@ export function validateGradeInput(
     return { isValid: true };
   }
 
+  // Support intermediate slash grades (e.g. 1/2, 2/3, 3/4, 4/5, 5/6)
+  if (/^[1-5]\/[2-6]$/.test(trimmed)) {
+    return { isValid: true };
+  }
+
   // Classic German school grades 1.0 to 6.0 (including 1+, 2-, etc.)
   if (!/^[+-]?\d+([.,]\d*)?[+-]?$/.test(trimmed)) {
     return { isValid: false, errorHint: 'Erlaubt: Note 1,0 bis 6,0 (oder K für Attest)' };

@@ -29,6 +29,7 @@ import {
 import {
   CategoryConfig,
   ClassroomSubjectDataset,
+  DRAIS_GMS_LEVEL_THRESHOLDS,
   GRADING_CURVE_PRESETS,
   GradingScaleId,
   GradeThreshold,
@@ -1437,8 +1438,15 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
             </div>
 
             {/* Presets */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
               {[
+                {
+                  title: 'Drais-GMS Niveauschlüssel',
+                  desc: 'Gemeinschaftsschule mit separatem Notenschlüssel pro Niveau (GMS Raster)',
+                  offsets: { G: 0, M: 0, E: 0 },
+                  levelTables: DRAIS_GMS_LEVEL_THRESHOLDS,
+                  enable: true,
+                },
                 {
                   title: 'Gemeinschaftsschule Standard',
                   desc: 'G-Niveau: -5% Hürde · M: 0% · E-Niveau: +3% Anspruch',
@@ -1464,15 +1472,41 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
                   enable: false,
                 },
               ].map((preset) => {
-                const isCurrent =
-                  isDifferentiationEnabled === preset.enable &&
-                  currentLevelOffsets.G === preset.offsets.G &&
-                  currentLevelOffsets.M === preset.offsets.M &&
-                  currentLevelOffsets.E === preset.offsets.E;
+                const hasLevelTables = Boolean(activeDataset.config.level_custom_thresholds);
+                const isCurrent = (preset as any).levelTables
+                  ? hasLevelTables
+                  : !hasLevelTables &&
+                    isDifferentiationEnabled === preset.enable &&
+                    currentLevelOffsets.G === preset.offsets.G &&
+                    currentLevelOffsets.M === preset.offsets.M &&
+                    currentLevelOffsets.E === preset.offsets.E;
                 return (
                   <button
                     key={preset.title}
-                    onClick={() => applyDifferentiationPreset(preset.offsets, preset.enable)}
+                    onClick={() => {
+                      if ((preset as any).levelTables) {
+                        updateSubjectConfig((ds) => ({
+                          ...ds,
+                          config: {
+                            ...ds.config,
+                            enable_student_levels: true,
+                            level_threshold_offsets: preset.offsets,
+                            level_custom_thresholds: (preset as any).levelTables,
+                          },
+                        }));
+                      } else {
+                        updateSubjectConfig((ds) => ({
+                          ...ds,
+                          config: {
+                            ...ds.config,
+                            enable_student_levels: preset.enable,
+                            level_threshold_offsets: preset.offsets,
+                            level_custom_thresholds: null,
+                          },
+                        }));
+                        applyDifferentiationPreset(preset.offsets, preset.enable);
+                      }
+                    }}
                     className={`p-3 rounded-xl border text-left transition ${
                       isCurrent ? 'ring-2 ring-teal-500 font-bold' : 'opacity-85 hover:opacity-100'
                     }`}
@@ -1490,6 +1524,41 @@ export const GradingConfiguratorView: React.FC<GradingConfiguratorViewProps> = (
                 );
               })}
             </div>
+
+            {activeDataset.config.level_custom_thresholds && (
+              <div
+                className="p-3.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                style={{ backgroundColor: 'var(--primary-soft)', borderColor: 'var(--primary-500)' }}
+              >
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+                  <div>
+                    <span className="font-bold text-slate-900 dark:text-white">
+                      Multi-Niveau-Schlüssel aktiv (Drais-GMS):
+                    </span>{' '}
+                    <span className="text-slate-600 dark:text-slate-300">
+                      Jedes Niveau (G, M, E) wird nach seiner eigenen Schwellentabelle bewertet.
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateSubjectConfig((ds) => ({
+                      ...ds,
+                      config: {
+                        ...ds.config,
+                        level_custom_thresholds: null,
+                      },
+                    }))
+                  }
+                  className="px-3 py-1.5 rounded-lg border text-xs font-semibold bg-white dark:bg-slate-900 shrink-0 shadow-sm"
+                  style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
+                >
+                  Auf linearen Offset zurücksetzen
+                </button>
+              </div>
+            )}
 
             {/* Individual Level Sliders (G, M, E) */}
             <div className="p-4 rounded-2xl border space-y-3" style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border-subtle)' }}>

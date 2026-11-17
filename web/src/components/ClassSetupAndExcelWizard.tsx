@@ -5,6 +5,7 @@ import {
   CategoryConfig,
   ClassroomSubjectDataset,
   CustomWeightingTemplate,
+  DRAIS_GMS_LEVEL_THRESHOLDS,
   GradeEntry,
   GradingScaleId,
   StudentProfile,
@@ -327,6 +328,7 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
       categories?: CategoryConfig[];
       weights?: number[];
       scale_id?: GradingScaleId;
+      level_custom_thresholds?: Record<string, any>;
       badge: 'user' | 'global' | 'standard';
     }> = [];
 
@@ -374,6 +376,20 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
         ],
         weights: [0.5, 0.3, 0.2],
         scale_id: undefined,
+        badge: 'standard',
+      },
+      {
+        id: 'gms_drais',
+        title: 'Drais-GMS (Gemeinschaftsschule)',
+        desc: '50% LNW · 30% Mündl · 20% Tests + Matrix-Schlüssel (G/M/E)',
+        categories: [
+          { id: 'cat_lnw', name: 'Große LNW (Klassenarbeiten)', short_code: 'LNW', weight: 0.5, drop_lowest_count: 0 },
+          { id: 'cat_muendl', name: 'Mündliche Leistung', short_code: 'Mündl', weight: 0.3, drop_lowest_count: 0 },
+          { id: 'cat_tests', name: 'Tests & Vokabeln', short_code: 'Tests', weight: 0.2, drop_lowest_count: 0 },
+        ],
+        weights: [0.5, 0.3, 0.2],
+        scale_id: 'de_classic_1_to_6' as GradingScaleId,
+        level_custom_thresholds: DRAIS_GMS_LEVEL_THRESHOLDS,
         badge: 'standard',
       },
       {
@@ -544,6 +560,7 @@ export const ClassSetupAndExcelWizard: React.FC<ClassSetupAndExcelWizardProps> =
         enable_student_levels: !isOberstufe,
         level_threshold_offsets: { G: -5, M: 0, E: 3 },
         custom_thresholds: null,
+        level_custom_thresholds: (chosenTpl as any).level_custom_thresholds || null,
       },
       categories,
       assessments,

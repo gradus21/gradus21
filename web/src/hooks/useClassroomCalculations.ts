@@ -162,6 +162,11 @@ export function useClassroomCalculations({
           activeDataset.config.custom_thresholds.length > 0
             ? activeDataset.config.custom_thresholds
             : null,
+        level_custom_thresholds:
+          activeDataset.config?.level_custom_thresholds &&
+          Object.keys(activeDataset.config.level_custom_thresholds).length > 0
+            ? activeDataset.config.level_custom_thresholds
+            : null,
       };
       const normalizedAssessments = activeDataset.assessments.map((a) => ({
         ...a,
@@ -273,7 +278,10 @@ export function useClassroomCalculations({
       }
 
       let directGradeVal: number | null = null;
-      if (
+      if (/^[1-5]\/[2-6]$/.test(trimmed)) {
+        const parts = trimmed.split('/');
+        directGradeVal = parseFloat(parts[0]) + 0.5;
+      } else if (
         (ds.config.scale_id === 'de_classic_1_to_6' || !ds.config.scale_id) &&
         !trimmed.endsWith('%')
       ) {

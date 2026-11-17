@@ -54,6 +54,9 @@ pub struct SubjectGradingConfig {
     /// Optional custom grading curve thresholds (from the Interactive Notenschlüssel-Editor)
     #[serde(default)]
     pub custom_thresholds: Option<Vec<GradeThreshold>>,
+    /// Optional generic level-specific threshold tables (e.g. {"G": [...], "M": [...], "E": [...]})
+    #[serde(default)]
+    pub level_custom_thresholds: Option<HashMap<String, Vec<GradeThreshold>>>,
 }
 
 impl Default for SubjectGradingConfig {
@@ -65,6 +68,7 @@ impl Default for SubjectGradingConfig {
             enable_student_levels: true,
             level_threshold_offsets: HashMap::new(),
             custom_thresholds: None,
+            level_custom_thresholds: None,
         }
     }
 }
@@ -258,13 +262,41 @@ pub fn round1(v: f64) -> f64 {
     (v * 10.0).round() / 10.0
 }
 
-/// Converts a percentage (0..=100) into a GradeThreshold, taking custom thresholds and optional student level (G/M/E) into account
+/// Converts a percentage (0..=100) into a GradeThreshold, taking custom thresholds, level-specific matrix tables and optional student level (G/M/E) into account
 pub fn percent_to_grade(
     percent: f64,
     config: &SubjectGradingConfig,
     student_level: Option<&str>,
 ) -> GradeThreshold {
     let clean_percent = if percent.is_finite() { percent } else { 0.0 };
+
+    // 1. Generic Level-Specific Threshold Table Check (e.g. Drais-GMS Multi-Niveau)
+    if config.enable_student_levels {
+        if let Some(lvl) = student_level {
+            if let Some(level_map) = &config.level_custom_thresholds {
+                if let Some(level_thresholds) = level_map.get(lvl) {
+                    if !level_thresholds.is_empty() {
+                        let mut thresholds = level_thresholds.clone();
+                        if !thresholds.windows(2).all(|w| w[0].min_percent >= w[1].min_percent) {
+                            thresholds.sort_by(|a, b| b.min_percent.partial_cmp(&a.min_percent).unwrap_or(std::cmp::Ordering::Equal));
+                        }
+                        for t in &thresholds {
+                            if clean_percent >= t.min_percent {
+                                return t.clone();
+                            }
+                        }
+                        return thresholds.last().cloned().unwrap_or(GradeThreshold {
+                            min_percent: 0.0,
+                            display_label: "—".into(),
+                            numeric_value: 0.0,
+                            semantic_tier: 6,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     let offset = if config.enable_student_levels {
         student_level
             .and_then(|lvl| config.level_threshold_offsets.get(lvl).copied())
@@ -330,6 +362,16 @@ pub fn resolve_entry_percent_with_config(
     assessment: &AssessmentConfig,
     config: &SubjectGradingConfig,
 ) -> Option<f64> {
+    resolve_entry_percent_with_level(entry, assessment, config, None)
+}
+
+/// Resolves a single GradeEntry into a normalized percentage (0..=100) using active scale and student level context
+pub fn resolve_entry_percent_with_level(
+    entry: &GradeEntry,
+    assessment: &AssessmentConfig,
+    config: &SubjectGradingConfig,
+    student_level: Option<&str>,
+) -> Option<f64> {
     if entry.status != GradeStatus::Graded {
         return None;
     }
@@ -347,6 +389,20 @@ pub fn resolve_entry_percent_with_config(
         if !grade_val.is_finite() {
             return None;
         }
+
+        // Generic check: If student has a level-specific threshold table, check for matching direct grade first!
+        if config.enable_student_levels {
+            if let Some(lvl) = student_level {
+                if let Some(level_map) = &config.level_custom_thresholds {
+                    if let Some(thresholds) = level_map.get(lvl) {
+                        if let Some(matching) = thresholds.iter().find(|t| (t.numeric_value - grade_val).abs() < 0.15) {
+                            return Some(matching.min_percent);
+                        }
+                    }
+                }
+            }
+        }
+
         // Scale-aware resolution for direct grade values (Issue #6)
         // shortcut: direct grade matches return lower boundary (min_percent) matching demoClasses tests; upgrade to bracket midpoints when multi-state grade averaging rules are harmonized
         match config.scale_id {
@@ -442,7 +498,7 @@ pub fn calculate_class_report(
             let mut scored_items: Vec<(f64, f64)> = Vec::new();
             for assess in cat_assessments {
                 if let Some(entry) = grade_map.get(&(student.id.as_str(), assess.id.as_str())) {
-                    if let Some(pct) = resolve_entry_percent_with_config(entry, assess, config) {
+                    if let Some(pct) = resolve_entry_percent_with_level(entry, assess, config, student.level.as_deref()) {
                         let w = if assess.weight.is_finite() && assess.weight > 0.0 {
                             assess.weight
                         } else {
@@ -528,7 +584,7 @@ pub fn calculate_class_report(
                 let mut total_score = 0.0;
                 for assess in &filtered_assessments {
                     if let Some(entry) = grade_map.get(&(student.id.as_str(), assess.id.as_str())) {
-                        if let Some(pct) = resolve_entry_percent_with_config(entry, assess, config) {
+                        if let Some(pct) = resolve_entry_percent_with_level(entry, assess, config, student.level.as_deref()) {
                             let w = if assess.weight.is_finite() && assess.weight > 0.0 {
                                 assess.weight
                             } else {
@@ -562,7 +618,7 @@ pub fn calculate_class_report(
                                     earned_pts += (pct / 100.0) * max_p;
                                     possible_pts += max_p;
                                 }
-                            } else if let Some(pct) = resolve_entry_percent_with_config(entry, assess, config) {
+                            } else if let Some(pct) = resolve_entry_percent_with_level(entry, assess, config, student.level.as_deref()) {
                                 if max_p.is_finite() && max_p > 0.0 {
                                     earned_pts += (pct / 100.0) * max_p;
                                     possible_pts += max_p;

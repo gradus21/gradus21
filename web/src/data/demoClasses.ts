@@ -18,6 +18,7 @@ export interface SubjectGradingConfig {
   enable_student_levels: boolean;
   level_threshold_offsets: Record<string, number>;
   custom_thresholds?: GradeThreshold[] | null;
+  level_custom_thresholds?: Record<string, GradeThreshold[]> | null;
 }
 
 export interface CategoryConfig {
@@ -333,6 +334,78 @@ export const DEFAULT_THRESHOLDS_DE_DECIMAL: GradeThreshold[] = (() => {
   return list.sort((a, b) => b.min_percent - a.min_percent);
 })();
 
+export const DRAIS_GMS_LEVEL_THRESHOLDS: Record<'G' | 'M' | 'E', GradeThreshold[]> = {
+  E: [
+    { min_percent: 98.0, display_label: '1', numeric_value: 1.0, semantic_tier: 1 },
+    { min_percent: 95.0, display_label: '1-', numeric_value: 1.25, semantic_tier: 1 },
+    { min_percent: 91.0, display_label: '1/2', numeric_value: 1.5, semantic_tier: 1 },
+    { min_percent: 86.0, display_label: '2+', numeric_value: 1.75, semantic_tier: 2 },
+    { min_percent: 81.0, display_label: '2', numeric_value: 2.0, semantic_tier: 2 },
+    { min_percent: 78.0, display_label: '2-', numeric_value: 2.25, semantic_tier: 2 },
+    { min_percent: 75.0, display_label: '2/3', numeric_value: 2.5, semantic_tier: 2 },
+    { min_percent: 70.0, display_label: '3+', numeric_value: 2.75, semantic_tier: 3 },
+    { min_percent: 65.0, display_label: '3', numeric_value: 3.0, semantic_tier: 3 },
+    { min_percent: 61.0, display_label: '3-', numeric_value: 3.25, semantic_tier: 3 },
+    { min_percent: 58.0, display_label: '3/4', numeric_value: 3.5, semantic_tier: 3 },
+    { min_percent: 53.0, display_label: '4+', numeric_value: 3.75, semantic_tier: 4 },
+    { min_percent: 48.0, display_label: '4', numeric_value: 4.0, semantic_tier: 4 },
+    { min_percent: 43.0, display_label: '4-', numeric_value: 4.25, semantic_tier: 4 },
+    { min_percent: 38.0, display_label: '4/5', numeric_value: 4.5, semantic_tier: 4 },
+    { min_percent: 30.0, display_label: '5+', numeric_value: 4.75, semantic_tier: 5 },
+    { min_percent: 22.0, display_label: '5', numeric_value: 5.0, semantic_tier: 5 },
+    { min_percent: 17.0, display_label: '5-', numeric_value: 5.25, semantic_tier: 5 },
+    { min_percent: 12.0, display_label: '5/6', numeric_value: 5.5, semantic_tier: 5 },
+    { min_percent: 4.0, display_label: '6+', numeric_value: 5.75, semantic_tier: 6 },
+    { min_percent: 0.0, display_label: '6', numeric_value: 6.0, semantic_tier: 6 },
+  ],
+  M: [
+    { min_percent: 78.0, display_label: '1', numeric_value: 1.0, semantic_tier: 1 },
+    { min_percent: 75.0, display_label: '1-', numeric_value: 1.25, semantic_tier: 1 },
+    { min_percent: 72.0, display_label: '1/2', numeric_value: 1.5, semantic_tier: 1 },
+    { min_percent: 69.0, display_label: '2+', numeric_value: 1.75, semantic_tier: 2 },
+    { min_percent: 66.0, display_label: '2', numeric_value: 2.0, semantic_tier: 2 },
+    { min_percent: 63.0, display_label: '2-', numeric_value: 2.25, semantic_tier: 2 },
+    { min_percent: 60.0, display_label: '2/3', numeric_value: 2.5, semantic_tier: 2 },
+    { min_percent: 57.0, display_label: '3+', numeric_value: 2.75, semantic_tier: 3 },
+    { min_percent: 54.0, display_label: '3', numeric_value: 3.0, semantic_tier: 3 },
+    { min_percent: 51.0, display_label: '3-', numeric_value: 3.25, semantic_tier: 3 },
+    { min_percent: 48.0, display_label: '3/4', numeric_value: 3.5, semantic_tier: 3 },
+    { min_percent: 43.0, display_label: '4+', numeric_value: 3.75, semantic_tier: 4 },
+    { min_percent: 37.0, display_label: '4', numeric_value: 4.0, semantic_tier: 4 },
+    { min_percent: 33.0, display_label: '4-', numeric_value: 4.25, semantic_tier: 4 },
+    { min_percent: 29.0, display_label: '4/5', numeric_value: 4.5, semantic_tier: 4 },
+    { min_percent: 23.0, display_label: '5+', numeric_value: 4.75, semantic_tier: 5 },
+    { min_percent: 17.0, display_label: '5', numeric_value: 5.0, semantic_tier: 5 },
+    { min_percent: 13.0, display_label: '5-', numeric_value: 5.25, semantic_tier: 5 },
+    { min_percent: 9.0, display_label: '5/6', numeric_value: 5.5, semantic_tier: 5 },
+    { min_percent: 3.0, display_label: '6+', numeric_value: 5.75, semantic_tier: 6 },
+    { min_percent: 0.0, display_label: '6', numeric_value: 6.0, semantic_tier: 6 },
+  ],
+  G: [
+    { min_percent: 48.0, display_label: '1', numeric_value: 1.0, semantic_tier: 1 },
+    { min_percent: 45.0, display_label: '1-', numeric_value: 1.25, semantic_tier: 1 },
+    { min_percent: 42.0, display_label: '1/2', numeric_value: 1.5, semantic_tier: 1 },
+    { min_percent: 39.0, display_label: '2+', numeric_value: 1.75, semantic_tier: 2 },
+    { min_percent: 37.0, display_label: '2', numeric_value: 2.0, semantic_tier: 2 },
+    { min_percent: 35.0, display_label: '2-', numeric_value: 2.25, semantic_tier: 2 },
+    { min_percent: 33.0, display_label: '2/3', numeric_value: 2.5, semantic_tier: 2 },
+    { min_percent: 31.0, display_label: '3+', numeric_value: 2.75, semantic_tier: 3 },
+    { min_percent: 29.0, display_label: '3', numeric_value: 3.0, semantic_tier: 3 },
+    { min_percent: 27.0, display_label: '3-', numeric_value: 3.25, semantic_tier: 3 },
+    { min_percent: 25.0, display_label: '3/4', numeric_value: 3.5, semantic_tier: 3 },
+    { min_percent: 23.0, display_label: '4+', numeric_value: 3.75, semantic_tier: 4 },
+    { min_percent: 21.0, display_label: '4', numeric_value: 4.0, semantic_tier: 4 },
+    { min_percent: 19.0, display_label: '4-', numeric_value: 4.25, semantic_tier: 4 },
+    { min_percent: 16.0, display_label: '4/5', numeric_value: 4.5, semantic_tier: 4 },
+    { min_percent: 13.0, display_label: '5+', numeric_value: 4.75, semantic_tier: 5 },
+    { min_percent: 10.0, display_label: '5', numeric_value: 5.0, semantic_tier: 5 },
+    { min_percent: 7.0, display_label: '5-', numeric_value: 5.25, semantic_tier: 5 },
+    { min_percent: 4.0, display_label: '5/6', numeric_value: 5.5, semantic_tier: 5 },
+    { min_percent: 2.0, display_label: '6+', numeric_value: 5.75, semantic_tier: 6 },
+    { min_percent: 0.0, display_label: '6', numeric_value: 6.0, semantic_tier: 6 },
+  ],
+};
+
 export function getDefaultThresholds(scaleId: GradingScaleId = 'de_classic_1_to_6'): GradeThreshold[] {
   switch (scaleId) {
     case 'de_decimal_1_to_6':
@@ -353,6 +426,20 @@ export function percentToGradeThreshold(
   studentLevel?: string | null
 ): GradeThreshold {
   const cleanPercent = Number.isFinite(percent) ? percent : 0;
+
+  // 1. Generic level-specific threshold tables (e.g. Drais-GMS Multi-Niveau)
+  if (config?.enable_student_levels && studentLevel && config.level_custom_thresholds?.[studentLevel]?.length) {
+    const lvlThresholds = [...config.level_custom_thresholds[studentLevel]].sort(
+      (a, b) => b.min_percent - a.min_percent
+    );
+    for (const t of lvlThresholds) {
+      if (cleanPercent >= t.min_percent) {
+        return t;
+      }
+    }
+    return lvlThresholds[lvlThresholds.length - 1];
+  }
+
   const offset =
     config?.enable_student_levels && studentLevel
       ? config.level_threshold_offsets?.[studentLevel] ?? 0

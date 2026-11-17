@@ -6,6 +6,7 @@ import {
   percentToGradeThreshold,
   gradeToPercent,
   formatGradeDisplayLabel,
+  DRAIS_GMS_LEVEL_THRESHOLDS,
   SubjectGradingConfig,
 } from './demoClasses';
 
@@ -107,6 +108,27 @@ describe('demoClasses - percentToGradeThreshold and gradeToPercent', () => {
     expect(formatGradeDisplayLabel(1.4, config)).toBe('1,4');
     expect(formatGradeDisplayLabel(2.8, config)).toBe('2,8');
     expect(formatGradeDisplayLabel(2, config)).toBe('2,0');
+  });
+
+  it('supports generic level-specific matrix thresholds (DRAIS_GMS_LEVEL_THRESHOLDS)', () => {
+    const config: SubjectGradingConfig = {
+      scale_id: 'de_classic_1_to_6',
+      weighting_mode: 'category_buckets',
+      scale_empty_categories: true,
+      enable_student_levels: true,
+      level_threshold_offsets: {},
+      level_custom_thresholds: DRAIS_GMS_LEVEL_THRESHOLDS,
+    };
+
+    // When all 3 students achieve 50% on the joint GMS test:
+    // E-Level student gets Note 4 (48-52%)
+    expect(percentToGradeThreshold(50, config, 'E')).toMatchObject({ display_label: '4', numeric_value: 4.0 });
+
+    // M-Level student gets Note 3/4 (48-50%)
+    expect(percentToGradeThreshold(50, config, 'M')).toMatchObject({ display_label: '3/4', numeric_value: 3.5 });
+
+    // G-Level student gets Note 1 (48-50%)
+    expect(percentToGradeThreshold(50, config, 'G')).toMatchObject({ display_label: '1', numeric_value: 1.0 });
   });
 });
 
