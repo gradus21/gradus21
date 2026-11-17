@@ -26,8 +26,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
-        with:
-          fetch-tags: true
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -360,8 +358,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
-        with:
-          fetch-tags: true
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
